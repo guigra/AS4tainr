@@ -138,3 +138,5 @@ python3 tools/e2e_5250_web.py tools/e2e_5250.py 127.0.0.1:2323   # the same test
 - SQL sessions know the job's key (`as4tainr.job_key`: the job, or `PID<n>` with no job) besides `as4tainr.job`; services that read what the process keeps per job (environment variables) use it.
 - `AS4TAINR_QSH=1` lets QSH/STRQSH run commands with /bin/sh in the container (off by default: the shell is outside as4tainr's authorities).
 - Commits are signed off (`git commit -s`). Commit messages describe the IBM i behavior implemented.
+
+@CLAUDE.native.md
