@@ -1,0 +1,251 @@
+{
+  "topic": "runtime-extraction (second and third runs)",
+  "date": "2026-11-11",
+  "branch": "native/runtime-extraction",
+  "tested_commit": "977964e2437784d9367ec2514eb4c3d3c53002ad (both machines, clean tree; the final commit adds only docs/native to it)",
+  "tested_sources_sha256": {
+    "Cargo.toml": "658e2ed447280457d82a593e9179f518ba1113334060ca1b124020ad0c5123fb",
+    "Cargo.lock": "5b6c59c127e2764af1cbdae4a8dfdaa22cb9bdc1bfdde3827be7b760aa04c24c",
+    "core/Cargo.toml": "0830d20dadbb2e17c44847ea891ad33b69611cd637def4774436ae5522e21091",
+    "core/src/rpg/mod.rs": "13bc9c9a8ff185ccac9d9514ee1b9b450c503ab51ddfee8e94bab35f763eaa5f",
+    "core/src/tn5250/mod.rs": "71a21a984d24714d5d1fcfae4f469cca21ec29ac0a5dbe988a499eefa8b81e50",
+    "rpgrt/Cargo.toml": "d44642c8951925ccca829911edbf76f92f2fafea13ba0744a69cf6929210deb1",
+    "rpgrt/src/lib.rs": "06712a9008fafaa210cb2bcc18a4c57a212642911f13cae59d35121f7a7e52e2",
+    "rpgrt/src/rpg.rs": "dd3c960e683b8aa4fd9d1ca4af78c7eec736274c0a67d1ffcc5059db1a8b23ff",
+    "rpgrt/src/tn5250.rs": "cac939209bc1762507f70254254facf105ddf0d4eaee220f528485814cfb1922",
+    "rpgrt/src/rpg/dec.rs": "f62fb9abcc3363029f49e9a516354e885ac827a2c42cc82eec01821a57e64501",
+    "rpgrt/src/rpg/data.rs": "3ba23ce42d50d433958179efd720387dce46bcd0d78d9e1912c7b431ce8d7718",
+    "rpgrt/src/rpg/mem.rs": "2cea8cd2e7ef83707a5db9b700c10790d4a9b38173f65502efcc297d9a78c10f",
+    "rpgrt/src/rpg/dates.rs": "a557cc70f61984cd4af72db294373010547deb333a818bd50d4e4d1c8749c46b",
+    "rpgrt/src/tn5250/ebcdic.rs": "89fe4209426e27bb8e53ec76f3741d5ef1353b1b0290489325df3fb091257627"
+  },
+  "previous_manifest": "docs/native/evidence/2026-11-11-runtime-extraction.json (first run; kept as recorded)",
+  "environment_precondition": "an empty directory /QSYS.LIB (root, 755) made on both hosts with sudo mkdir: the mountpoint QSH binds the QSYS.LIB tree on (core/src/qshfs.rs: mkdir -p /QSYS.LIB 2>/dev/null in an unprivileged user namespace fails, so rla_test qsh_commands_see_qsys_lib fails without it; as4tainr's container runs as root and makes it, docs/qshell.md). No test or code changed for it",
+  "runs": [
+    {
+      "id": "aarch64-run2",
+      "platform": "jsr-test-arm: Linux 6.12.113+deb13-arm64 aarch64 (native), 2 CPUs, 3.8 GB; rustc 1.99.1 aarch64-unknown-linux-gnu; PostgreSQL 16.15 (podman)",
+      "logs_dir": "target/evidence/2026-11-11-runtime-extraction-aarch64-run2",
+      "logs_sha256": {
+        "0-platform.log": "5c0b03917a58731fc0a08230b8ae329678e4c1dc21260ce13c2695dfd34c8335",
+        "1-fmt.log": "84c7e7fbea7c76350991580dd49f9de9eb2359ee71b5a0775a6793b2b9626f0f",
+        "2-clippy.log": "42030a3531deb06ef21514cb953569103ecb2d222e07401d8d1c2ef14c52b448",
+        "3-test.log": "8f13d3ed28b92d420078bb1bc1f4dd9fcd476ec0c6d933c5ba4db9c7f0309b04",
+        "4-test-release.log": "4bcdb1a2e2b1ed7a69d18613b8813bfecd1026089c6e362545515f04eb1e11a3",
+        "5-build-release.log": "7899bb4c19b57230e34bd670103ddc972cbc0588ea9b9f4566ca370a7493487e",
+        "6-demo.log": "6b0406dace40ad89e78f48b5036a07c2d18838b58da7182f87f67aeeb0b514ee",
+        "7-test-main-nff.log": "692e3022bfaa1bc0955d4ec2c1750f156071050a004b223dcc4b46a22cfb1946",
+        "artifacts.sha256": "31c4fe5d58d1ab31d4d463d428c745a27eb2122e3f16e804d636a814096828fd",
+        "status.tsv": "62d1513a8573d94cb24d34227eff4cd29a1b507b734b30803bf6c9eefa68e41e"
+      },
+      "steps": {
+        "1-fmt": {
+          "exit": 0,
+          "start": "2026-11-11T20:01:20Z",
+          "end": "2026-11-11T20:01:23Z",
+          "command": "cargo fmt --all -- --check",
+          "log": "1-fmt.log",
+          "status": "PASS"
+        },
+        "2-clippy": {
+          "exit": 101,
+          "start": "2026-11-11T20:01:23Z",
+          "end": "2026-11-11T20:02:10Z",
+          "command": "cargo clippy --locked --all-targets -- -D warnings",
+          "log": "2-clippy.log",
+          "status": "FAIL",
+          "cause": "clippy::chunks_exact_to_as_chunks at core/src/hostcmd.rs:163 and core/src/hostdb.rs:657 only: upstream code from 29f23f6 and e0ac4d8 (host servers, outside this change's scope); upstream's own CI fails the same way on main (run 43058268418, rustc 1.99.1, the toolchain of its last green run 42961192027, so pinning the toolchain does not help)",
+          "pre_existing": true
+        },
+        "3-test": {
+          "exit": 0,
+          "start": "2026-11-11T20:02:10Z",
+          "end": "2026-11-11T20:06:40Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked",
+          "log": "3-test.log",
+          "status": "PASS",
+          "tests": "as4tainr_core 326 passed 1 ignored; rla_test 249 passed; system_cli 3 passed; rpgrt 14 passed; doctests 0"
+        },
+        "4-test-release": {
+          "exit": 0,
+          "start": "2026-11-11T20:06:40Z",
+          "end": "2026-11-11T20:10:02Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked --release",
+          "log": "4-test-release.log",
+          "status": "PASS",
+          "tests": "as4tainr_core 326 passed 1 ignored; rla_test 249 passed; system_cli 3 passed; rpgrt 14 passed"
+        },
+        "5-build-release": {
+          "exit": 0,
+          "start": "2026-11-11T20:10:02Z",
+          "end": "2026-11-11T20:10:02Z",
+          "command": "cargo build --locked --release",
+          "log": "5-build-release.log",
+          "status": "PASS",
+          "artifacts_sha256": {
+            "target/debug/as4tainr": "265ea51209535ca3aedaf5a3fb9ef392de9445a5002e0f6fb52e9f67d3d0756e",
+            "target/release/as4tainr": "038cbb8196d285000114651d153f46ec2ee552dd5491e97509ffda64ca30a087"
+          }
+        },
+        "6-demo": {
+          "exit": 1,
+          "start": "2026-11-11T20:10:02Z",
+          "end": "2026-11-11T20:10:07Z",
+          "command": "env AS4TAINR_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr AS4TAINR_BIN=target/debug/as4tainr scripts/demo.sh",
+          "log": "6-demo.log",
+          "status": "FAIL",
+          "cause": "the database kept the first run's sample data (demo.sh: 'File CUSTMAST already existed; keeping its data', CUSTUPD skipped), so CUSTLIST and CUSTPRT show customer 6 and the first run's balances; rerun on a new database as upstream CI does: 6-demo-fresh",
+          "environmental": true
+        },
+        "7-test-main-nff": {
+          "exit": 0,
+          "start": "2026-11-11T20:10:08Z",
+          "end": "2026-11-11T20:14:44Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked --no-fail-fast",
+          "log": "7-test-main-nff.log",
+          "status": "PASS",
+          "note": "baseline (base commit d68ed54): as4tainr_core 340 passed 1 ignored; rla_test 249 passed; system_cli 3 passed"
+        }
+      }
+    },
+    {
+      "id": "aarch64-run2-demo-fresh",
+      "logs_dir": "target/evidence/2026-11-11-runtime-extraction-aarch64-run2-demo-fresh",
+      "logs_sha256": {
+        "6-demo-fresh.log": "90650f037a619e9d025991b82085b853b88bb4d2e17c53e23fa5cc3c71b96c81",
+        "exit": "19eaf43821a7660ec323a87c8457bf74823beb296c39f5e01aa8a683aa50f061"
+      },
+      "steps": {
+        "6-demo-fresh": {
+          "command": "createdb as4tainr_demo; AS4TAINR_DATABASE_URL=.../as4tainr_demo AS4TAINR_BIN=target/debug/as4tainr scripts/demo.sh (as upstream CI)",
+          "exit": 0,
+          "status": "PASS",
+          "log": "6-demo-fresh.log",
+          "note": "7 of 7 outputs match their golden files"
+        }
+      }
+    },
+    {
+      "id": "x86_64-run2",
+      "platform": "debian-harnes: Linux 6.12.113+deb13-cloud-amd64 x86_64, 2 CPUs, 3.8 GB; rustc 1.99.1 x86_64-unknown-linux-gnu; PostgreSQL 16.15 (podman); CARGO_BUILD_JOBS=1",
+      "logs_dir": "target/evidence/2026-11-11-runtime-extraction-x86_64-run2",
+      "logs_sha256": {
+        "0-platform.log": "db3f5a4e5c9a5b7b22eddcef6e0c21bf24fd21105571eab8647cd72087fba336",
+        "1-fmt.log": "a7cdbba1aef220d5fe760eec6d0f3a71816c8dbce05abaddddb3b5b1116a0f29",
+        "2-clippy.log": "0c6e80678facfea69097cc768a18e8fed791ae1dd98cce77f32a6a62ca0c8b36",
+        "3-test.log": "1860db8737882b739ab4be52dfba2f398861756fdc7e0351c0f25511683efe02",
+        "4-test-release.log": "aa5aeb96a765dc047384423ab6746a682ad0cb1885ec91df47afa7c0cef0d90a",
+        "5-build-release.log": "9ea61180f2b33788a201d150205699ed861f7da614ab863303ccb92eeabe58d1",
+        "6-demo.log": "16c66222b0eb99005ec69c5d97daff4cee02c8f89dd347b762986b8192d5d9db",
+        "artifacts.sha256": "3f97380053da9bd4f24b6d82d798f891be8dff867cb10a27cd44c063480d4e42",
+        "status.tsv": "38f56576d7952ff331f62d07ebe060b70c7ccc3f79814856dc1ef673cfb6da92"
+      },
+      "steps": {
+        "1-fmt": {
+          "exit": 0,
+          "start": "2026-11-11T20:01:50Z",
+          "end": "2026-11-11T20:01:57Z",
+          "command": "cargo fmt --all -- --check",
+          "log": "1-fmt.log",
+          "status": "PASS"
+        },
+        "2-clippy": {
+          "exit": 101,
+          "start": "2026-11-11T20:01:57Z",
+          "end": "2026-11-11T20:03:21Z",
+          "command": "cargo clippy --locked --all-targets -- -D warnings",
+          "log": "2-clippy.log",
+          "status": "FAIL",
+          "cause": "clippy::chunks_exact_to_as_chunks at core/src/hostcmd.rs:163 and core/src/hostdb.rs:657 only: upstream code from 29f23f6 and e0ac4d8 (host servers, outside this change's scope); upstream's own CI fails the same way on main (run 43058268418, rustc 1.99.1, the toolchain of its last green run 42961192027, so pinning the toolchain does not help)",
+          "pre_existing": true
+        },
+        "3-test": {
+          "exit": 101,
+          "start": "2026-11-11T20:03:21Z",
+          "end": "2026-11-11T20:14:46Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked",
+          "log": "3-test.log",
+          "status": "FAIL",
+          "cause": "rla_test save_changed_objects: SAVCHGOBJ right after SAVLIB saved 1 object instead of ending with CPF3770. Intermittent: it passed alone and in the full suite in x86_64-run3 and in every aarch64 run, on this commit and on the base commit. Likely cause (from core/src/save.rs:2026, not proven): the save's reference point is pg_snapshot_xmin of the whole server, which a concurrent test's open transaction holds back, so records written just before SAVLIB count as changed. Upstream code (save.rs), not touched here",
+          "intermittent": true
+        },
+        "4-test-release": {
+          "exit": 0,
+          "start": "2026-11-11T20:14:46Z",
+          "end": "2026-11-11T21:02:13Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked --release",
+          "log": "4-test-release.log",
+          "status": "PASS",
+          "tests": "as4tainr_core 326 passed 1 ignored; rla_test 249 passed; system_cli 3 passed; rpgrt 14 passed"
+        },
+        "5-build-release": {
+          "exit": 0,
+          "start": "2026-11-11T21:02:13Z",
+          "end": "2026-11-11T21:02:15Z",
+          "command": "cargo build --locked --release",
+          "log": "5-build-release.log",
+          "status": "PASS",
+          "artifacts_sha256": {
+            "target/debug/as4tainr": "8dbddf264e8b5d7c550e90995610c733e48e8d1d6d28beb410d43dcc0de8ea2b",
+            "target/release/as4tainr": "de33bf386c4bbeffac553837f547a635a2b5bf8a5bafe6d3f483f524d8ddd6aa"
+          }
+        },
+        "6-demo": {
+          "exit": 0,
+          "start": "2026-11-11T21:02:15Z",
+          "end": "2026-11-11T21:02:32Z",
+          "command": "env AS4TAINR_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr AS4TAINR_BIN=target/debug/as4tainr scripts/demo.sh",
+          "log": "6-demo.log",
+          "status": "PASS",
+          "note": "7 of 7 outputs match their golden files (first demo on this database)"
+        }
+      }
+    },
+    {
+      "id": "x86_64-run3",
+      "platform": "as x86_64-run2",
+      "logs_dir": "target/evidence/2026-11-11-runtime-extraction-x86_64-run3",
+      "logs_sha256": {
+        "0-platform.log": "b7857b4e84a9100b838b33ea66815adf39ebf4d245a7594bb25e8e4186ea685a",
+        "1-save-changed-alone.log": "8a6fc5029dfd6fb7224d6f07010b7e3ed45f65e55bde297ed698b75d38ea4ccc",
+        "2-test.log": "a57edd6712eeb0d3d471449e05808bf43413a5d9c58a90987156fa116b7745a5",
+        "status.tsv": "8b3c405da065bbe83fb2d798dede8b79853fb677b0617988a70164b2139f276a"
+      },
+      "steps": {
+        "1-save-changed-alone": {
+          "exit": 0,
+          "start": "2026-11-11T21:02:50Z",
+          "end": "2026-11-11T21:03:03Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked --test rla_test save_changed_objects -- --exact --test-threads=1",
+          "log": "1-save-changed-alone.log",
+          "status": "PASS"
+        },
+        "2-test": {
+          "exit": 0,
+          "start": "2026-11-11T21:03:03Z",
+          "end": "2026-11-11T21:11:13Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked",
+          "log": "2-test.log",
+          "status": "PASS",
+          "tests": "as4tainr_core 326 passed 1 ignored; rla_test 249 passed; system_cli 3 passed; rpgrt 14 passed; doctests 0"
+        }
+      }
+    }
+  ],
+  "summary": {
+    "fmt": "PASS on x86_64 and aarch64",
+    "clippy": "FAIL on both, only the two pre-existing upstream errors (11-clippy-branch-diag of the first run: nothing else)",
+    "cargo test --locked": "PASS on aarch64 (run2) and x86_64 (run3); x86_64-run2 had one intermittent upstream failure",
+    "cargo test --locked --release": "PASS on both",
+    "cargo build --locked --release": "PASS on both",
+    "scripts/demo.sh": "PASS on both (aarch64 on a new database)",
+    "scripts/native-diff.sh": "NOT_RUN: does not exist yet",
+    "same suite as the base commit": "593 tests, identical names; identical per-test results on aarch64 (first run, 12/13)"
+  },
+  "levels": {
+    "implemented": true,
+    "validated_locally": "x86_64 and aarch64, except clippy (pre-existing upstream failure)",
+    "contrasted_with_ibm_i": "not applicable (no behavior change)",
+    "fit_for_production": false
+  }
+}

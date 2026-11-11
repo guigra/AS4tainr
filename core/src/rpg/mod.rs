@@ -9,13 +9,13 @@
 pub mod ast;
 pub mod check;
 pub mod code;
-pub mod data;
-pub mod dates;
-pub mod dec;
+pub use rpgrt::rpg::data;
+pub use rpgrt::rpg::dates;
+pub use rpgrt::rpg::dec;
 pub mod expr;
 pub mod interp;
 pub mod listing;
-pub mod mem;
+pub use rpgrt::rpg::mem;
 pub mod parse;
 pub mod program;
 pub mod rpg3;
