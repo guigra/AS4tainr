@@ -2,7 +2,7 @@
 //! (RFC 1205, RFC 2877, RFC 4777).
 
 pub mod ds;
-pub mod ebcdic;
+pub use rpgrt::tn5250::ebcdic;
 pub mod session;
 pub mod telnet;
 

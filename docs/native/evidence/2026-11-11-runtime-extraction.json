@@ -1,0 +1,238 @@
+{
+  "topic": "runtime-extraction",
+  "date": "2026-11-11",
+  "branch": "native/runtime-extraction",
+  "base_commit": "d68ed545c2cf4eae8a3cce363ef032fe39118d0f",
+  "upstream_main": "29f23f6 (upstream/main; base_commit is upstream/main plus CLAUDE.native.md)",
+  "commit": "the commit that adds this manifest (the tested working tree, plus docs/native only)",
+  "tested_sources_sha256": {
+    "Cargo.toml": "658e2ed447280457d82a593e9179f518ba1113334060ca1b124020ad0c5123fb",
+    "Cargo.lock": "5b6c59c127e2764af1cbdae4a8dfdaa22cb9bdc1bfdde3827be7b760aa04c24c",
+    "core/Cargo.toml": "0830d20dadbb2e17c44847ea891ad33b69611cd637def4774436ae5522e21091",
+    "core/src/rpg/mod.rs": "13bc9c9a8ff185ccac9d9514ee1b9b450c503ab51ddfee8e94bab35f763eaa5f",
+    "core/src/tn5250/mod.rs": "71a21a984d24714d5d1fcfae4f469cca21ec29ac0a5dbe988a499eefa8b81e50",
+    "rpgrt/Cargo.toml": "d44642c8951925ccca829911edbf76f92f2fafea13ba0744a69cf6929210deb1",
+    "rpgrt/src/lib.rs": "06712a9008fafaa210cb2bcc18a4c57a212642911f13cae59d35121f7a7e52e2",
+    "rpgrt/src/rpg.rs": "dd3c960e683b8aa4fd9d1ca4af78c7eec736274c0a67d1ffcc5059db1a8b23ff",
+    "rpgrt/src/tn5250.rs": "cac939209bc1762507f70254254facf105ddf0d4eaee220f528485814cfb1922",
+    "rpgrt/src/rpg/dec.rs": "f62fb9abcc3363029f49e9a516354e885ac827a2c42cc82eec01821a57e64501",
+    "rpgrt/src/rpg/data.rs": "3ba23ce42d50d433958179efd720387dce46bcd0d78d9e1912c7b431ce8d7718",
+    "rpgrt/src/rpg/mem.rs": "2cea8cd2e7ef83707a5db9b700c10790d4a9b38173f65502efcc297d9a78c10f",
+    "rpgrt/src/rpg/dates.rs": "a557cc70f61984cd4af72db294373010547deb333a818bd50d4e4d1c8749c46b",
+    "rpgrt/src/tn5250/ebcdic.rs": "89fe4209426e27bb8e53ec76f3741d5ef1353b1b0290489325df3fb091257627"
+  },
+  "tested_sources_note": "the same files' SHA-256 were compared on the VM's tree and this tree before the commit: identical. The five moved files are byte-identical to base_commit's core/src/rpg/{dec,data,mem,dates}.rs and core/src/tn5250/ebcdic.rs",
+  "runs": [
+    {
+      "id": "x86_64-local",
+      "platform": "Linux 6.12.113+deb13-cloud-amd64 x86_64, 2 CPUs, 3.8 GB RAM, rustc 1.99.1 (x86_64-unknown-linux-gnu), PostgreSQL 16.15 (podman, postgres:16)",
+      "logs_dir": "target/evidence/2026-11-11-runtime-extraction-x86_64-killed",
+      "logs_sha256": {
+        "1-fmt.log": "e95ad7a0281da57156d74f9ca39da40fb76d96f2a945a8916259f217d768b0fc",
+        "2-clippy.log": "1ccbd520c39d21ea7d4d43421d722e05dabfb79ed1119d3d21b531b0bd222014",
+        "status.tsv": "30591a1de9d4c4d0e4471ab6e899c84dbc32ef08281d4a4e20cc565079511fce"
+      },
+      "steps": {
+        "1-fmt": {
+          "exit": 0,
+          "start": "2026-11-11T17:59:14Z",
+          "end": "2026-11-11T17:59:19Z",
+          "command": "cargo fmt --all -- --check",
+          "log": "1-fmt.log",
+          "status": "PASS"
+        },
+        "2-clippy": {
+          "status": "NOT_RUN",
+          "cause": "stopped by Claude Code while compiling as4tainr-core: the system was critically low on memory; not restarted (the user chose the VM)",
+          "log": "2-clippy.log (partial)"
+        },
+        "3-test": {
+          "status": "NOT_RUN",
+          "cause": "run stopped before this step (low memory)"
+        },
+        "4-test-release": {
+          "status": "NOT_RUN",
+          "cause": "run stopped before this step (low memory)"
+        },
+        "5-build-release": {
+          "status": "NOT_RUN",
+          "cause": "run stopped before this step (low memory)"
+        },
+        "6-demo": {
+          "status": "NOT_RUN",
+          "cause": "run stopped before this step (low memory)"
+        }
+      }
+    },
+    {
+      "id": "aarch64-jsr-test-arm",
+      "platform": "Linux 6.12.113+deb13-arm64 aarch64 (VM jsr-test-arm, native, not emulated), 2 CPUs, 3.8 GB RAM, rustc 1.99.1 58cf8f9c3 (aarch64-unknown-linux-gnu), cargo 1.99.1, clippy 0.1.99, rustfmt 1.10.0, PostgreSQL 16.15 (podman, postgres:16)",
+      "platform_note": "evidence for aarch64-unknown-linux-gnu only (CLAUDE.native.md section 5); the section 7 checks were not completed on x86_64",
+      "logs_dir": "target/evidence/2026-11-11-runtime-extraction-aarch64",
+      "logs_sha256": {
+        "0-platform.log": "58777f7682c0af928dd744274d227c76b888f1fdc000d6c153f183f0481969db",
+        "1-fmt.log": "84c7e7fbea7c76350991580dd49f9de9eb2359ee71b5a0775a6793b2b9626f0f",
+        "10-clippy-main.log": "87a3cf378b4a46bb84cbccc6ab8845a306cd71861c8c0f5ff26fe0442c677377",
+        "11-clippy-branch-diag.log": "dcc5621f86e11151fa690b3257ff9e31490d5601c867658ad41f3d3cf779c93b",
+        "12-test-main-nff.log": "019b59d77a9ca077da67d872f305a3d753ad5ebd9e2d98ce7357e8df132d9ea7",
+        "12-test-main-nff.res": "c2b184f310e6a1b6e0d5a2dff5b5b02ab323fcf0467d74249fb9b58921d7de1f",
+        "13-test-branch-nff.log": "b3d82d263553b54bca48429990196f510909f41a431bce50354c0871001c678d",
+        "13-test-branch-nff.res": "c2b184f310e6a1b6e0d5a2dff5b5b02ab323fcf0467d74249fb9b58921d7de1f",
+        "2-clippy.log": "bc73e9e6f435cd57cab7f753c459d3d0c0ef63d9602c6b1f748313b52aaebdcd",
+        "3-test.log": "bbc06d6994661d52c24aae4365cf0fe022a906a572d24c12a37abb0557d1a09d",
+        "4-test-release.log": "9bb2ab054202a6782d187fe1073fead27ac440e8f77bfbeb9e4fff87961e765f",
+        "5-build-release.log": "331a255ea5aff4a27219bb2f08d66a13f145d6940b442d59f07bb3171855a14f",
+        "6-demo.log": "b9f2206ad1fd7ae02e6112f7b84c96e04091a8eb9dc868e38b892d1595d56576",
+        "7-list-branch.log": "68b7a1084712bfa8db36d240d80fdfe374626ed3554d4ad9011fc46141607129",
+        "7-list-branch.names": "2ec0314f7ba81e33f2aaa928ef2d4e9828010d2216a32875406ab18a009183c2",
+        "8-worktree-main.log": "2d515b2d2f653a49e7832572bd8f3fc8ea8d99b448ffdc3c15e609c5b07eaf2a",
+        "9-list-main.log": "66eaac86be6bbae44db6489b7ee3248ba5c0fdf82ccf9a1dd23c33d32ee95a69",
+        "9-list-main.names": "2ec0314f7ba81e33f2aaa928ef2d4e9828010d2216a32875406ab18a009183c2",
+        "artifacts.sha256": "31c4fe5d58d1ab31d4d463d428c745a27eb2122e3f16e804d636a814096828fd",
+        "status.tsv": "13048b5d4e872568bdcdc23e2c5fda4a926fd0010c4f6b6b4449eb93af966899"
+      },
+      "steps": {
+        "1-fmt": {
+          "exit": 0,
+          "start": "2026-11-11T18:04:53Z",
+          "end": "2026-11-11T18:04:56Z",
+          "command": "cargo fmt --all -- --check",
+          "log": "1-fmt.log",
+          "status": "PASS"
+        },
+        "2-clippy": {
+          "exit": 101,
+          "start": "2026-11-11T18:04:56Z",
+          "end": "2026-11-11T18:06:46Z",
+          "command": "cargo clippy --locked --all-targets -- -D warnings",
+          "log": "2-clippy.log",
+          "status": "FAIL",
+          "cause": "clippy::chunks_exact_to_as_chunks (clippy 0.1.99) at core/src/hostcmd.rs:163 and core/src/hostdb.rs:657, upstream files this change does not touch; the same two errors on base_commit (10-clippy-main), so not introduced here",
+          "pre_existing": true
+        },
+        "3-test": {
+          "exit": 101,
+          "start": "2026-11-11T18:06:46Z",
+          "end": "2026-11-11T18:15:36Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked",
+          "log": "3-test.log",
+          "status": "FAIL",
+          "cause": "rla_test qsh_commands_see_qsys_lib fails (ls cannot access /QSYS.LIB/<lib>.LIB): fails the same way on base_commit (12-test-main-nff); cargo test stopped at that test binary, so the later binaries ran only in 13-test-branch-nff",
+          "pre_existing": true,
+          "tests": {
+            "as4tainr_core unit": "326 passed, 1 ignored",
+            "rla_test": "248 passed, 1 failed"
+          }
+        },
+        "4-test-release": {
+          "exit": 101,
+          "start": "2026-11-11T18:15:36Z",
+          "end": "2026-11-11T18:33:21Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked --release",
+          "log": "4-test-release.log",
+          "status": "FAIL",
+          "cause": "the same single failure as 3-test (qsh_commands_see_qsys_lib); later binaries not run",
+          "pre_existing": true,
+          "tests": {
+            "as4tainr_core unit": "326 passed, 1 ignored",
+            "rla_test": "248 passed, 1 failed"
+          }
+        },
+        "5-build-release": {
+          "exit": 0,
+          "start": "2026-11-11T18:33:21Z",
+          "end": "2026-11-11T18:33:22Z",
+          "command": "cargo build --locked --release",
+          "log": "5-build-release.log",
+          "status": "PASS",
+          "artifacts_sha256": {
+            "target/debug/as4tainr": "265ea51209535ca3aedaf5a3fb9ef392de9445a5002e0f6fb52e9f67d3d0756e",
+            "target/release/as4tainr": "038cbb8196d285000114651d153f46ec2ee552dd5491e97509ffda64ca30a087"
+          }
+        },
+        "6-demo": {
+          "exit": 0,
+          "start": "2026-11-11T18:33:22Z",
+          "end": "2026-11-11T18:33:29Z",
+          "command": "env AS4TAINR_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr AS4TAINR_BIN=target/debug/as4tainr scripts/demo.sh",
+          "log": "6-demo.log",
+          "status": "PASS",
+          "note": "every sample's output matches its golden file in samples/expected"
+        },
+        "7-list-branch": {
+          "exit": 0,
+          "start": "2026-11-11T18:33:29Z",
+          "end": "2026-11-11T18:33:32Z",
+          "command": "cargo test --locked -- --list --format terse",
+          "log": "7-list-branch.log",
+          "status": "PASS",
+          "tests": 593
+        },
+        "8-worktree-main": {
+          "exit": 0,
+          "start": "2026-11-11T18:33:32Z",
+          "end": "2026-11-11T18:33:32Z",
+          "command": "git worktree add --detach /home/ctl/as4tainr-native/main main",
+          "log": "8-worktree-main.log",
+          "status": "PASS"
+        },
+        "9-list-main": {
+          "exit": 0,
+          "start": "2026-11-11T18:33:32Z",
+          "end": "2026-11-11T18:38:27Z",
+          "command": "cargo test --locked -- --list --format terse",
+          "log": "9-list-main.log",
+          "status": "PASS",
+          "tests": 593,
+          "note": "test names identical to 7-list-branch (7-list-branch.names, 9-list-main.names)"
+        },
+        "10-clippy-main": {
+          "exit": 101,
+          "start": "2026-11-11T18:38:39Z",
+          "end": "2026-11-11T18:39:56Z",
+          "command": "cargo clippy --locked --all-targets -- -D warnings",
+          "log": "10-clippy-main.log",
+          "status": "FAIL",
+          "note": "baseline: base_commit fails clippy with the same two errors as 2-clippy"
+        },
+        "11-clippy-branch-diag": {
+          "exit": 0,
+          "start": "2026-11-11T18:39:56Z",
+          "end": "2026-11-11T18:40:52Z",
+          "command": "cargo clippy --locked --all-targets -- -D warnings -A clippy::chunks_exact_to_as_chunks",
+          "log": "11-clippy-branch-diag.log",
+          "status": "PASS",
+          "note": "diagnostic, not a section 7 check: the branch with only clippy::chunks_exact_to_as_chunks allowed has no other warning in any target (rpgrt included)"
+        },
+        "12-test-main-nff": {
+          "exit": 101,
+          "start": "2026-11-11T18:40:53Z",
+          "end": "2026-11-11T18:45:22Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked --no-fail-fast",
+          "log": "12-test-main-nff.log",
+          "status": "FAIL",
+          "note": "baseline, --no-fail-fast: 593 tests, as4tainr_core 340 passed 1 ignored, rla_test 248 passed 1 failed (qsh_commands_see_qsys_lib), system_cli 3 passed"
+        },
+        "13-test-branch-nff": {
+          "exit": 101,
+          "start": "2026-11-11T18:45:22Z",
+          "end": "2026-11-11T18:49:59Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked --no-fail-fast",
+          "log": "13-test-branch-nff.log",
+          "status": "FAIL",
+          "note": "--no-fail-fast: 593 tests, as4tainr_core 326 passed 1 ignored, rpgrt 14 passed, rla_test 248 passed 1 failed (qsh_commands_see_qsys_lib), system_cli 3 passed; every test's result identical to 12-test-main-nff (12-test-main-nff.res, 13-test-branch-nff.res)"
+        }
+      }
+    }
+  ],
+  "not_run": {
+    "scripts/native-diff.sh": "does not exist yet (phase 5)",
+    "5250 end-to-end tests": "not required: the change touches no screens, jobs or locks (tn5250 uses the same ebcdic module through a re-export)"
+  },
+  "levels": {
+    "implemented": true,
+    "validated_locally": "aarch64 only, with the two pre-existing failures above",
+    "contrasted_with_ibm_i": "not applicable (no behavior change)",
+    "fit_for_production": false
+  }
+}
