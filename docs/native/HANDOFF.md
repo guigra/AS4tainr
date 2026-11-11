@@ -1,6 +1,10 @@
 # Native RPG backend: handoff
 
-Last session: 2026-11-11, phase 1 (runtime extraction), branch `native/runtime-extraction`.
+Last session: 2026-11-11. Phase 1 (runtime extraction) on branch `native/runtime-extraction`; the plan (N0) on `native/engine`, which is stacked on it.
+
+## Plan (N0)
+
+`docs/native/PLAN.md` and ADRs 0001-0005 are accepted by the user. They were written from four code surveys and an independent review, which found two blockers and five major issues; all are fixed in the documents. The user also authorized the `run_code_at` hook, the `Program.native` field, three new crates and pinning the toolchain. CLAUDE.native.md was updated to match. The user's end goal is to retire the interpreter once the native engine is proven (PLAN.md, "Final phase").
 
 ## What changed
 
@@ -39,5 +43,4 @@ Section 7, on x86_64 (this machine, `CARGO_BUILD_JOBS=1`) and on aarch64 (`jsr-t
 
 ## Next step
 
-1. Phase 2: the engine flag `AS4TAINR_RPG_ENGINE` in `core/src/rpg/native/`.
-2. Before phase 3: an ADR on getting the pure parts of `bifs.rs`/`ptrs.rs` out of `impl Machine`. That touches `interp.rs`, outside section 3's touch points, so it needs the user's approval.
+1. N1 (PLAN.md): the flag, the hooks, `rpgrt::native`, and the empty `rpgnative` registry.

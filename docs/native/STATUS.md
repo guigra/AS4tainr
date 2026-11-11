@@ -4,13 +4,19 @@ Where the native backend (RPG compiled to Rust, see `CLAUDE.native.md`) stands. 
 
 ## Phases
 
+The plan is in `PLAN.md` and the decisions in `adr/0001`-`0005`, all accepted by the user on 2026-11-11 after an independent review.
+
 | Phase | What | Level |
 | --- | --- | --- |
-| 1. Runtime extraction | Workspace crate `rpgrt` with the run-time modules moved unchanged from `as4tainr-core`, re-exported from their old paths | Implemented. Validated locally on x86_64 and aarch64, except clippy, which upstream `main` fails too (see "Checks" below). No behavior change, so nothing to contrast with IBM i |
-| 2. Engine flag | `AS4TAINR_RPG_ENGINE` (`interp`, `rust`, `auto`) in `core/src/rpg/native/` | Not started |
-| 3. Code generator | `rpgcg`: `Program` in, Rust source and source map out | Not started |
-| 4. Compilation and caching | Program key, generated crates under `target/rpg-native/<key>/`, the `programs` crate, `as4tainr build --native` | Not started |
-| 5. Differential harness | `scripts/native-diff.sh` | Not started (the script does not exist yet) |
+| Runtime extraction | Workspace crate `rpgrt` with the run-time modules moved unchanged from `as4tainr-core`, re-exported from their old paths | Implemented. Validated locally on x86_64 and aarch64, except clippy, which upstream `main` fails too (see "Checks" below). No behavior change, so nothing to contrast with IBM i |
+| N0 Plan | `PLAN.md`, ADRs 0001-0005, CLAUDE.native.md brought in line | Done (user approval 2026-11-11) |
+| N1 Flag and hooks | `AS4TAINR_RPG_ENGINE`, the hooks, `rpgrt::native`, the empty `rpgnative` registry | Not started |
+| N2 Generator | `rpgcg`, lowering, fingerprints, emission | Not started |
+| N3 Runtime adapter | `native_rt`: `Runtime` for `Machine`, `settle`, the dispatcher | Not started |
+| N4 Differential harness | `core/tests/native_diff.rs`, `scripts/native-diff.sh` | Not started |
+| N5 Build tooling and baseline | `native-tools`, production builds, performance baseline | Not started |
+| N6… Stage 2 | Lowering, one construct per step | Not started |
+| Final | Retiring the interpreter (the user's goal; prerequisites in PLAN.md) | Not started |
 
 ## Phase 1: the `rpgrt` crate
 
