@@ -44,16 +44,22 @@ The upstream author commits many times a day. Every change must stay easy to reb
 
 | Path | What |
 | --- | --- |
-| `core/src/rpg/native/` | The engine switch and the native entry point at activation and CALL |
+| `core/src/rpg/native/` | The engine switch, lowering (`Code` → `rpgcg::ir`), fingerprints, emission, the per-program native table (ADR 0002, 0004) |
+| `core/src/rpg/native_rt.rs` | Submodule of `interp`: `Machine` as `rpgrt::native::Runtime`, the dispatcher, error routing (`settle`), observation |
 | `rpgrt/` (new workspace crate) | Runtime for generated code: storage (`mem`), exact decimals (`dec`), data formats, built-in functions, dates, I/O through `rla`, `workstn` and `spool`. See "Runtime" below |
-| `rpgcg/` (new workspace crate) | Code generator: `Program` in, Rust source plus a source map out |
-| `target/rpg-native/<key>/` | Generated crates and build output. Never committed |
+| `rpgcg/` (new workspace crate) | Code generator: `rpgcg::ir` (lowered from the compiled `Program`'s routines) in, Rust source plus a source map out |
+| `rpgnative/` (new workspace crate) | The registry: `build.rs` includes the generated modules of `AS4TAINR_NATIVE_DIR` and a static table (ADR 0003) |
+| `native-tools/` (new workspace crate) | `as4tainr-native-emit`: generates the code for the programs of a set of libraries |
+| `target/rpg-native/<build>/` | Generated modules (`<fingerprint>.rs`, `.map.json`). Never committed |
 | `docs/native/` | Design (ADRs), `STATUS.md`, `HANDOFF.md`, `fidelity.md` (differences between the native and interpreter engines) |
 
 ### Allowed touch points in upstream code
 
 - `core/src/rpg/mod.rs`: the call into `native/` at compile and activation time.
-- The root `Cargo.toml`: workspace members, and `overflow-checks = true` in the release profile.
+- The root `Cargo.toml`: workspace members, and `overflow-checks = true` for the generated code (`[profile.release.package.rpgnative]`; ADR 0004: not the whole release profile, which would change upstream's behavior).
+- `core/Cargo.toml`: dependencies on the workspace crates.
+- `core/src/rpg/interp.rs`: the `native_rt` submodule declaration and the one-statement hook at the start of `run_code_at` (authorized by the user, 2026-11-11; ADR 0004).
+- `core/src/rpg/program.rs`: the `native` field of `Program` and its initial value (authorized by the user, 2026-11-11; ADR 0002).
 - `core/src/lib.rs`: module declarations.
 - Moving upstream runtime modules into `rpgrt`, with re-exports so that every upstream path keeps compiling. Done as a pure move with no behavior change, in its own commit.
 
@@ -67,20 +73,20 @@ The upstream author commits many times a day. Every change must stay easy to reb
 ### Loading native programs
 
 - **No `unsafe`, and no dynamic loading (`dlopen`/`libloading`) without an accepted ADR.** Loading a `.so` needs `unsafe`, which our policy forbids (section 5).
-- First design: static linking. Generated program crates become dependencies of a `programs` crate that registers them in a safe table (name, key, entry function). `as4tainr` is rebuilt with that crate (`as4tainr build --native`).
+- Static linking (ADR 0003): generated routines are modules of the `rpgnative` crate, included by its `build.rs` from `AS4TAINR_NATIVE_DIR`, and registered in a safe static table (fingerprint, entry function). Every binary and test that links core gets them; `Cargo.toml` and `Cargo.lock` never change when code is generated. Code is generated with `AS4TAINR_NATIVE_EMIT=<dir>` (or `as4tainr-native-emit`), then core is rebuilt with `AS4TAINR_NATIVE_DIR=<dir>`.
 - In production, the image ships the binary with the programs already compiled. The production image contains no `rustc` and no `cargo`.
 - A program created after that build runs in the interpreter (`auto` mode) until the next build.
-- **Program key:** a hash of the source, every `/COPY` and `/INCLUDE`, the compile options, the file and field definitions the program uses (as upstream's `compile_stamp` sees them), the `rpgcg` version and the `rpgrt` version. If the key does not match, the native program is not used.
+- **Key (ADR 0002):** each routine is identified by the SHA-256 of its compiled code (every instruction's `Debug` text; in stage 2 also the layout it uses), with the `rpgcg`, `rpgrt` and rustc versions. Everything the source, `/COPY`, `/INCLUDE`, options, overrides and file and field definitions change reaches the compiled code, so this is stricter than a hash of those inputs. A program runs natively only when every routine's key matches.
 
 ### Code generation rules
 
 - Generated code is deterministic. The same `Program` and the same generator must produce byte-identical Rust.
 - Rust names are mapped from RPG names deterministically, with Rust keywords escaped and no collisions. The mapping is written into the source map.
-- Every generated statement carries a comment with its RPG source line (member and sequence number), so errors and listings point back to RPG.
+- Every generated statement carries a comment with its RPG source line, so errors and listings point back to RPG. The compiled code keeps the line number only, not the member and sequence number; the source map (`.map.json`) carries the program and routine as well.
 - A construct the generator does not support is a compile-time diagnostic that names the RPG line. It must never become empty code, a zero, a default value or a comment. In `auto` mode the interpreter then runs the program; in `rust` mode compilation fails.
 - RPG run-time errors use upstream's error path: the RNQ inquiry ID, turned into the RNX escape ID by `rpg::errors::message_id`. The program status data structure, `*PSSR`, MONITOR and indicators behave exactly as in the interpreter.
 - Parameters keep upstream's semantics: BYREF shares storage, including aliasing and forwarding. VALUE is an independent copy. CONST is read-only, and an attempt to write through it is rejected at compile time.
-- GOTO, TAG, CABxx and the RPG cycle are generated as an explicit state machine (`loop { match pc { … } }`), only in procedures that need one. Structured code is generated as structured Rust.
+- GOTO, TAG, CABxx and the RPG cycle are generated as an explicit state machine (`loop { match pc { … } }`). In stage 1 (ADR 0001) every routine is one, a faithful compilation of `code::Ins`; stage 2 generates structured Rust for routines that need no state machine.
 - Do not suppress warnings globally to hide generator defects. Any local `#[allow]` must say why, and must not touch the lints in section 5.
 
 ## 4. Clean room
