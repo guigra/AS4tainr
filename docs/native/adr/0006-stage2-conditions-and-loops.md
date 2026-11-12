@@ -174,3 +174,32 @@ Helper names now spell a third operand `x` (`path_id`). The names of existing he
 **Not lowered.** %SCAN in a condition (IF %SCAN(...) > 0), %SCANRPL, %CHECK and %REPLACE.
 
 **Expected values.** `core/tests/native/NSCAN.rpgle`, captured on PUB400: tools/golden/native9.txt n9_scan (IBM i 7.5, 2026-11-12). The capture found an interpreter defect (fidelity.md): %SCAN with a start outside the string is status 00100 on IBM i. It is left out of the test.
+
+## S2.13: conditions with functions (rpgcg 0.1.0+stage2.13)
+
+**What changes.** A comparison in a condition (IF, ELSEIF, DOW, DOU, WHEN) can now have an expression on either side.
+
+- A character side is any lowered character expression: %SUBST, %TRIM, %TRIML, %TRIMR, %XLATE, concatenation.
+- A numeric side is a lowered numeric expression with no `+`, `-` or `*`: %SCAN, or %LEN of a fixed-length field.
+
+Both sides must be of the same class. Comparisons of two literals or names stay `Cond::Cmp`. The sides' helpers are named by their place in the condition (0 left, 1 right), and the comparison is `rpgrt::native::cmp`, as for operands.
+
+**Why no arithmetic.** The precision of `+`, `-` and `*` comes from `Runtime::precision`, which reads it from an EVAL's expression. A condition's arithmetic would need its own lookup. Until then it stays with the interpreter.
+
+**Expected values.** `core/tests/native/NCOND.rpgle`, captured on PUB400: tools/golden/native11.txt n11_cond (IBM i 7.5, 2026-11-12).
+
+## S2.14: %CHAR of numbers, %INT, %INTH, %DEC, %DECH (rpgcg 0.1.0+stage2.14)
+
+**What changes.**
+
+- %INT and %INTH of a numeric expression are numeric expressions of lowered code: `rescale(0, half)`, as the interpreter.
+- %DEC and %DECH are numeric expressions too, with no other argument or with literal digits and decimal places. `rpgrt::native::dec_to` gives the interpreter's RNQ0103 error when the value does not fit.
+- %CHAR of a numeric expression is a character expression. `rpgrt::native::char_of_num` is the interpreter's `char_of_num_edit`, written again under section 5's lints.
+
+**DECEDIT.** The decimal point and the zero before it come from the program's DECEDIT (`Program::decedit`), resolved when the code is generated. They are therefore part of the code, and the lowering adds them to the fingerprint's layout lines (`decedit <point> <zero>`).
+
+**Precision inside functions and conditions.** `Runtime::precision` now finds its node from a condition (`JumpIfNot`) as well as from an EVAL. A step of its path is 0 or 1 into an operation, or the index of a built-in function's argument; every lowered helper's path already follows that numbering. So `%INT(z * 10)` and `IF %INT(d * 2) = -3` take their precision from the interpreter's `num_precision` of the same node.
+
+**Not lowered.** %CHAR of dates, times, indicators and character values, %CHAR with a format, %DEC of character values, and %DEC with digits that are not literals.
+
+**Expected values.** `core/tests/native/NFUN.rpgle` and `NFUN2.rpgle` (DECEDIT('0,')), captured on PUB400: tools/golden/native12.txt n12_fun and n12_decedit (IBM i 7.5, 2026-11-12).

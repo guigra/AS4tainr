@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.12");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.14");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -106,8 +106,20 @@ pub mod ir {
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum Cond {
         Cmp(CmpOp, Operand, Operand),
+        /// A comparison with an expression on either side (S2.13):
+        /// %SCAN, %SUBST, %TRIM, %XLATE, concatenation.
+        CmpExpr(CmpOp, Box<CmpSide>, Box<CmpSide>),
         And(Box<Cond>, Box<Cond>),
         Or(Box<Cond>, Box<Cond>),
+    }
+
+    /// One side of a comparison: a numeric expression with no
+    /// arithmetic (whose precision would come from an EVAL), or a
+    /// character expression.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum CmpSide {
+        Num(NumExpr),
+        Char(CharExpr),
     }
 
     /// What a lowered instruction evaluates.
@@ -198,6 +210,14 @@ pub mod ir {
             len: Option<Operand>,
             path: Vec<u8>,
         },
+        /// %CHAR of a numeric expression (S2.14), with the program's
+        /// DECEDIT: the decimal point and whether a zero goes before it.
+        CharOfNum {
+            inner: NumExpr,
+            point: char,
+            zero: bool,
+            path: Vec<u8>,
+        },
         /// %XLATE (S2.12): the characters `from` becomes `to` in `s`,
         /// from `start` on; the places of its operands are its path and
         /// 0, 1 and 2.
@@ -237,6 +257,20 @@ pub mod ir {
             op: ArOp,
             left: Box<NumExpr>,
             right: Box<NumExpr>,
+            path: Vec<u8>,
+        },
+        /// %INT or %INTH (`half`) of a numeric expression (S2.14).
+        Int {
+            inner: Box<NumExpr>,
+            half: bool,
+            path: Vec<u8>,
+        },
+        /// %DEC or %DECH (`half`) of a numeric expression, with literal
+        /// digits and decimal places, or none (S2.14).
+        Dec {
+            inner: Box<NumExpr>,
+            to: Option<(u32, u32)>,
+            half: bool,
             path: Vec<u8>,
         },
         /// %SCAN (S2.12): where `pat` first is in `s`, from `start` on.
@@ -536,6 +570,16 @@ fn name_of(o: &ir::Operand) -> String {
     }
 }
 
+/// A comparison's side as a `Value` expression.
+fn side(pc: usize, s: &ir::CmpSide, helpers: &mut String) -> String {
+    match s {
+        ir::CmpSide::Num(e) => {
+            format!("rpgrt::rpg::data::Value::Num({})", num_expr(pc, e, helpers))
+        }
+        ir::CmpSide::Char(e) => char_expr(pc, e, helpers),
+    }
+}
+
 /// Helper functions of a lowered condition: `c<pc>` for the whole, then
 /// `c<pc>_<k>` for its parts.
 fn cond_fns(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usize) {
@@ -557,6 +601,28 @@ fn cond_fns(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usize) 
                 out,
                 "    rpgrt::native::cmp(rpgrt::native::CmpOp::{op}, &x, &y)\n}}"
             );
+        }
+        ir::Cond::CmpExpr(op, a, b) => {
+            let op = match op {
+                ir::CmpOp::Eq => "Eq",
+                ir::CmpOp::Ne => "Ne",
+                ir::CmpOp::Lt => "Lt",
+                ir::CmpOp::Le => "Le",
+                ir::CmpOp::Gt => "Gt",
+                ir::CmpOp::Ge => "Ge",
+            };
+            // The sides' helpers go after this function.
+            let mut extra = String::new();
+            let x = side(pc, a, &mut extra);
+            let y = side(pc, b, &mut extra);
+            let _ = writeln!(out, "    // an expression {op} an expression");
+            let _ = writeln!(out, "    let x = {x};");
+            let _ = writeln!(out, "    let y = {y};");
+            let _ = writeln!(
+                out,
+                "    rpgrt::native::cmp(rpgrt::native::CmpOp::{op}, &x, &y)\n}}"
+            );
+            out.push_str(&extra);
         }
         ir::Cond::And(l, r) | ir::Cond::Or(l, r) => {
             let both = if matches!(c, ir::Cond::And(..)) {
@@ -915,6 +981,20 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
             );
             format!("{name}(rt)?")
         }
+        ir::CharExpr::CharOfNum {
+            inner,
+            point,
+            zero,
+            path,
+        } => {
+            let name = format!("h{pc}_{}", path_id(path));
+            let x = num_expr(pc, inner, helpers);
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let x = {x};\n    Ok(rpgrt::native::char_of_num(&x, {point:?}, {zero}))\n}}"
+            );
+            format!("{name}(rt)?")
+        }
         ir::CharExpr::Xlate {
             from,
             to,
@@ -996,6 +1076,33 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             };
             let _ = writeln!(body, "    Ok(rpgrt::native::rule_scale(p, a.{f}(&b)?))\n}}");
             helpers.push_str(&body);
+            format!("{name}(rt)?")
+        }
+        ir::NumExpr::Int { inner, half, path } => {
+            let name = format!("i{pc}_{}", path_id(path));
+            let x = num_expr(pc, inner, helpers);
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::dec::Dec> {{\n    let x = {x};\n    x.rescale(0, {half})\n}}"
+            );
+            format!("{name}(rt)?")
+        }
+        ir::NumExpr::Dec {
+            inner,
+            to,
+            half,
+            path,
+        } => {
+            let name = format!("d{pc}_{}", path_id(path));
+            let x = num_expr(pc, inner, helpers);
+            let body = match to {
+                Some((p, s)) => format!("rpgrt::native::dec_to(&x, {p}, {s}, {half})"),
+                None => "Ok(x)".to_string(),
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::dec::Dec> {{\n    let x = {x};\n    {body}\n}}"
+            );
             format!("{name}(rt)?")
         }
         ir::NumExpr::Scan {

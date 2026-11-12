@@ -457,3 +457,75 @@ async fn native_unit_lowered_scan_xlate() {
     )
     .await;
 }
+
+// Stage 2, S2.13: conditions with built-in functions and concatenation on
+// either side, lowered to Rust (%SCAN, %SUBST, %TRIM, %TRIML with blank
+// padding, %LEN, %XLATE, AND and OR).
+// Source: golden capture tools/golden/native11.txt n11_cond (PUB400, IBM i 7.5, 2026-11-12)
+#[tokio::test]
+async fn native_unit_lowered_conditions_with_functions() {
+    let _ = require_db!();
+    expect(
+        "NCOND",
+        include_str!("native/NCOND.rpgle"),
+        &[
+            "SCAN COND YES",
+            "SCAN COND NONE",
+            "SUBST COND EQ",
+            "TRIM COND EQ",
+            "CAT COND EQ",
+            "TRIML COND PADDED EQ",
+            "AND COND YES",
+            "OR COND YES",
+            "LEN COND YES",
+            "XLATE COND EQ",
+            "SUBST COND LT",
+        ],
+    )
+    .await;
+}
+
+// Stage 2, S2.14: %CHAR of numbers, %INT, %INTH, %DEC and %DECH lowered to
+// Rust, in expressions and conditions, and status 00103 when %DEC's digits
+// are too few.
+// Source: golden capture tools/golden/native12.txt n12_fun (PUB400, IBM i 7.5, 2026-11-12)
+#[tokio::test]
+async fn native_unit_lowered_char_int_dec() {
+    let _ = require_db!();
+    expect(
+        "NFUN",
+        include_str!("native/NFUN.rpgle"),
+        &[
+            "CHAR NEG [-1.50       ]",
+            "CHAR INT [1234        ]",
+            "CHAR FRACTION [.25         ]",
+            "CHAR EXPR [2468        ]",
+            "CHAR INT FN [-1          ]",
+            "CHAR INTH FN [-2          ]",
+            "CHAR LIT [X3          ]",
+            "INT EXPR 2",
+            "INTH EXPR 3",
+            "DEC -1.5",
+            "DECH 1.3",
+            "DEC SMALL ERR 103",
+            "INT COND YES",
+        ],
+    )
+    .await;
+}
+
+// Stage 2, S2.14: %CHAR under DECEDIT('0,'), lowered to Rust.
+// Source: golden capture tools/golden/native12.txt n12_decedit (PUB400, IBM i 7.5, 2026-11-12)
+#[tokio::test]
+async fn native_unit_lowered_char_decedit() {
+    let _ = require_db!();
+    expect(
+        "NFUN2",
+        include_str!("native/NFUN2.rpgle"),
+        &[
+            "DECEDIT FRACTION [0,25        ]",
+            "DECEDIT NEG [-12,50      ]",
+        ],
+    )
+    .await;
+}

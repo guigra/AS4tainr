@@ -1,0 +1,4 @@
+# Captures for stage 2 of the native backend, S2.13: conditions with built-in functions.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native11.txt -f tools/golden/native11
+n11_crt_cond|!system "CRTSQLRPGI OBJ(@LIB@/GN11COND) SRCSTMF('@HOME@/gld/gn11cond.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n11_cond|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN11COND)"; cat gn1.out; rm -f gn1.out

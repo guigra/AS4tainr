@@ -404,12 +404,15 @@ impl Runtime for Rt<'_, '_> {
     }
 
     fn precision(&mut self, pc: usize, path: &[u8]) -> Option<(u32, u32)> {
-        let Some(Ins::Stmt(super::super::ast::Stmt::Eval { value, .. })) =
-            self.code.get(pc).map(|i| &i.ins)
-        else {
-            return None;
+        // The expression the path starts from: an EVAL's value, or a
+        // condition (S2.14).
+        let mut node = match self.code.get(pc).map(|i| &i.ins) {
+            Some(Ins::Stmt(super::super::ast::Stmt::Eval { value, .. })) => value,
+            Some(Ins::JumpIfNot(c, _)) => c,
+            _ => return None,
         };
-        let mut node = value;
+        // Each step: 0 or 1 into an operation's operands, or the index of
+        // a built-in function's argument.
         for step in path {
             node = match node {
                 Expr::Bin(_, l, r) => {
@@ -419,6 +422,7 @@ impl Runtime for Rt<'_, '_> {
                         r
                     }
                 }
+                Expr::Bif(_, args) => args.get(usize::from(*step))?,
                 _ => return None,
             };
         }

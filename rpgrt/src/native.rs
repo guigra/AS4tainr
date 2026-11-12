@@ -432,6 +432,43 @@ pub fn xlate(from: &[u8], to: &[u8], s: &[u8], start: Option<&Value>) -> NResult
     ))
 }
 
+/// %CHAR of a number (S2.14): the interpreter's `char_of_num_edit`, with
+/// the program's DECEDIT (the decimal point, and a zero before it when
+/// the value has no integer digits). No leading zeros, a leading '-' for
+/// a negative value.
+pub fn char_of_num(d: &Dec, point: char, zero: bool) -> Value {
+    let s = d.abs().to_string();
+    let s = if zero && s.starts_with("0.") && d.scale() > 0 {
+        s.replacen('.', &point.to_string(), 1)
+    } else {
+        let t = if d.scale() > 0 {
+            s.trim_start_matches('0').to_string()
+        } else {
+            s
+        };
+        t.replacen('.', &point.to_string(), 1)
+    };
+    let s = if s.is_empty() { "0".to_string() } else { s };
+    if d.is_negative() {
+        Value::str(&format!("-{s}"))
+    } else {
+        Value::str(&s)
+    }
+}
+
+/// %DEC and %DECH with digits and decimal places (S2.14): the value with
+/// those decimal places, truncated or half adjusted, and the
+/// interpreter's error when it does not fit the digits.
+pub fn dec_to(d: &Dec, digits: u32, decimals: u32, half: bool) -> NResult<Dec> {
+    let r = d.rescale(u8::try_from(decimals)?, half)?;
+    if !r.fits(digits, decimals) {
+        anyhow::bail!(
+            "RNQ0103: The target for a numeric operation is too small to hold the result."
+        );
+    }
+    Ok(r)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
