@@ -10,12 +10,12 @@ The plan is in `PLAN.md` and the decisions in `adr/0001`-`0005`, all accepted by
 | --- | --- | --- |
 | Runtime extraction | Workspace crate `rpgrt` with the run-time modules moved unchanged from `as4tainr-core`, re-exported from their old paths | Implemented. Validated locally on x86_64 and aarch64, except clippy, which upstream `main` fails too (see "Checks" below). No behavior change, so nothing to contrast with IBM i |
 | N0 Plan | `PLAN.md`, ADRs 0001-0005, CLAUDE.native.md brought in line | Done (user approval 2026-11-11) |
-| N1 Flag and hooks | `AS4TAINR_RPG_ENGINE`, the hooks, `rpgrt::native`, the `rpgnative` registry | Implemented. Validation: the evidence manifest of this stage (below) |
-| N2 Generator | `rpgcg`, lowering, fingerprints, emission | Implemented |
-| N3 Runtime adapter | `native_rt`: `Runtime` for `Machine`, `settle`, the dispatcher | Implemented |
-| N4 Differential harness | `core/tests/native_diff.rs`, `scripts/native-diff.sh` | Implemented |
-| N5 Build tooling and baseline | `native-tools`, production builds, performance baseline | `scripts/native-bench.sh` written, not run yet; `native-tools` not started |
-| N6… Stage 2 | Lowering, one construct per step | Not started |
+| N1 Flag and hooks | `AS4TAINR_RPG_ENGINE`, the hooks, `rpgrt::native`, the `rpgnative` registry | Implemented; validated locally on x86_64 and aarch64 (manifests below) |
+| N2 Generator | `rpgcg`, lowering, fingerprints, emission | Implemented; validated locally |
+| N3 Runtime adapter | `native_rt`: `Runtime` for `Machine`, `settle`, the dispatcher | Implemented; validated locally |
+| N4 Differential harness | `core/tests/native_diff.rs`, `scripts/native-diff.sh`, `scripts/native-corpus.sh` (external corpora) | Implemented; validated locally |
+| N5 Build tooling and baseline | `native-tools`, production builds, performance baseline | Baseline recorded (`scripts/native-bench.sh`, manifest of 769f0d5); `native-tools` not started |
+| N6… Stage 2 | Lowering, one construct per step | S2.1-S2.4 implemented and validated locally (ADR 0006): conditions, FOR/DO control, numeric EVAL, fixed-form arithmetic, character fields; S2.5 (dispatch cost) in progress |
 | Final | Retiring the interpreter (the user's goal; prerequisites in PLAN.md) | Not started |
 
 ## Phase 1: the `rpgrt` crate
@@ -95,8 +95,22 @@ Notes:
 - **Upstream changes.** 5 lines in interp.rs, 3 in program.rs, a few in rpg/mod.rs (emission, the engine carried into `spawn_blocking`, observation), and the workspace and core manifests. All are authorized (CLAUDE.native.md section 3).
 - **Interpreter defects found**, upstream and not fixed here: nested MONITOR, writes to CONST parameters, `OVERLAY(:*NEXT)`. They are in `fidelity.md`.
 
+## Stage 2 and results so far
+
+- **Parity.** On commit 769f0d5, `native-diff.sh` passes every level on x86_64. On aarch64 it passes every level except one intermittent upstream test under `auto` (`verify22`, see fidelity.md). In the development runs of S2.3 and S2.4, the 385 programs of OpenRPG's test corpus that run without files give the same output and exit status under both engines: 260 succeed and 125 fail the same way.
+- **Speed.** NBENCH1 (`samples/native/NBENCH1.rpgle`), release build, p50 over 20 calls:
+
+  | Platform | Interpreter | Native (stage 2 on 769f0d5) | Change |
+  | --- | --- | --- | --- |
+  | x86_64 | 3.80 s | 3.25 s | -14.6% |
+  | aarch64 | 2.01 s | 1.65 s | -17.8% |
+
+  Allocations and database round trips are not measured yet.
+- **IBM i contrast.** Expected values of the native unit programs come from IBM Docs and from PUB400 captures (`tools/golden/native1-4.txt`, IBM i 7.5, 2026-11-12). Those captures confirmed four interpreter defects (fidelity.md), to be reported upstream when this work is finished.
+
 ## Evidence
 
 - `docs/native/evidence/2026-11-11-runtime-extraction.json`: first run (aarch64, plus x86_64 stopped for lack of memory)
 - `docs/native/evidence/2026-11-11-runtime-extraction-run2.json`: second and third runs (x86_64 and aarch64)
-- Stage 1 (N1-N4): the manifest recorded with the run of `scripts/native-diff.sh` and the section 7 checks on this commit (the next commit)
+- `docs/native/evidence/2026-11-12-stage1.json`: stage 1 on 96bd6a7, x86_64 and aarch64 (level-2 rust coverage NOT_DEMONSTRATED, bench FAIL: harness defects fixed in b0315e1)
+- `docs/native/evidence/2026-11-12-stage2.json`: stages 1 and 2 (S2.1, S2.2) on 769f0d5, x86_64 and aarch64, with the first performance baseline
