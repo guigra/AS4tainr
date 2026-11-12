@@ -105,6 +105,8 @@ Notes:
   | x86_64 | 3.97 s | 3.07 s | -22.6% | 4f8a89c (S2.1-S2.7) |
   | aarch64 | 2.01 s | 1.66 s | -17.8% | 4f8a89c (S2.1-S2.7) |
   | aarch64 | 2.00 s | 1.60 s | -20.4% | S2.8, development run |
+  | aarch64 | 2.03 s | 1.61 s | -20.5% | 498cdfe (S2.8), evidence run |
+  | x86_64 | 3.83 s | 3.31 s | -13.5% | 498cdfe (S2.8), evidence run; the host was short of memory |
   | aarch64 | 2.00 s | 1.62 s | -18.9% | S2.9, development run |
 
   Allocations and database round trips are not measured yet.
@@ -117,3 +119,4 @@ Notes:
 - `docs/native/evidence/2026-11-12-stage1.json`: stage 1 on 96bd6a7, x86_64 and aarch64 (level-2 rust coverage NOT_DEMONSTRATED, bench FAIL: harness defects fixed in b0315e1)
 - `docs/native/evidence/2026-11-12-stage2.json`: stages 1 and 2 (S2.1, S2.2) on 769f0d5, x86_64 and aarch64, with the first performance baseline
 - `docs/native/evidence/2026-11-12-rebased.json`: stage 1 and S2.1-S2.7 on 4f8a89c, rebased on origin/main; x86_64 and aarch64 all PASS except clippy (upstream); the map of old to new commit hashes
+- `docs/native/evidence/2026-11-12-s28.json`: S2.8 on 498cdfe, x86_64 and aarch64. Everything passes except clippy (upstream). The x86_64 tests failed on a test database with leftover catalog rows, and passed on a new database (the run x86_64-cleandb)

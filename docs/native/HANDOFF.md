@@ -25,7 +25,7 @@ The map from the old hashes to the new ones is in `docs/native/evidence/2026-11-
 ## Tests run
 
 - **4f8a89c,** on clean trees, on x86_64 and aarch64: the section 7 checks and `native-diff.sh` PASS on both. Clippy is the exception, and fails only on upstream code: hostcmd.rs, hostdb.rs and hostifs.rs, as upstream's CI does.
-- **S2.8 (e6b7f5e)** has a development run on aarch64 only: native-diff PASS, 385/385 OpenRPG programs identical, NBENCH1 -20.4%. That same run failed `cargo fmt --check` and the tripwire test, because the tree it ran on predates the final formatting and the reviewed hash. Both were fixed before the commit; locally, `cargo fmt --check` passes on e6b7f5e. It has no formal evidence on both platforms yet.
+- **S2.8, on 498cdfe:** formal evidence on both platforms, in `docs/native/evidence/2026-11-12-s28.json`. Everything passes except clippy (upstream). On x86_64 the test suites failed once, on a database an interrupted run had left catalog rows in. They passed on a new database.
 
 ## Environment
 
@@ -39,6 +39,7 @@ The map from the old hashes to the new ones is in `docs/native/evidence/2026-11-
 
 - **Clippy** `chunks_exact_to_as_chunks` in the upstream host servers: hostcmd.rs:367, hostdb.rs:657, hostifs.rs:217.
 - **Intermittent upstream tests when the suite runs in parallel:** `save_changed_objects` and `verify22_joblog_info_in_a_system_job`.
+- **Catalog rows in library QTEMP (literally) after an interrupted run.** They make `change_a_physical_file_with_a_logical_file_over_it` fail with CPF5813 on that database, and `qtemp::cleanup` at init does not remove them. Use a new database for evidence runs.
 - **A panic in rpgrt/src/rpg/data.rs:184** with OpenRPG's `test194_fixed_cspec_err_move_float.rpgle`, in both engines: upstream code, moved unchanged.
 
 ## Limits
@@ -54,7 +55,6 @@ The map from the old hashes to the new ones is in `docs/native/evidence/2026-11-
 
 ## Next step
 
-1. Formal evidence of e6b7f5e (S2.8) on both platforms: `target/dev/evidence-stage1.sh` on clean trees.
 2. Stage 2 goes on: the commonest BIFs (%LEN, %TRIM, %SUBST, %CHAR), using the `precision` pattern of asking the interpreter for static facts once; then MOVE/MOVEL; then arrays with constant indexes.
 3. `native-tools`, and a production-style build of an application (OrderDesk) under `rust`.
 4. At the end: rebase on origin/main again, run the checks, then send the upstream reports.
