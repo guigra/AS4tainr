@@ -1,0 +1,260 @@
+{
+  "topic": "native engine stage 2 up to S2.8, on 498cdfe",
+  "date": "2026-11-12",
+  "branch": "native/engine",
+  "commit": "498cdfe",
+  "tree": "69b1269e7dd1b8f08e5576b9570e3cc3574bf1d7",
+  "runs": [
+    {
+      "id": "aarch64",
+      "platform": "aarch64 (jsr-test-arm)",
+      "logs_dir": "target/evidence/2026-11-12-s28-aarch64",
+      "steps": {
+        "1-fmt": {
+          "exit": 0,
+          "start": "2026-11-12T11:58:17Z",
+          "end": "2026-11-12T11:58:20Z",
+          "command": "cargo fmt --all -- --check",
+          "status": "PASS"
+        },
+        "2-clippy": {
+          "exit": 101,
+          "start": "2026-11-12T11:58:20Z",
+          "end": "2026-11-12T11:59:49Z",
+          "command": "cargo clippy --locked --all-targets -- -D warnings",
+          "status": "FAIL",
+          "cause": "upstream code only: clippy::chunks_exact_to_as_chunks at core/src/hostcmd.rs:367, core/src/hostdb.rs:657, core/src/hostifs.rs:217; no finding in native code"
+        },
+        "3-test": {
+          "exit": 0,
+          "start": "2026-11-12T11:59:49Z",
+          "end": "2026-11-12T12:13:36Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked",
+          "status": "PASS"
+        },
+        "4-test-release": {
+          "exit": 0,
+          "start": "2026-11-12T12:13:36Z",
+          "end": "2026-11-12T12:37:25Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked --release",
+          "status": "PASS"
+        },
+        "5-build-release": {
+          "exit": 0,
+          "start": "2026-11-12T12:37:25Z",
+          "end": "2026-11-12T12:37:27Z",
+          "command": "cargo build --locked --release",
+          "status": "PASS"
+        },
+        "6-demo": {
+          "exit": 0,
+          "start": "2026-11-12T12:37:28Z",
+          "end": "2026-11-12T12:37:37Z",
+          "command": "env AS4TAINR_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_demo AS4TAINR_BIN=target/debug/as4tainr scripts/demo.sh",
+          "status": "PASS"
+        },
+        "7-native-diff": {
+          "exit": 0,
+          "start": "2026-11-12T12:37:37Z",
+          "end": "2026-11-12T13:13:38Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr NATIVE_DIFF_OUT=/home/ctl/data/as4tainr-native/evidence/2026-11-12-s28-aarch64/native-diff scripts/native-diff.sh",
+          "status": "PASS"
+        },
+        "8-bench": {
+          "exit": 0,
+          "start": "2026-11-12T13:13:39Z",
+          "end": "2026-11-12T13:21:45Z",
+          "command": "env AS4TAINR_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_bench NATIVE_BENCH_OUT=/home/ctl/data/as4tainr-native/evidence/2026-11-12-s28-aarch64/bench scripts/native-bench.sh",
+          "status": "PASS"
+        }
+      },
+      "logs_sha256": {
+        "0-platform.log": "a8620286bf212bbf60db7304ef39df841e4053586dd2e1ead5428b2dd43c62af",
+        "1-fmt.log": "e95ad7a0281da57156d74f9ca39da40fb76d96f2a945a8916259f217d768b0fc",
+        "2-clippy.log": "071452f254b94f96b62491ff84cae46a15cbce24a683b338f2c0e0b58fc3a340",
+        "3-test.log": "ce43e3a57f29465dafbaf5770e5f18a57f7d253c2a273912a6d6050daa07b18d",
+        "4-test-release.log": "49c1be8afafa3596fd99f0218564e8b1e02e27aab33a45e5e4a38883397cfadc",
+        "5-build-release.log": "7d17d906f15ec7503cee60a346486c88750143e662d95008f072efd09dbe5111",
+        "6-demo.log": "96b056717db4e627ed820fd1bd5f723d677cfa181a2f55cc73a2dccfbe55d92c",
+        "7-native-diff.log": "468a1ecaecdb31272b53cc8ecd4d7bac0390451c6140f831070e1fa699b95326",
+        "8-bench.log": "1d53a75495d67dc43eb8b07ec9cfbee7aa8081831114d3aa7e0a122397c7314d",
+        "artifacts.sha256": "680d9b1baa0e8de495d18b3558c9e3561bf7301373f84703c95f18f9beb80c4f",
+        "bench/binary.sha256": "33e77851273e9109951d9101510a9f7e2974c2ba4e7d87df9fe0ec2f97081f0f",
+        "bench/build-interp.log": "6dfe5b8ea6a1fac600d3e03a58a2ffc2aad26acf0596e67ff498c14ce8348606",
+        "bench/build-native.log": "a4383ea989edfd35aeb8fa6686630c31b97298c14611330887f21d808cc5738d",
+        "bench/emit.log": "d452dbaba79354eb6884835b8d45ec249a91e84b2106840126e9b4a045a47d7d",
+        "bench/init.log": "ca275796f25742e5725d3456f490fe15c47eddceda010ad02116373bf31f522e",
+        "bench/interp.output": "d452dbaba79354eb6884835b8d45ec249a91e84b2106840126e9b4a045a47d7d",
+        "bench/rust.output": "d452dbaba79354eb6884835b8d45ec249a91e84b2106840126e9b4a045a47d7d",
+        "bench/summary.json": "3735b5107af11e4250544730b074de39e3efad85e092fbde9b0505c58cbfd0fe",
+        "native-diff/1-demo-interp.log": "9af924ec2679913e331d940f8235a5614ea9b2821c4e58f8efee0a461c470c5e",
+        "native-diff/1-interp.log": "c25b32be98c1b7a11b296b6ae04bb931d6817f24af9d017a84fcbf60c05932e4",
+        "native-diff/1-interp.res": "2b11a8e8f1f4494377fb31b66ebfecf67b38c4987b849f48447457676c7dab08",
+        "native-diff/2-build.log": "8a5f7b3a263c582516565e6ef4d4abed4369a8882316c2588c0b3f959d555227",
+        "native-diff/3-level1.log": "e94dbd752fb9a1df4f23af2a1efa85bc4b125f9ec75b21b4147db89aec0b94d4",
+        "native-diff/4-auto.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-diff/4-auto.log": "7a12a11409955be360bd61ed34b47de33b0d5dcd139f7893b6aff87b7bb2d4fa",
+        "native-diff/4-auto.refusals": "1404f266fb5ae9580d4dc455380676c0a6d8f334718745b5ee9fcf361929cc46",
+        "native-diff/4-auto.res": "2b11a8e8f1f4494377fb31b66ebfecf67b38c4987b849f48447457676c7dab08",
+        "native-diff/4-rust.log": "0711b5b9f810b676226cdddd7feec535d15c79d7894de2de3e69ae790215ce63",
+        "native-diff/4-rust.refusals": "69fff5dd4ddfc001536d6128752bc1921954bfe38eb156813a25bb2433d4182a",
+        "native-diff/4-rust.res": "61bcaf31f63d9ad1f73f8e1759a756c37d3d9b1523d7d316aea67a743b4ce409",
+        "native-diff/5-demo-rust.log": "9af924ec2679913e331d940f8235a5614ea9b2821c4e58f8efee0a461c470c5e",
+        "native-diff/5-demo.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-diff/logs.sha256": "a1a01ef9c7510eee89e328ddaeeec9a7232a7ac263b78f20df369b5db04dc621",
+        "native-diff/status.tsv": "4b4633e64999110b9269b1a419d7e8e51580b67b5a339fc5aa0031c6e262766e",
+        "status.tsv": "e5d63b96397ae6565275607570bb68e3400b655314d0b4c8a7fe28e368869bda"
+      }
+    },
+    {
+      "id": "x86_64",
+      "platform": "x86_64 (this host)",
+      "logs_dir": "target/evidence/2026-11-12-s28-x86_64",
+      "steps": {
+        "1-fmt": {
+          "exit": 0,
+          "start": "2026-11-12T12:00:31Z",
+          "end": "2026-11-12T12:00:40Z",
+          "command": "cargo fmt --all -- --check",
+          "status": "PASS"
+        },
+        "2-clippy": {
+          "exit": 101,
+          "start": "2026-11-12T12:00:40Z",
+          "end": "2026-11-12T12:04:21Z",
+          "command": "cargo clippy --locked --all-targets -- -D warnings",
+          "status": "FAIL",
+          "cause": "upstream code only: clippy::chunks_exact_to_as_chunks at core/src/hostcmd.rs:367, core/src/hostdb.rs:657, core/src/hostifs.rs:217; no finding in native code"
+        },
+        "3-test": {
+          "exit": 101,
+          "start": "2026-11-12T12:04:21Z",
+          "end": "2026-11-12T12:24:07Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked",
+          "status": "FAIL",
+          "cause": "environment: 248 passed, 1 failed (rla_test change_a_physical_file_with_a_logical_file_over_it, CPF5813 CHGLP already exists in library QTEMP). The shared test database held catalog rows in library QTEMP left by an interrupted run (2026-11-12 10:29). The same test passes on a new database (run x86_64-cleandb) and on aarch64"
+        },
+        "4-test-release": {
+          "exit": 101,
+          "start": "2026-11-12T12:24:07Z",
+          "end": "2026-11-12T13:16:33Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked --release",
+          "status": "FAIL",
+          "cause": "environment: 248 passed, 1 failed (rla_test change_a_physical_file_with_a_logical_file_over_it, CPF5813 CHGLP already exists in library QTEMP). The shared test database held catalog rows in library QTEMP left by an interrupted run (2026-11-12 10:29). The same test passes on a new database (run x86_64-cleandb) and on aarch64"
+        },
+        "5-build-release": {
+          "exit": 0,
+          "start": "2026-11-12T13:16:33Z",
+          "end": "2026-11-12T13:16:35Z",
+          "command": "cargo build --locked --release",
+          "status": "PASS"
+        },
+        "6-demo": {
+          "exit": 0,
+          "start": "2026-11-12T13:16:39Z",
+          "end": "2026-11-12T13:16:57Z",
+          "command": "env AS4TAINR_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_demo AS4TAINR_BIN=target/debug/as4tainr scripts/demo.sh",
+          "status": "PASS"
+        },
+        "7-native-diff": {
+          "exit": 0,
+          "start": "2026-11-12T13:16:57Z",
+          "end": "2026-11-12T14:07:12Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr NATIVE_DIFF_OUT=/home/ctl/data/Projects/PERSONAL/IBMi/AS4tainr/target/evidence/2026-11-12-s28-x86_64/native-diff scripts/native-diff.sh",
+          "status": "PASS"
+        },
+        "8-bench": {
+          "exit": 0,
+          "start": "2026-11-12T14:07:13Z",
+          "end": "2026-11-12T14:28:20Z",
+          "command": "env AS4TAINR_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_bench NATIVE_BENCH_OUT=/home/ctl/data/Projects/PERSONAL/IBMi/AS4tainr/target/evidence/2026-11-12-s28-x86_64/bench scripts/native-bench.sh",
+          "status": "PASS",
+          "note": "the host was short of memory during the run (about 500 MB available)"
+        }
+      },
+      "logs_sha256": {
+        "0-platform.log": "520eaa2bf230c7b19d001a207a65c5b0cf28711e9bb1c4de19610b2eeb1f4b16",
+        "1-fmt.log": "e95ad7a0281da57156d74f9ca39da40fb76d96f2a945a8916259f217d768b0fc",
+        "2-clippy.log": "9ba82bdc571c8d1cba770933668eda6266e6ae6c30835096cf4696a71475bbb9",
+        "3-test.log": "355804996b9458fd233b4d452387cb724f3c24d954b2342ad67e91d55c228634",
+        "4-test-release.log": "52663682af456fdd558838dc9a8dd21eb028eeb155cbb6cccd21fb81fa935499",
+        "5-build-release.log": "d498d80c1fe09bfbe4113c8637df8c4d1794cada0bae245cb90de5d608a3acc3",
+        "6-demo.log": "96b056717db4e627ed820fd1bd5f723d677cfa181a2f55cc73a2dccfbe55d92c",
+        "7-native-diff.log": "c56a48bd004c6545d5dc12c3c71e541130e0bc9d7c64309f64401cf6ab6bf859",
+        "8-bench.log": "3d26821172633b2ad195c913d6b463782b2c796f959c7943a929ceaa99b515e6",
+        "artifacts.sha256": "e0e5cb4393f2d04aadbd8867228b32fa2856d690658ab465434da8d6bfb7ad7a",
+        "bench/binary.sha256": "688fe6b65b577a937142398f8439f961826492426b008d186ff079715a8e4d97",
+        "bench/build-interp.log": "0e8b13aca2bbf2e6f0ed273c91b36f37e7df485bde3e026238b52588ed35dff4",
+        "bench/build-native.log": "a1b16d23cac98f560c1f25e56dd738ca48ccd57f564c5564d4dafee2fdaa8229",
+        "bench/emit.log": "d452dbaba79354eb6884835b8d45ec249a91e84b2106840126e9b4a045a47d7d",
+        "bench/init.log": "ca275796f25742e5725d3456f490fe15c47eddceda010ad02116373bf31f522e",
+        "bench/interp.output": "d452dbaba79354eb6884835b8d45ec249a91e84b2106840126e9b4a045a47d7d",
+        "bench/rust.output": "d452dbaba79354eb6884835b8d45ec249a91e84b2106840126e9b4a045a47d7d",
+        "bench/summary.json": "6918f1c99c4bb341ee5119224f41b0be568f114b483cd18f0bc3329dcf107c61",
+        "native-diff/1-demo-interp.log": "9af924ec2679913e331d940f8235a5614ea9b2821c4e58f8efee0a461c470c5e",
+        "native-diff/1-interp.log": "5fe3d2b3f445f781d1e6017969a794814b44657c72951a5c57ec6330f8c12e00",
+        "native-diff/1-interp.res": "b24312ee9f13abf16e032432a8f77e1d560a95f9bec2ed91249cae07d2411fe4",
+        "native-diff/2-build.log": "5260f9c562294f0aae2757b4a67237dfe78f00dbae3aaa8c41881a31896678e8",
+        "native-diff/3-level1.log": "a9b6b36bf6ba3fa38f7b5827479a1a8907cc78d068f45e6b5ab025278b717a5f",
+        "native-diff/4-auto.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-diff/4-auto.log": "02da2a51af51e70d0a5f2aa04d7b5f3f8de8e6ce1d38c5d3c314fdc504c84e91",
+        "native-diff/4-auto.refusals": "49e00068a94ff7c44cd7ce79abadd486f2784b74edf7073098ccd4afe2de764b",
+        "native-diff/4-auto.res": "b24312ee9f13abf16e032432a8f77e1d560a95f9bec2ed91249cae07d2411fe4",
+        "native-diff/4-rust.log": "1fc73a2457d7d9e9dbbb7b163d3a1252d6f04a2a36d1fbda618fb7b39e02956b",
+        "native-diff/4-rust.refusals": "3c429914300c48f016fd67e4dff7aa4a309199d247d846662f9a40ba3f37d65f",
+        "native-diff/4-rust.res": "7b724f7eb809338b9e99f99f8217fc930a04d8875339150030a27c14c4c116ec",
+        "native-diff/5-demo-rust.log": "9af924ec2679913e331d940f8235a5614ea9b2821c4e58f8efee0a461c470c5e",
+        "native-diff/5-demo.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-diff/logs.sha256": "63b5e81a22e8809ae874fb6ce375dae97f8e549ef6c85674ae622022c4a0edde",
+        "native-diff/status.tsv": "4b4633e64999110b9269b1a419d7e8e51580b67b5a339fc5aa0031c6e262766e",
+        "status.tsv": "840e667b64856069adb1904d5dfdd4d06858794306d566b7c9a040087388ec09"
+      }
+    },
+    {
+      "id": "x86_64-cleandb",
+      "platform": "x86_64 (this host), new database ev_clean",
+      "logs_dir": "target/evidence/2026-11-12-s28-x86_64-cleandb",
+      "steps": {
+        "3-test": {
+          "exit": 0,
+          "start": "2026-11-12T14:28:54Z",
+          "end": "2026-11-12T14:44:43Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_clean cargo test --locked",
+          "status": "PASS"
+        },
+        "4-test-release": {
+          "exit": 0,
+          "start": "2026-11-12T14:44:45Z",
+          "end": "2026-11-12T15:30:46Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_clean cargo test --locked --release",
+          "status": "PASS"
+        }
+      },
+      "logs_sha256": {
+        "0-platform.log": "08f1650f0d76a564c76989bf9c1689f2692ac80cc435fa458b5b7a537d119147",
+        "3-test.log": "aa7ee90dc5749bba30d1f38a1d3c9a603d9976e22c176b6b01b9fac8cb9af9d1",
+        "4-test-release.log": "81d5081a08e2ff8d0e9995d1771c760e837cd510adb0fc82915e4f3a8a2762fd",
+        "status.tsv": "ddc6096ffe3b6d78813d09eff6d3f9368d949e219735701d543dd32e857a3cd3"
+      }
+    }
+  ],
+  "levels": {
+    "native-diff": "PASS on both platforms: 364 routines generated and built; level1 corpus identical; level2-auto 628 tests the same; level2-rust 606 of 628 the same, 23 programs refused (source differs by process); level3-demo 7 cases the same",
+    "bench_nbench1_p50_s": {
+      "aarch64": {
+        "interp": 2.0275,
+        "rust": 1.6122,
+        "change": "-20.5%"
+      },
+      "x86_64": {
+        "interp": 3.8314,
+        "rust": 3.3131,
+        "change": "-13.5%"
+      }
+    }
+  },
+  "not_run": {
+    "level3-golden": "NOT_RUN: no captures in target/ibmi/golden on the evidence trees"
+  },
+  "finding": "catalog rows in library QTEMP (literally) survive an interrupted run, and qtemp::cleanup at init does not remove them; to report upstream with the others"
+}
