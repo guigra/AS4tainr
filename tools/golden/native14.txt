@@ -1,0 +1,4 @@
+# Captures for the upstream fix of issue #3: nested MONITOR groups.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native14.txt -f tools/golden/native14
+n14_crt_mon|!system "CRTSQLRPGI OBJ(@LIB@/GN14MON) SRCSTMF('@HOME@/gld/gn14mon.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n14_mon|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN14MON)"; cat gn1.out; rm -f gn1.out
