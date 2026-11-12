@@ -15,7 +15,7 @@ The plan is in `PLAN.md` and the decisions in `adr/0001`-`0005`, all accepted by
 | N3 Runtime adapter | `native_rt`: `Runtime` for `Machine`, `settle`, the dispatcher | Implemented; validated locally |
 | N4 Differential harness | `core/tests/native_diff.rs`, `scripts/native-diff.sh`, `scripts/native-corpus.sh` (external corpora) | Implemented; validated locally |
 | N5 Build tooling and baseline | `native-tools`, production builds, performance baseline | Baseline recorded (`scripts/native-bench.sh`, manifest of 769f0d5); `native-tools` not started |
-| N6… Stage 2 | Lowering, one construct per step | S2.1-S2.4 implemented and validated locally (ADR 0006): conditions, FOR/DO control, numeric EVAL, fixed-form arithmetic, character fields; S2.5 (dispatch cost) in progress |
+| N6… Stage 2 | Lowering, one construct per step | S2.1-S2.8 implemented and validated locally (ADR 0006): conditions, FOR/DO control, numeric EVAL, fixed-form arithmetic incl. DIV/MVR, character fields, file fields, procedures (locals, parameters); the dispatcher allocates nothing per entry |
 | Final | Retiring the interpreter (the user's goal; prerequisites in PLAN.md) | Not started |
 
 ## Phase 1: the `rpgrt` crate
@@ -97,16 +97,17 @@ Notes:
 
 ## Stage 2 and results so far
 
-- **Parity.** On commit 769f0d5, `native-diff.sh` passes every level on x86_64. On aarch64 it passes every level except one intermittent upstream test under `auto` (`verify22`, see fidelity.md). In the development runs of S2.3 and S2.4, the 385 programs of OpenRPG's test corpus that run without files give the same output and exit status under both engines: 260 succeed and 125 fail the same way.
+- **Parity.** On commit 4f8a89c (rebased on the current upstream, f20febb), `native-diff.sh` passes every level on x86_64 and on aarch64: 626 tests with the same results under `auto`, and the corpus identical. In the development runs of S2.3 to S2.8, the 385 programs of OpenRPG's test corpus that run without files give the same output and exit status under both engines.
 - **Speed.** NBENCH1 (`samples/native/NBENCH1.rpgle`), release build, p50 over 20 calls:
 
-  | Platform | Interpreter | Native (stage 2 on 769f0d5) | Change |
-  | --- | --- | --- | --- |
-  | x86_64 | 3.80 s | 3.25 s | -14.6% |
-  | aarch64 | 2.01 s | 1.65 s | -17.8% |
+  | Platform | Interpreter | Native | Change | Commit |
+  | --- | --- | --- | --- | --- |
+  | x86_64 | 3.97 s | 3.07 s | -22.6% | 4f8a89c (S2.1-S2.7) |
+  | aarch64 | 2.01 s | 1.66 s | -17.8% | 4f8a89c (S2.1-S2.7) |
+  | aarch64 | 2.00 s | 1.60 s | -20.4% | S2.8, development run |
 
   Allocations and database round trips are not measured yet.
-- **IBM i contrast.** Expected values of the native unit programs come from IBM Docs and from PUB400 captures (`tools/golden/native1-4.txt`, IBM i 7.5, 2026-11-12). Those captures confirmed four interpreter defects (fidelity.md), to be reported upstream when this work is finished.
+- **IBM i contrast.** Expected values of the native unit programs come from IBM Docs and from PUB400 captures (`tools/golden/native1-5.txt`, IBM i 7.5, 2026-11-12). Those captures confirmed four interpreter defects (fidelity.md), to be reported upstream when this work is finished.
 
 ## Evidence
 
@@ -114,3 +115,4 @@ Notes:
 - `docs/native/evidence/2026-11-11-runtime-extraction-run2.json`: second and third runs (x86_64 and aarch64)
 - `docs/native/evidence/2026-11-12-stage1.json`: stage 1 on 96bd6a7, x86_64 and aarch64 (level-2 rust coverage NOT_DEMONSTRATED, bench FAIL: harness defects fixed in b0315e1)
 - `docs/native/evidence/2026-11-12-stage2.json`: stages 1 and 2 (S2.1, S2.2) on 769f0d5, x86_64 and aarch64, with the first performance baseline
+- `docs/native/evidence/2026-11-12-rebased.json`: stage 1 and S2.1-S2.7 on 4f8a89c, rebased on origin/main; x86_64 and aarch64 all PASS except clippy (upstream); the map of old to new commit hashes
