@@ -148,12 +148,34 @@ if [ $r -eq 0 ] && diff <(demo_out "$out/1-demo-interp.log") <(demo_out "$out/5-
 else
   step level3-demo FAIL "see 5-demo-rust.log, 5-demo.diff"
 fi
-if [ -d target/ibmi/golden ]; then
-  AS4TAINR_RPG_ENGINE=rust AS4TAINR_BIN=target/debug/as4tainr python3 tools/golden.py target/ibmi/golden > "$out/5-golden.log" 2>&1
-  if [ $? -eq 0 ]; then step level3-golden PASS "see 5-golden.log"; else step level3-golden FAIL "see 5-golden.log"; fi
+# tools/golden.py over the lists whose captures are in target/ibmi/golden,
+# under each engine: the two reports must be the same. Whether they match
+# IBM i is golden.py's report; the interpreter's known differences are in
+# docs/native/fidelity.md. The native*.txt lists are PUB400 programs whose
+# results core/tests/native_units.rs checks, so they are not run here.
+lists=()
+for l in tools/golden/*.txt; do
+  case $(basename "$l") in native*) continue ;; esac
+  for n in $(grep -v '^#' "$l" | cut -d'|' -f1); do
+    if [ -f "target/ibmi/golden/$n.txt" ]; then lists+=("$l"); break; fi
+  done
+done
+if [ ${#lists[@]} -gt 0 ]; then
+  ok=1
+  for eng in interp rust; do
+    url=$(newdb "native_diff_golden_$eng") || { ok=0; break; }
+    AS4TAINR_RPG_ENGINE=$eng AS4TAINR_DATABASE_URL="$url" AS4TAINR_BIN=target/debug/as4tainr \
+      python3 tools/golden.py --bin target/debug/as4tainr --files tools/golden/files \
+      target/ibmi/golden "${lists[@]}" > "$out/5-golden-$eng.log" 2>&1
+  done
+  if [ $ok -eq 1 ] && diff "$out/5-golden-interp.log" "$out/5-golden-rust.log" > "$out/5-golden.diff"; then
+    step level3-golden PASS "${#lists[@]} lists, the same report under both engines"
+  else
+    step level3-golden FAIL "see 5-golden-interp.log, 5-golden-rust.log, 5-golden.diff"
+  fi
 else
-  printf 'level3-golden\tNOT_RUN\tno captures in target/ibmi/golden\n' >> "$out/status.tsv"
-  echo "native-diff: level3-golden: NOT_RUN (no captures in target/ibmi/golden)"
+  printf 'level3-golden\tNOT_RUN\tno captures of tools/golden.py lists in target/ibmi/golden\n' >> "$out/status.tsv"
+  echo "native-diff: level3-golden: NOT_RUN (no captures of tools/golden.py lists in target/ibmi/golden; the native*.txt lists are checked by core/tests/native_units.rs)"
 fi
 
 (cd "$out" && sha256sum ./*.log ./*.res ./*.refusals 2>/dev/null) > "$out/logs.sha256"

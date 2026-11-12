@@ -73,6 +73,10 @@ Every test's result must be the same in both runs. Under `rust`, a program witho
 
 The outputs must be the same, and both must match the golden files.
 
+*As implemented (2026-11-12).* `tools/golden.py` runs over the lists of `tools/golden/` whose captures are in `target/ibmi/golden`, under each engine, and the two reports must be the same. Whether they match IBM i is golden.py's own report. The interpreter's known differences from IBM i are in `fidelity.md`, and the backend reproduces them (CLAUDE.native.md section 4), so matching IBM i cannot be a parity condition.
+
+The `native*.txt` lists are PUB400 programs, which write to a stream file through `QSYS2.IFS_WRITE_UTF8`. Their results are the expected values of `core/tests/native_units.rs`, so this level does not run them.
+
 **Build cost.** Changing `AS4TAINR_NATIVE_DIR` rebuilds `rpgnative`, then `core`, the binary and every test binary. That is about 6 minutes and more per build on these 2-CPU machines. Level 2 is two test runs plus one rebuild. Phase N4 budgets for it: x86_64 and aarch64 in parallel, one each, and separate `CARGO_TARGET_DIR`s for the emitting build and the native build, so the first is never invalidated. If one crate holding every generated routine compiles too slowly, the registry is split by fingerprint prefix (ADR 0003).
 
 `scripts/native-diff.sh` runs the three levels in order. It writes `target/evidence/<date>-native-diff/` and a manifest (section 8), and fails on any difference, any error, or any level that did not run.
