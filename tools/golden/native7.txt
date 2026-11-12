@@ -1,0 +1,5 @@
+# Captures for stage 2 of the native backend, S2.10: %SUBST.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native7.txt -f tools/golden/native7
+n7_crt_subst|!system "CRTSQLRPGI OBJ(@LIB@/GN7SUBST) SRCSTMF('@HOME@/gld/gn7subst.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n7_subst|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN7SUBST)"; cat gn1.out; rm -f gn1.out
+n7_crt_const|!system "CRTBNDRPG PGM(@LIB@/GN7CONST) SRCSTMF('@HOME@/gld/gn7const.rpgle')"

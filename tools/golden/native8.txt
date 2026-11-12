@@ -1,0 +1,4 @@
+# Captures for stage 2 of the native backend, S2.11: fixed-form MOVE and MOVEL.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native8.txt -f tools/golden/native8
+n8_crt_move|!system "CRTSQLRPGI OBJ(@LIB@/GN8MOVE) SRCSTMF('@HOME@/gld/gn8move.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n8_move|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN8MOVE)"; cat gn1.out; rm -f gn1.out
