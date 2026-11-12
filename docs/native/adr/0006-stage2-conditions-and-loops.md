@@ -114,3 +114,20 @@ The remainder is the machine's (`Machine::remainder`), reached through `Runtime:
 Anywhere else the interpreter runs the instruction, as in stage 1.
 
 **Expected values.** `core/tests/native/NPROC.rpgle`: a FOR loop and EVAL on locals, a parameter passed by reference and changed, a CONST parameter read, recursion. The values are the arithmetic, under the parameter rules of IBM Docs "Passing by Reference" and "Passing by Value".
+
+## S2.9: %TRIM, %TRIML, %TRIMR and %LEN (rpgcg 0.1.0+stage2.9)
+
+**What changes.** A character expression can now hold %TRIM, %TRIML or %TRIMR of one argument, itself a character expression. The generated helper `t<pc>_<path>` calls `rpgrt::native::trim`, which drops leading and trailing blanks (X'40') as the interpreter's `"TRIM" | "TRIML" | "TRIMR"` arm does when there is no second argument. %LEN of an eligible fixed-length character field becomes a numeric literal: its length, which is what the interpreter's `type_of(arg).len()` gives. A varying field is not eligible, so its %LEN, which depends on the current length, stays with the interpreter.
+
+**Precision.** A numeric expression with %LEN in it still asks `Runtime::precision` for the precision of its operations, from the original expression. So the interpreter's precision rules for %LEN apply unchanged.
+
+**Not lowered.** A second argument of %TRIM (the characters to trim), %TRIM in a condition, and %LEN of anything other than a fixed-length character field.
+
+**Expected values.** `core/tests/native/NBIF.rpgle`, which covers:
+
+- each of the three functions;
+- a trim in a concatenation and in EVALR;
+- a field that is all blanks;
+- %LEN in arithmetic.
+
+The expected values were captured on PUB400: tools/golden/native6.txt n6_bif (IBM i 7.5, 2026-11-12).

@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.8");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.9");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -179,6 +179,14 @@ pub mod ir {
         Cat {
             left: Box<CharExpr>,
             right: Box<CharExpr>,
+            path: Vec<u8>,
+        },
+        /// %TRIM (both), %TRIML (`left`) or %TRIMR (`right`) of one
+        /// argument (S2.9), and its place in the statement's expression.
+        Trim {
+            inner: Box<CharExpr>,
+            left: bool,
+            right: bool,
             path: Vec<u8>,
         },
     }
@@ -793,6 +801,24 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
             let _ = writeln!(
                 helpers,
                 "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let x = {x};\n    let y = {y};\n    let mut s = x.chars()?;\n    s.extend(y.chars()?);\n    Ok(rpgrt::rpg::data::Value::Char(s))\n}}"
+            );
+            format!("{name}(rt)?")
+        }
+        ir::CharExpr::Trim {
+            inner,
+            left,
+            right,
+            path,
+        } => {
+            let id: String = path
+                .iter()
+                .map(|b| if *b == 0 { 'l' } else { 'r' })
+                .collect();
+            let name = format!("t{pc}_{id}");
+            let x = char_expr(pc, inner, helpers);
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let x = {x};\n    rpgrt::native::trim(&x, {left}, {right})\n}}"
             );
             format!("{name}(rt)?")
         }

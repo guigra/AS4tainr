@@ -174,6 +174,20 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                 path,
             })
         }
+        // %TRIM, %TRIML, %TRIMR of one character expression (S2.9).
+        Expr::Bif(b, args) if matches!(b.as_str(), "TRIM" | "TRIML" | "TRIMR") => {
+            let [inner] = args.as_slice() else {
+                return None;
+            };
+            let mut ip = path.clone();
+            ip.push(0);
+            Some(ir::CharExpr::Trim {
+                inner: Box::new(char_expr(cx, inner, used, ip)?),
+                left: b != "TRIMR",
+                right: b != "TRIML",
+                path,
+            })
+        }
         _ => {
             let o = any_operand(cx, e, used)?;
             is_char(&o).then_some(ir::CharExpr::Leaf(o))
@@ -238,6 +252,24 @@ fn any_operand(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Oper
             Some(ir::Operand::Num { m, s: d.scale() })
         }
         Expr::Str(b) => Some(ir::Operand::Str(b.clone())),
+        // %LEN of a fixed-length character field (S2.9): its length, a
+        // constant (the interpreter's `type_of(arg).len()`; varying
+        // fields are not eligible).
+        Expr::Bif(b, args) if b == "LEN" => {
+            let [arg] = args.as_slice() else {
+                return None;
+            };
+            match variable(cx, arg, used)? {
+                ir::Operand::Var {
+                    ty: ir::Ty::Char(n),
+                    ..
+                } => Some(ir::Operand::Num {
+                    m: i128::from(n),
+                    s: 0,
+                }),
+                _ => None,
+            }
+        }
         _ => variable(cx, e, used),
     }
 }

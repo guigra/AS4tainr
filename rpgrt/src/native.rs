@@ -261,6 +261,26 @@ pub fn cmp(op: CmpOp, x: &Value, y: &Value) -> NResult<bool> {
     })
 }
 
+/// %TRIM, %TRIML and %TRIMR with no second argument (S2.9): the value's
+/// characters without leading (`left`) and trailing (`right`) blanks, as
+/// the interpreter computes them.
+pub fn trim(v: &Value, left: bool, right: bool) -> NResult<Value> {
+    let s = v.chars()?;
+    let lo = if left {
+        s.iter().take_while(|&&c| c == data::BLANK).count()
+    } else {
+        0
+    };
+    let rest = s.get(lo..).unwrap_or_default();
+    let keep = if right {
+        rest.len()
+            .saturating_sub(rest.iter().rev().take_while(|&&c| c == data::BLANK).count())
+    } else {
+        rest.len()
+    };
+    Ok(Value::Char(rest.get(..keep).unwrap_or_default().to_vec()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

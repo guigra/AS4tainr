@@ -354,3 +354,27 @@ async fn native_unit_lowered_procedures() {
     )
     .await;
 }
+
+// Stage 2, S2.9: %TRIM, %TRIML, %TRIMR and %LEN of character fields,
+// lowered to Rust (trimming in concatenation and EVALR, all blanks, %LEN
+// in arithmetic).
+// Source: golden capture tools/golden/native6.txt n6_bif (PUB400, IBM i 7.5, 2026-11-12)
+#[tokio::test]
+async fn native_unit_lowered_trim_len() {
+    let _ = require_db!();
+    expect(
+        "NBIF",
+        include_str!("native/NBIF.rpgle"),
+        &[
+            "TRIM [AB        ]",
+            "TRIML [AB        ]",
+            "TRIMR [  AB      ]",
+            "TRIM CAT [XYAB      ]",
+            "TRIM BLANKS [Q         ]",
+            "TRIM EVALR [        AB]",
+            "LEN 6",
+            "LEN EXPR 12",
+        ],
+    )
+    .await;
+}
