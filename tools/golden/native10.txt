@@ -1,0 +1,4 @@
+# Captures for an upstream report: fixed-form MOVE with a float field
+# (as4tainr panics in data.rs; what does the compiler say?).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native10.txt -f tools/golden/native10
+n10_crt_mvf|!system "CRTBNDRPG PGM(@LIB@/GN10MVF) SRCSTMF('@HOME@/gld/gn10mvf.rpgle')"
