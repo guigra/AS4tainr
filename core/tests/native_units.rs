@@ -265,3 +265,52 @@ async fn native_unit_lowered_eval() {
     )
     .await;
 }
+
+// Stage 2, S2.3: fixed-form ADD, SUB, MULT, Z-ADD and Z-SUB, lowered to
+// Rust: results, high-order truncation, MULT(H) and resulting indicators.
+// Source: golden capture tools/golden/native3.txt n3_arith (PUB400, IBM i 7.5, 2026-11-12)
+#[tokio::test]
+async fn native_unit_lowered_fixed_arithmetic() {
+    let _ = require_db!();
+    expect(
+        "NARITH",
+        include_str!("native/NARITH.rpgle"),
+        &[
+            "ARITH ADD 58.01",
+            "ARITH SUB -33.33 010",
+            "ARITH TRUNC 3",
+            "ARITH MULT 563.5",
+            "ARITH MULTH 563.6",
+            "ARITH MULTFULL 563.567",
+            "ARITH ZADD 45.6 100",
+            "ARITH ZSUB -12.34 010",
+            "ARITH ZERO .00 001",
+            "ARITH SUB1 -1.00",
+        ],
+    )
+    .await;
+}
+
+// Stage 2, S2.4: character EVAL, EVALR, concatenation of fixed-length
+// fields and comparisons (blank padding, EBCDIC order), lowered to Rust.
+// Source: golden capture tools/golden/native4.txt n4_char (PUB400, IBM i 7.5, 2026-11-12)
+#[tokio::test]
+async fn native_unit_lowered_characters() {
+    let _ = require_db!();
+    expect(
+        "NCHAR",
+        include_str!("native/NCHAR.rpgle"),
+        &[
+            "CHR CAT [AB   XYZ  ]",
+            "CHR TRUNC [AB  ]",
+            "CHR EVALR [       XYZ]",
+            "CHR EVALR TRUNC [ XYZ]",
+            "CHR PAD [Q         ]",
+            "CHR CMP PADDED EQ",
+            "CHR CMP LT",
+            "CHR CMP LOWER FIRST",
+            "CHR CMP DIGIT HIGH",
+        ],
+    )
+    .await;
+}

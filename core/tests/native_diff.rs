@@ -109,6 +109,16 @@ const CORPUS: &[Case] = &[
         source: include_str!("native/NEVAL.rpgle"),
         args: &[],
     },
+    Case {
+        name: "NARITH",
+        source: include_str!("native/NARITH.rpgle"),
+        args: &[],
+    },
+    Case {
+        name: "NCHAR",
+        source: include_str!("native/NCHAR.rpgle"),
+        args: &[],
+    },
 ];
 
 /// The library again, with the sample files and their data, as before

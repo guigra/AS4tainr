@@ -3,7 +3,7 @@
 //! instruction added upstream stops this building until the generator
 //! handles it (docs/native/adr/0001, 0005).
 
-use super::super::ast::{BinOp, Expr, FileOp, Stmt};
+use super::super::ast::{Arith, BinOp, Expr, FileOp, Stmt};
 use super::super::code::{Code, Ins};
 use super::super::data::DType;
 use super::super::program::{Program, Sym};
@@ -48,7 +48,7 @@ fn lowered(prog: &Program, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowe
         Ins::LoopTest {
             var, limit, down, ..
         } => ir::Lowered::LoopTest {
-            var: variable(prog, var, &mut used)?,
+            var: num_variable(prog, var, &mut used)?,
             limit: match limit {
                 Some(l) => Some(operand(prog, l, &mut used)?),
                 None => None,
@@ -56,13 +56,42 @@ fn lowered(prog: &Program, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowe
             down: *down,
         },
         Ins::LoopStep { var, by, down } => ir::Lowered::LoopStep {
-            var: variable(prog, var, &mut used)?,
+            var: num_variable(prog, var, &mut used)?,
             by: match by {
                 Some(b) => Some(operand(prog, b, &mut used)?),
                 None => None,
             },
             down: *down,
         },
+        // Fixed-form ADD, SUB, MULT, Z-ADD, Z-SUB with no E extender.
+        Ins::Stmt(Stmt::Arith {
+            op,
+            f1,
+            f2,
+            result,
+            ext,
+            ind,
+        }) if !ext.error && !ext.no_lock && ext.other.chars().all(|c| c == 'H') => {
+            let op = match op {
+                Arith::ZAdd => ir::FixOp::ZAdd,
+                Arith::ZSub => ir::FixOp::ZSub,
+                Arith::Add => ir::FixOp::Add,
+                Arith::Sub => ir::FixOp::Sub,
+                Arith::Mult => ir::FixOp::Mult,
+                Arith::Div | Arith::Mvr => return None,
+            };
+            ir::Lowered::Arith {
+                op,
+                f1: match f1 {
+                    Some(x) => Some(operand(prog, x, &mut used)?),
+                    None => None,
+                },
+                f2: operand(prog, f2, &mut used)?,
+                result: num_variable(prog, result, &mut used)?,
+                half_adjust: ext.half_adjust,
+                inds: !ind.is_empty(),
+            }
+        }
         // EVAL with no E extender (H is fine): stmt_e is then plain stmt.
         Ins::Stmt(Stmt::Eval {
             target,
@@ -70,17 +99,54 @@ fn lowered(prog: &Program, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowe
             ext,
             right,
         }) if !ext.error && !ext.no_lock && ext.other.chars().all(|c| c == 'H') => {
-            ir::Lowered::Eval {
-                target: variable(prog, target, &mut used)?,
-                value: num_expr(prog, value, &mut used, Vec::new())?,
-                half_adjust: ext.half_adjust,
-                right: *right,
+            let target = variable(prog, target, &mut used)?;
+            if is_char(&target) {
+                ir::Lowered::EvalChar {
+                    target,
+                    value: char_expr(prog, value, &mut used, Vec::new())?,
+                    half_adjust: ext.half_adjust,
+                    right: *right,
+                }
+            } else {
+                ir::Lowered::Eval {
+                    target,
+                    value: num_expr(prog, value, &mut used, Vec::new())?,
+                    half_adjust: ext.half_adjust,
+                    right: *right,
+                }
             }
         }
         _ => return None,
     };
     layout.extend(used);
     Some(l)
+}
+
+/// A character expression (S2.4): character literals and eligible
+/// character fields, joined with `+`.
+fn char_expr(
+    prog: &Program,
+    e: &Expr,
+    used: &mut Vec<String>,
+    path: Vec<u8>,
+) -> Option<ir::CharExpr> {
+    match e {
+        Expr::Bin(BinOp::Add, l, r) => {
+            let mut lp = path.clone();
+            lp.push(0);
+            let mut rp = path.clone();
+            rp.push(1);
+            Some(ir::CharExpr::Cat {
+                left: Box::new(char_expr(prog, l, used, lp)?),
+                right: Box::new(char_expr(prog, r, used, rp)?),
+                path,
+            })
+        }
+        _ => {
+            let o = any_operand(prog, e, used)?;
+            is_char(&o).then_some(ir::CharExpr::Leaf(o))
+        }
+    }
 }
 
 /// A numeric expression of +, - and * over literals and eligible fields
@@ -133,22 +199,44 @@ fn cond(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::Cond> {
         BinOp::Ge => ir::CmpOp::Ge,
         _ => return None,
     };
-    Some(ir::Cond::Cmp(
-        cmp,
-        operand(prog, l, used)?,
-        operand(prog, r, used)?,
-    ))
+    let (a, b) = (any_operand(prog, l, used)?, any_operand(prog, r, used)?);
+    (is_char(&a) == is_char(&b)).then_some(ir::Cond::Cmp(cmp, a, b))
 }
 
-/// A numeric literal or an eligible field.
-fn operand(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+/// A literal or an eligible field, of either class.
+fn any_operand(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
     match e {
         Expr::Num(d) => {
             let m: i128 = d.mantissa().to_string().parse().ok()?;
             Some(ir::Operand::Num { m, s: d.scale() })
         }
+        Expr::Str(b) => Some(ir::Operand::Str(b.clone())),
         _ => variable(prog, e, used),
     }
+}
+
+/// Whether an operand is character (else numeric).
+fn is_char(o: &ir::Operand) -> bool {
+    matches!(
+        o,
+        ir::Operand::Str(_)
+            | ir::Operand::Var {
+                ty: ir::Ty::Char(_),
+                ..
+            }
+    )
+}
+
+/// A numeric literal or an eligible numeric field.
+fn operand(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    let o = any_operand(prog, e, used)?;
+    (!is_char(&o)).then_some(o)
+}
+
+/// An eligible numeric field.
+fn num_variable(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    let o = variable(prog, e, used)?;
+    (!is_char(&o)).then_some(o)
 }
 
 /// An eligible field (ADR 0006): a global numeric scalar of the main
@@ -171,6 +259,7 @@ fn variable(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::Oper
         DType::Binary(d, s) => ir::Ty::Binary(d, s),
         DType::Int(n) => ir::Ty::Int(n),
         DType::Uns(n) => ir::Ty::Uns(n),
+        DType::Char(n) => ir::Ty::Char(n),
         _ => return None,
     };
     let excluded = v.local
