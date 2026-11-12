@@ -1,0 +1,5 @@
+# Captures for the upstream fix of issue #6 (%SUBST and %SCAN starts): the
+# edges a fix must keep (varying fields of length 0, start at the length).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native13.txt -f tools/golden/native13
+n13_crt_edge|!system "CRTSQLRPGI OBJ(@LIB@/GN13EDGE) SRCSTMF('@HOME@/gld/gn13edge.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n13_edge|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN13EDGE)"; cat gn1.out; rm -f gn1.out
