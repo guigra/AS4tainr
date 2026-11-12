@@ -78,10 +78,23 @@ pub(super) fn dispatch(m: &mut Machine<'_>, code: &Code, start: usize) -> Option
             ),
         );
     }
-    let Some(run) = table.find(prog, code).and_then(|e| e.run) else {
+    let Some(entry) = table.find(prog, code) else {
         return refuse(m, "a routine not found in the program".to_string());
     };
-    let mut rt = Rt { m, code };
+    let Some(run) = entry.run else {
+        return refuse(m, format!("no native code for {}", entry.place));
+    };
+    // Lowered code runs only in the routine's own context (S2.8): a main
+    // program routine with no procedure frame, a procedure's routine under
+    // that procedure's own frame. Elsewhere names may resolve otherwise.
+    let ok = match &entry.place {
+        native::Place::Proc(name, _) => match (m.frames.last(), prog.procs.get(name)) {
+            (Some(f), Some(pi)) => std::ptr::eq(f.proc, pi),
+            _ => false,
+        },
+        _ => m.frames.is_empty(),
+    };
+    let mut rt = Rt { m, code, ok };
     Some(run(&mut rt, start).map(|f| match f {
         rpgrt::native::Flow::Normal => Flow::Normal,
         rpgrt::native::Flow::Return(v) => Flow::Return(v),
@@ -103,6 +116,8 @@ fn abort(m: &mut Machine<'_>, msg: String) -> anyhow::Error {
 struct Rt<'r, 'a> {
     m: &'r mut Machine<'a>,
     code: &'r Code,
+    /// Lowered code may run here (`Runtime::native_ok`).
+    ok: bool,
 }
 
 /// The instruction at `pc` (borrowing only the routine, not the machine).
@@ -339,10 +354,33 @@ impl Runtime for Rt<'_, '_> {
         Ok(())
     }
 
-    fn in_procedure(&self) -> bool {
-        // Names resolve against the running procedure's locals first
-        // (`Machine::sym`): lowered code then lets the interpreter do it.
-        !self.m.frames.is_empty()
+    fn native_ok(&self) -> bool {
+        self.ok
+    }
+
+    fn local(&mut self, buf: usize, off: usize) -> NResult<(usize, usize)> {
+        // As `Machine::sym` places a local: a parameter passed by
+        // reference is the caller's storage, anything else the frame's.
+        let f = self
+            .m
+            .frames
+            .last()
+            .ok_or_else(|| anyhow!("native: a procedure local with no frame"))?;
+        let (b, o) = match f.alias.get(&buf) {
+            Some((b, o)) => (
+                *b,
+                off.checked_add(*o)
+                    .ok_or_else(|| anyhow!("native: a local's offset"))?,
+            ),
+            None => (
+                f.base
+                    .checked_add(buf)
+                    .ok_or_else(|| anyhow!("native: a local's buffer"))?,
+                off,
+            ),
+        };
+        self.m.check_buf(b)?;
+        Ok((b, o))
     }
 
     fn mem(&mut self) -> &mut rpgrt::rpg::mem::Mem {

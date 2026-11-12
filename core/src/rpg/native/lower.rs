@@ -14,18 +14,26 @@ use rpgcg::ir;
 /// layout its lowered code depends on (one line per field, for the
 /// fingerprint: docs/native/adr/0002, 0006).
 pub fn lower(prog: &Program, place: &Place, code: &Code) -> (Vec<ir::Ins>, Vec<String>) {
-    // Stage 2 lowers the main program's routines only (ADR 0006).
-    let main = matches!(place, Place::Detail | Place::Total | Place::Sub(_));
+    // The names the routine sees: the main program's, or a procedure's
+    // (its locals, and the globals bound into it); S2.8.
+    let cx = match place {
+        Place::Detail | Place::Total | Place::Sub(_) => Some(Cx {
+            prog,
+            syms: &prog.syms,
+            based: None,
+        }),
+        Place::Proc(name, _) => prog.procs.get(name).map(|pi| Cx {
+            prog,
+            syms: &pi.syms,
+            based: Some(&pi.based),
+        }),
+    };
     let mut layout = Vec::new();
     let ins = code
         .iter()
         .map(|i| {
             let (kind, what) = kind(&i.ins);
-            let lowered = if main {
-                lowered(prog, &i.ins, &mut layout)
-            } else {
-                None
-            };
+            let lowered = cx.as_ref().and_then(|cx| lowered(cx, &i.ins, &mut layout));
             ir::Ins {
                 kind,
                 line: i.line,
@@ -40,25 +48,33 @@ pub fn lower(prog: &Program, place: &Place, code: &Code) -> (Vec<ir::Ins>, Vec<S
     (ins, layout)
 }
 
+/// What lowering looks names up in.
+struct Cx<'p> {
+    prog: &'p Program,
+    syms: &'p super::super::program::SymMap,
+    /// A procedure's based locals (frame buffer → pointer).
+    based: Option<&'p std::collections::HashMap<usize, String>>,
+}
+
 /// What an instruction evaluates, lowered, when all of it is eligible.
-fn lowered(prog: &Program, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered> {
+fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered> {
     let mut used = Vec::new();
     let l = match i {
-        Ins::JumpIfNot(c, _) => ir::Lowered::Cond(cond(prog, c, &mut used)?),
+        Ins::JumpIfNot(c, _) => ir::Lowered::Cond(cond(cx, c, &mut used)?),
         Ins::LoopTest {
             var, limit, down, ..
         } => ir::Lowered::LoopTest {
-            var: num_variable(prog, var, &mut used)?,
+            var: num_variable(cx, var, &mut used)?,
             limit: match limit {
-                Some(l) => Some(operand(prog, l, &mut used)?),
+                Some(l) => Some(operand(cx, l, &mut used)?),
                 None => None,
             },
             down: *down,
         },
         Ins::LoopStep { var, by, down } => ir::Lowered::LoopStep {
-            var: num_variable(prog, var, &mut used)?,
+            var: num_variable(cx, var, &mut used)?,
             by: match by {
-                Some(b) => Some(operand(prog, b, &mut used)?),
+                Some(b) => Some(operand(cx, b, &mut used)?),
                 None => None,
             },
             down: *down,
@@ -87,7 +103,7 @@ fn lowered(prog: &Program, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowe
                     let [name] = parts.as_slice() else {
                         return None;
                     };
-                    let Some(Sym::Var(v)) = prog.syms.get(name) else {
+                    let Some(Sym::Var(v)) = cx.syms.get(name) else {
                         return None;
                     };
                     ir::FixOp::Div {
@@ -99,16 +115,16 @@ fn lowered(prog: &Program, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowe
             ir::Lowered::Arith {
                 op,
                 f1: match f1 {
-                    Some(x) => Some(operand(prog, x, &mut used)?),
+                    Some(x) => Some(operand(cx, x, &mut used)?),
                     None => None,
                 },
                 // MVR has no factor 2 (the generated code does not read it).
                 f2: if op == ir::FixOp::Mvr {
                     ir::Operand::Num { m: 0, s: 0 }
                 } else {
-                    operand(prog, f2, &mut used)?
+                    operand(cx, f2, &mut used)?
                 },
-                result: num_variable(prog, result, &mut used)?,
+                result: num_variable(cx, result, &mut used)?,
                 half_adjust: ext.half_adjust,
                 inds: !ind.is_empty(),
             }
@@ -120,18 +136,18 @@ fn lowered(prog: &Program, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowe
             ext,
             right,
         }) if !ext.error && !ext.no_lock && ext.other.chars().all(|c| c == 'H') => {
-            let target = variable(prog, target, &mut used)?;
+            let target = variable(cx, target, &mut used)?;
             if is_char(&target) {
                 ir::Lowered::EvalChar {
                     target,
-                    value: char_expr(prog, value, &mut used, Vec::new())?,
+                    value: char_expr(cx, value, &mut used, Vec::new())?,
                     half_adjust: ext.half_adjust,
                     right: *right,
                 }
             } else {
                 ir::Lowered::Eval {
                     target,
-                    value: num_expr(prog, value, &mut used, Vec::new())?,
+                    value: num_expr(cx, value, &mut used, Vec::new())?,
                     half_adjust: ext.half_adjust,
                     right: *right,
                 }
@@ -145,12 +161,7 @@ fn lowered(prog: &Program, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowe
 
 /// A character expression (S2.4): character literals and eligible
 /// character fields, joined with `+`.
-fn char_expr(
-    prog: &Program,
-    e: &Expr,
-    used: &mut Vec<String>,
-    path: Vec<u8>,
-) -> Option<ir::CharExpr> {
+fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::CharExpr> {
     match e {
         Expr::Bin(BinOp::Add, l, r) => {
             let mut lp = path.clone();
@@ -158,13 +169,13 @@ fn char_expr(
             let mut rp = path.clone();
             rp.push(1);
             Some(ir::CharExpr::Cat {
-                left: Box::new(char_expr(prog, l, used, lp)?),
-                right: Box::new(char_expr(prog, r, used, rp)?),
+                left: Box::new(char_expr(cx, l, used, lp)?),
+                right: Box::new(char_expr(cx, r, used, rp)?),
                 path,
             })
         }
         _ => {
-            let o = any_operand(prog, e, used)?;
+            let o = any_operand(cx, e, used)?;
             is_char(&o).then_some(ir::CharExpr::Leaf(o))
         }
     }
@@ -172,12 +183,7 @@ fn char_expr(
 
 /// A numeric expression of +, - and * over literals and eligible fields
 /// (S2.2), each operation with its place in the statement's expression.
-fn num_expr(
-    prog: &Program,
-    e: &Expr,
-    used: &mut Vec<String>,
-    path: Vec<u8>,
-) -> Option<ir::NumExpr> {
+fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::NumExpr> {
     match e {
         Expr::Bin(op @ (BinOp::Add | BinOp::Sub | BinOp::Mul), l, r) => {
             let mut lp = path.clone();
@@ -190,22 +196,22 @@ fn num_expr(
                     BinOp::Sub => ir::ArOp::Sub,
                     _ => ir::ArOp::Mul,
                 },
-                left: Box::new(num_expr(prog, l, used, lp)?),
-                right: Box::new(num_expr(prog, r, used, rp)?),
+                left: Box::new(num_expr(cx, l, used, lp)?),
+                right: Box::new(num_expr(cx, r, used, rp)?),
                 path,
             })
         }
-        _ => operand(prog, e, used).map(ir::NumExpr::Leaf),
+        _ => operand(cx, e, used).map(ir::NumExpr::Leaf),
     }
 }
 
-fn cond(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::Cond> {
+fn cond(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Cond> {
     let Expr::Bin(op, l, r) = e else {
         return None;
     };
     let cmp = match op {
         BinOp::And | BinOp::Or => {
-            let (a, b) = (cond(prog, l, used)?, cond(prog, r, used)?);
+            let (a, b) = (cond(cx, l, used)?, cond(cx, r, used)?);
             return Some(if *op == BinOp::And {
                 ir::Cond::And(Box::new(a), Box::new(b))
             } else {
@@ -220,19 +226,19 @@ fn cond(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::Cond> {
         BinOp::Ge => ir::CmpOp::Ge,
         _ => return None,
     };
-    let (a, b) = (any_operand(prog, l, used)?, any_operand(prog, r, used)?);
+    let (a, b) = (any_operand(cx, l, used)?, any_operand(cx, r, used)?);
     (is_char(&a) == is_char(&b)).then_some(ir::Cond::Cmp(cmp, a, b))
 }
 
 /// A literal or an eligible field, of either class.
-fn any_operand(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+fn any_operand(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
     match e {
         Expr::Num(d) => {
             let m: i128 = d.mantissa().to_string().parse().ok()?;
             Some(ir::Operand::Num { m, s: d.scale() })
         }
         Expr::Str(b) => Some(ir::Operand::Str(b.clone())),
-        _ => variable(prog, e, used),
+        _ => variable(cx, e, used),
     }
 }
 
@@ -249,14 +255,14 @@ fn is_char(o: &ir::Operand) -> bool {
 }
 
 /// A numeric literal or an eligible numeric field.
-fn operand(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
-    let o = any_operand(prog, e, used)?;
+fn operand(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    let o = any_operand(cx, e, used)?;
     (!is_char(&o)).then_some(o)
 }
 
 /// An eligible numeric field.
-fn num_variable(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
-    let o = variable(prog, e, used)?;
+fn num_variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    let o = variable(cx, e, used)?;
     (!is_char(&o)).then_some(o)
 }
 
@@ -265,16 +271,17 @@ fn num_variable(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::
 /// not in a multiple-occurrence data structure, not varying, not imported
 /// or exported. File fields are eligible since program.rs gives them
 /// buffer numbers in name order (S2.6).
-fn variable(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
     let Expr::Name { parts, args: None } = e else {
         return None;
     };
     let [name] = parts.as_slice() else {
         return None;
     };
-    let Some(Sym::Var(v)) = prog.syms.get(name) else {
+    let Some(Sym::Var(v)) = cx.syms.get(name) else {
         return None;
     };
+    let prog = cx.prog;
     let ty = match v.dtype {
         DType::Packed(d, s) => ir::Ty::Packed(d, s),
         DType::Zoned(d, s) => ir::Ty::Zoned(d, s),
@@ -284,22 +291,33 @@ fn variable(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::Oper
         DType::Char(n) => ir::Ty::Char(n),
         _ => return None,
     };
-    let excluded = v.local
-        || v.dim != 0
-        || prog.based.contains_key(&v.buf)
-        || prog.occurs.iter().any(|o| o.buf == v.buf)
-        || prog.varying.contains_key(name)
-        || prog.data_imports.iter().any(|(n, _)| n == name)
-        || prog.data_exports.iter().any(|(n, _)| n == name);
+    let excluded = if v.local {
+        // A procedure local (S2.8): not based, and only in a procedure.
+        v.dim != 0 || cx.based.is_none_or(|b| b.contains_key(&v.buf))
+    } else {
+        v.dim != 0
+            || prog.based.contains_key(&v.buf)
+            || prog.occurs.iter().any(|o| o.buf == v.buf)
+            || prog.varying.contains_key(name)
+            || prog.data_imports.iter().any(|(n, _)| n == name)
+            || prog.data_exports.iter().any(|(n, _)| n == name)
+    };
     if excluded {
         return None;
     }
-    used.push(format!("layout {name} {} {} {:?}", v.buf, v.off, v.dtype));
+    used.push(format!(
+        "layout {name} {} {} {:?} {}",
+        v.buf,
+        v.off,
+        v.dtype,
+        if v.local { "local" } else { "global" }
+    ));
     Some(ir::Operand::Var {
         name: name.clone(),
         buf: v.buf,
         off: v.off,
         ty,
+        local: v.local,
     })
 }
 

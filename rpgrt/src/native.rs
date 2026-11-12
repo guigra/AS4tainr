@@ -131,9 +131,16 @@ pub trait Runtime {
     /// instruction), routed as the interpreter routes it (pointer faults,
     /// control signals, MONITOR groups, the source line).
     fn settle(&mut self, pc: usize, step: NResult<usize>, monitors: &mut MonitorStack) -> Settled;
-    /// Stage 2 (docs/native/adr/0006): a procedure is running, so names
-    /// may be its locals; lowered code then lets the interpreter do it.
-    fn in_procedure(&self) -> bool;
+    /// Stage 2 (docs/native/adr/0006): lowered code may run, because the
+    /// routine runs in its own context: a main-program routine with no
+    /// procedure frame, or a procedure's routine under its own frame (S2.8).
+    /// Otherwise names may resolve elsewhere, and the interpreter does it.
+    fn native_ok(&self) -> bool;
+    /// Stage 2 (S2.8): where a procedure local at frame buffer `buf`,
+    /// offset `off`, is in this call: the caller's storage for a parameter
+    /// passed by reference, else the frame's own buffer (as the
+    /// interpreter's `sym`), and an error where `check_buf` gives one.
+    fn local(&mut self, buf: usize, off: usize) -> NResult<(usize, usize)>;
     /// Stage 2: the program's storage, for lowered code.
     fn mem(&mut self) -> &mut Mem;
     /// Stage 2 (S2.2): the digits and decimal places the precision rules
@@ -175,20 +182,25 @@ pub enum CmpOp {
     Ge,
 }
 
-/// The bytes of a field: buffer `buf`, `off`, the type's size.
-fn bytes<'m>(mem: &'m Mem, buf: usize, off: usize, t: &DType) -> NResult<&'m [u8]> {
-    let end = off
-        .checked_add(t.size())
-        .ok_or_else(|| anyhow::anyhow!("native: a field past the end of storage"))?;
-    mem.get(buf)
-        .and_then(|b| b.get(off..end))
-        .ok_or_else(|| anyhow::anyhow!("native: a field past the end of its storage"))
-}
-
 /// A field's value, as the interpreter reads a standalone field with no
-/// index (`load_var`: `data::load` over its bytes).
+/// index (`load_var`: `data::load` over its bytes; a parameter longer than
+/// the storage passed for it, OPTIONS(*VARSIZE), reads what is there and
+/// then blanks).
 pub fn load(mem: &Mem, buf: usize, off: usize, t: DType) -> NResult<Value> {
-    data::load(&t, bytes(mem, buf, off, &t)?)
+    let b = std::ops::Index::index(mem, buf);
+    let n = t.size();
+    match off.checked_add(n) {
+        Some(end) if end <= b.len() => data::load(
+            &t,
+            b.get(off..end)
+                .ok_or_else(|| anyhow::anyhow!("native: a field past the end of its storage"))?,
+        ),
+        _ => {
+            let mut tmp = b.get(off..).unwrap_or(&[]).to_vec();
+            tmp.resize(n, 0x40);
+            data::load(&t, &tmp)
+        }
+    }
 }
 
 /// A field's number (`load` then `Value::num`).
@@ -207,9 +219,26 @@ pub fn store(
     fit: Fit,
     right: bool,
 ) -> NResult<()> {
+    let n = t.size();
     let end = off
-        .checked_add(t.size())
+        .checked_add(n)
         .ok_or_else(|| anyhow::anyhow!("native: a field past the end of storage"))?;
+    let have = std::ops::Index::index(&*mem, buf).len();
+    if end > have {
+        // A parameter longer than its argument (OPTIONS(*VARSIZE)): only
+        // the argument's storage changes (the interpreter's store_var).
+        let mut tmp = vec![0x40u8; n];
+        data::store(&t, v, &mut tmp, fit, right)?;
+        let k = have.saturating_sub(off);
+        if let (Some(dst), Some(src)) = (
+            mem.get_mut(buf)
+                .and_then(|b| b.get_mut(off.min(have)..have)),
+            tmp.get(..k),
+        ) {
+            dst.copy_from_slice(src);
+        }
+        return Ok(());
+    }
     let out = mem
         .get_mut(buf)
         .and_then(|b| b.get_mut(off..end))
