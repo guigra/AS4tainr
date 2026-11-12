@@ -1,0 +1,16 @@
+[package]
+name = "native-tools"
+description = "as4tainr: as4tainr-native-emit, the native code of the RPG programs of a set of libraries, for a production build"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "as4tainr-native-emit"
+path = "src/main.rs"
+
+[dependencies]
+as4tainr-core = { path = "../core" }
+anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread"] }

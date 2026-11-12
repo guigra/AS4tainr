@@ -14,8 +14,8 @@ The plan is in `PLAN.md` and the decisions in `adr/0001`-`0005`, all accepted by
 | N2 Generator | `rpgcg`, lowering, fingerprints, emission | Implemented; validated locally |
 | N3 Runtime adapter | `native_rt`: `Runtime` for `Machine`, `settle`, the dispatcher | Implemented; validated locally |
 | N4 Differential harness | `core/tests/native_diff.rs`, `scripts/native-diff.sh`, `scripts/native-corpus.sh` (external corpora) | Implemented; validated locally |
-| N5 Build tooling and baseline | `native-tools`, production builds, performance baseline | Baseline recorded (`scripts/native-bench.sh`, manifest of 769f0d5); `native-tools` not started |
-| N6… Stage 2 | Lowering, one construct per step | S2.1-S2.12 implemented (ADR 0006): conditions, FOR/DO control, numeric EVAL, fixed-form arithmetic incl. DIV/MVR, character fields, file fields, procedures (locals, parameters), %TRIM/%TRIML/%TRIMR, %LEN, %SUBST, fixed-form MOVE/MOVEL, %SCAN, %XLATE (S2.10-S2.12 validated by unit tests on x86_64; their full native-diff run on aarch64 in progress); the dispatcher allocates nothing per entry |
+| N5 Build tooling and baseline | `native-tools`, production builds, performance baseline | Baseline recorded (`scripts/native-bench.sh`, manifest of 769f0d5). `native-tools` (`as4tainr-native-emit`) is implemented: a release build with CONTACTS' generated code ran CONTCNT under `rust` with no cargo or rustc on PATH, same output as `interp` (docs/native/production.md; development check, no manifest yet) |
+| N6… Stage 2 | Lowering, one construct per step | S2.1-S2.12 implemented (ADR 0006): conditions, FOR/DO control, numeric EVAL, fixed-form arithmetic incl. DIV/MVR, character fields, file fields, procedures (locals, parameters), %TRIM/%TRIML/%TRIMR, %LEN, %SUBST, fixed-form MOVE/MOVEL, %SCAN, %XLATE (S2.10-S2.12 validated in development runs on aarch64: native-diff PASS, 632 tests the same under auto, OpenRPG 385/385); the dispatcher allocates nothing per entry |
 | Final | Retiring the interpreter (the user's goal; prerequisites in PLAN.md) | Not started |
 
 ## Phase 1: the `rpgrt` crate
@@ -109,6 +109,8 @@ Notes:
   | x86_64 | 3.83 s | 3.31 s | -13.5% | 498cdfe (S2.8), evidence run; the host was short of memory |
   | aarch64 | 2.00 s | 1.62 s | -18.9% | S2.9, development run |
   | aarch64 | 2.01 s | 1.61 s | -20.1% | S2.10, development run |
+  | aarch64 | 2.06 s | 1.63 s | -20.8% | S2.10 + S2.11, development run |
+  | aarch64 | 2.08 s | 1.66 s | -19.8% | S2.12, development run |
 
   Allocations and database round trips are not measured yet.
 - **IBM i contrast.** Expected values of the native unit programs come from IBM Docs and from PUB400 captures (`tools/golden/native1-5.txt`, IBM i 7.5, 2026-11-12). Those captures confirmed four interpreter defects (fidelity.md), to be reported upstream when this work is finished.
