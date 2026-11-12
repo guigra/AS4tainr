@@ -34,6 +34,8 @@ cd "$here"
 db="${AS4TAINR_TEST_DATABASE_URL:?set AS4TAINR_TEST_DATABASE_URL}"
 arch="$(uname -m)"
 out="${NATIVE_DIFF_OUT:-target/evidence/$(date -u +%F)-native-diff-$arch}"
+# Absolute: the tests run in other directories and write files here.
+case "$out" in /*) ;; *) out="$here/$out" ;; esac
 emit="$here/target/rpg-native/diff-$arch"
 mkdir -p "$out"
 if [ -s "$out/status.tsv" ]; then
@@ -99,7 +101,7 @@ fi
 
 # 4. Level 2: auto (parity), then rust (coverage).
 AS4TAINR_NATIVE_DIR="$emit" AS4TAINR_TEST_DATABASE_URL="$db" AS4TAINR_RPG_ENGINE=auto \
-  AS4TAINR_NATIVE_REFUSALS="$here/$out/4-auto.refusals" \
+  AS4TAINR_NATIVE_REFUSALS="$out/4-auto.refusals" \
   cargo test --locked --no-fail-fast > "$out/4-auto.log" 2>&1
 echo "exit=$?" >> "$out/4-auto.log"
 results "$out/4-auto.log" > "$out/4-auto.res"
@@ -109,7 +111,7 @@ else
   step level2-auto FAIL "see 4-auto.diff"
 fi
 AS4TAINR_NATIVE_DIR="$emit" AS4TAINR_TEST_DATABASE_URL="$db" AS4TAINR_RPG_ENGINE=rust \
-  AS4TAINR_NATIVE_REFUSALS="$here/$out/4-rust.refusals" \
+  AS4TAINR_NATIVE_REFUSALS="$out/4-rust.refusals" \
   cargo test --locked --no-fail-fast > "$out/4-rust.log" 2>&1
 echo "exit=$?" >> "$out/4-rust.log"
 results "$out/4-rust.log" > "$out/4-rust.res"
@@ -124,6 +126,12 @@ while IFS=$'\t' read -r _engine program fp reason; do
   esac
 done < "$out/4-rust.refusals"
 refused=$(cut -f2 "$out/4-rust.refusals" | sort -u | wc -l)
+# Tests that differ under rust must be explained by refusals: none noted
+# while tests differ means the measure did not work.
+differ=$((total - same))
+if [ "$differ" -gt 0 ] && [ "$refused" -eq 0 ]; then
+  echo "$differ tests differ under rust but no refusal was noted" >> "$out/4-rust.unexplained"; bad=1
+fi
 if [ $bad -eq 0 ]; then
   step level2-rust PASS "$same of $total tests as under the interpreter; $refused programs refused, none generated (source differs by process)"
 else

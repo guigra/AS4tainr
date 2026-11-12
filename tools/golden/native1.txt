@@ -1,0 +1,19 @@
+# Captures for the native backend's open questions (docs/native/fidelity.md):
+# three interpreter defects and the cases IBM documents no expected value
+# for. Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native1.txt -f tools/golden/native1
+# Compiles run `system` without -s, so their listing is in the capture.
+# Results: target/ibmi/golden/<name>.txt (never committed).
+n1_clean|!cd @HOME@/gld && rm -f gn1.out; echo ok
+n1_crt_mon|!system "CRTSQLRPGI OBJ(@LIB@/GN1MON) SRCSTMF('@HOME@/gld/gn1mon.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n1_mon|!cd @HOME@/gld && system "CALL PGM(@LIB@/GN1MON)"; cat gn1.out; rm -f gn1.out
+n1_crt_ovl|!system "CRTSQLRPGI OBJ(@LIB@/GN1OVL) SRCSTMF('@HOME@/gld/gn1ovl.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n1_ovl|!cd @HOME@/gld && system "CALL PGM(@LIB@/GN1OVL)"; cat gn1.out; rm -f gn1.out
+n1_crt_cst|!system "CRTBNDRPG PGM(@LIB@/GN1CST) SRCSTMF('@HOME@/gld/gn1cst.rpgle')"
+n1_crt_fwd|!system "CRTBNDRPG PGM(@LIB@/GN1FWD) SRCSTMF('@HOME@/gld/gn1fwd.rpgle')"
+n1_crt_alias|!system "CRTSQLRPGI OBJ(@LIB@/GN1ALIAS) SRCSTMF('@HOME@/gld/gn1alias.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n1_alias|!cd @HOME@/gld && system "CALL PGM(@LIB@/GN1ALIAS)"; cat gn1.out; rm -f gn1.out
+n1_crt_div|!system "CRTBNDRPG PGM(@LIB@/GN1DIV) SRCSTMF('@HOME@/gld/gn1div.rpgle')"
+n1_crt_esc|!system "CRTBNDCL PGM(@LIB@/GN1ESC) SRCSTMF('@HOME@/gld/gn1esc.clle')"; system "DLTDTAARA DTAARA(@LIB@/GN1ESC)"; system "CRTDTAARA DTAARA(@LIB@/GN1ESC) TYPE(*CHAR) LEN(64)"
+n1_div|!system "CALL PGM(@LIB@/GN1ESC) PARM('@LIB@' 'GN1DIV')"; system "DSPDTAARA DTAARA(@LIB@/GN1ESC)"
+n1_crt_ovf|!system "CRTBNDRPG PGM(@LIB@/GN1OVF) SRCSTMF('@HOME@/gld/gn1ovf.rpgle')"
+n1_ovf|!system "CALL PGM(@LIB@/GN1ESC) PARM('@LIB@' 'GN1OVF')"; system "DSPDTAARA DTAARA(@LIB@/GN1ESC)"

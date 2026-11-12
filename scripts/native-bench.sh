@@ -19,6 +19,7 @@ export AS4TAINR_PGM_PATH="$here/samples/native"
 pgm=NBENCH1
 # Generate the program's code with the interpreter, then build release with it.
 cargo build --locked --release > "$out/build-interp.log" 2>&1 || { echo "build failed"; exit 1; }
+target/release/as4tainr --database-url "$db" init > "$out/init.log" 2>&1 || { echo "init failed"; exit 1; }
 AS4TAINR_NATIVE_EMIT="$emit" AS4TAINR_DATABASE_URL="$db" target/release/as4tainr call $pgm > "$out/emit.log" 2>&1 || { echo "emit run failed"; exit 1; }
 AS4TAINR_NATIVE_DIR="$emit" cargo build --locked --release > "$out/build-native.log" 2>&1 || { echo "native build failed"; exit 1; }
 bin=target/release/as4tainr

@@ -1,0 +1,23 @@
+/* Call a program with the job's inquiry messages answered by default */
+/* (a `system` job would wait for a reply), then keep the IDs of the  */
+/* exception messages the call left, oldest first, in data area       */
+/* GN1ESC.                                                            */
+PGM PARM(&LIB &PGM)
+  DCL VAR(&LIB) TYPE(*CHAR) LEN(10)
+  DCL VAR(&PGM) TYPE(*CHAR) LEN(10)
+  DCL VAR(&ID) TYPE(*CHAR) LEN(7)
+  DCL VAR(&ALL) TYPE(*CHAR) LEN(64) VALUE('IDS:')
+  DCL VAR(&N) TYPE(*DEC) LEN(3 0) VALUE(0)
+  CHGJOB INQMSGRPY(*DFT)
+  CALL PGM(&LIB/&PGM)
+  MONMSG MSGID(CPF0000 RNX0000 MCH0000) EXEC(DO)
+ NEXT:
+    RCVMSG MSGTYPE(*EXCP) MSGKEY(*NONE) RMV(*YES) MSGID(&ID)
+    IF COND(&ID *NE ' ' *AND &N *LT 8) THEN(DO)
+      CHGVAR VAR(&ALL) VALUE(&ALL *BCAT &ID)
+      CHGVAR VAR(&N) VALUE(&N + 1)
+      GOTO CMDLBL(NEXT)
+    ENDDO
+  ENDDO
+  CHGDTAARA DTAARA(&LIB/GN1ESC) VALUE(&ALL)
+ENDPGM
