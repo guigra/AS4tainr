@@ -60,6 +60,7 @@ The upstream author commits many times a day. Every change must stay easy to reb
 - `core/Cargo.toml`: dependencies on the workspace crates.
 - `core/src/rpg/interp.rs`: the `native_rt` submodule declaration and the one-statement hook at the start of `run_code_at` (authorized by the user, 2026-11-11; ADR 0004).
 - `core/src/rpg/program.rs`: the `native` field of `Program` and its initial value (authorized by the user, 2026-11-11; ADR 0002).
+- `core/src/rpg/program.rs`: sorting the names of file fields that become standalone fields before their buffers are made, so their numbering is the same in every compile (authorized by the user, 2026-11-12; fidelity.md, notes for stage 2).
 - `core/src/lib.rs`: module declarations.
 - Moving upstream runtime modules into `rpgrt`, with re-exports so that every upstream path keeps compiling. Done as a pure move with no behavior change, in its own commit.
 
