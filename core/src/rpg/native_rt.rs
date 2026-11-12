@@ -363,6 +363,14 @@ impl Runtime for Rt<'_, '_> {
         &mut self.m.bufs
     }
 
+    fn num_inds(&mut self, pc: usize, stored: &Dec) {
+        if let Some(Ins::Stmt(super::super::ast::Stmt::Arith { ind, .. })) =
+            self.code.get(pc).map(|i| &i.ins)
+        {
+            self.m.num_inds(ind, stored);
+        }
+    }
+
     fn precision(&mut self, pc: usize, path: &[u8]) -> Option<(u32, u32)> {
         let Some(Ins::Stmt(super::super::ast::Stmt::Eval { value, .. })) =
             self.code.get(pc).map(|i| &i.ins)

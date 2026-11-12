@@ -14,7 +14,7 @@
 #   AS4TAINR_TEST_DATABASE_URL  PostgreSQL URL (required; a database of its own is made)
 #   NATIVE_CORPUS               directory of .rpgle sources (default ../OpenRPG/tests)
 #   NATIVE_CORPUS_OUT           log directory (default target/evidence/<date>-native-corpus-<arch>)
-#   NATIVE_CORPUS_TIMEOUT       seconds per call (default 60)
+#   NATIVE_CORPUS_TIMEOUT       seconds per call (default 20)
 set -uo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"; cd "$here"
 db="${AS4TAINR_TEST_DATABASE_URL:?set AS4TAINR_TEST_DATABASE_URL}"
@@ -22,7 +22,7 @@ corpus="${NATIVE_CORPUS:-$here/../OpenRPG/tests}"
 arch="$(uname -m)"
 out="${NATIVE_CORPUS_OUT:-target/evidence/$(date -u +%F)-native-corpus-$arch}"
 case "$out" in /*) ;; *) out="$here/$out" ;; esac
-limit="${NATIVE_CORPUS_TIMEOUT:-60}"
+limit="${NATIVE_CORPUS_TIMEOUT:-20}"
 emit="$here/target/rpg-native/corpus-$arch"
 [ -d "$corpus" ] || { echo "native-corpus: no corpus at $corpus" >&2; exit 2; }
 mkdir -p "$out/interp" "$out/rust"
@@ -35,21 +35,37 @@ psql "$admin" -qc "DROP DATABASE IF EXISTS native_corpus" >/dev/null &&
 url="${db%/*}/native_corpus"
 
 # The programs: batch sources that declare no files (F specs or DCL-F),
-# named as `as4tainr call` finds them in AS4TAINR_PGM_PATH.
+# not copy members. A program name has at most 10 characters, so a
+# source with a longer name gets an alias (P0001...) in a run directory
+# of symbolic links, next to every source under its own name (for /COPY);
+# names.tsv maps each alias to its source.
+run="$out/pgm"
+mkdir -p "$run"
+for f in "$corpus"/*; do ln -sf "$f" "$run/"; done
 list="$out/programs.txt"
+: > "$list"; : > "$out/names.tsv"
+n=0
 for f in "$corpus"/*.rpgle; do
   [ -f "$f" ] || continue
-  grep -qiE '^\s*dcl-f\b|^.{5}[Ff][A-Za-z]' "$f" && continue
   b=$(basename "$f" .rpgle)
-  [ ${#b} -le 10 ] || continue
-  echo "$b"
-done | sort > "$list"
+  case "$b" in copybook*|*_copy*|*copybook*) continue ;; esac
+  grep -qiE '^\s*dcl-f\b|^.{5}[Ff][A-Za-z]' "$f" && continue
+  if [ ${#b} -le 10 ]; then
+    p="$b"
+  else
+    n=$((n + 1)); p=$(printf 'P%04d' "$n")
+    ln -sf "$f" "$run/$p.rpgle"
+  fi
+  echo "$p" >> "$list"
+  printf '%s\t%s\n' "$p" "$(basename "$f")" >> "$out/names.tsv"
+done
+sort -o "$list" "$list"
 echo "native-corpus: $(wc -l < "$list") programs from $corpus"
 
 run_all() { # engine bin dir
   local engine=$1 bin=$2 dir=$3
   while read -r p; do
-    AS4TAINR_RPG_ENGINE=$engine AS4TAINR_PGM_PATH="$corpus" AS4TAINR_DATABASE_URL="$url" \
+    AS4TAINR_RPG_ENGINE=$engine AS4TAINR_PGM_PATH="$run" AS4TAINR_DATABASE_URL="$url" \
       timeout "$limit" "$bin" call "$p" > "$dir/$p.out" 2> "$dir/$p.err" < /dev/null
     echo $? > "$dir/$p.rc"
   done < "$list"

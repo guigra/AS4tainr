@@ -140,6 +140,10 @@ pub trait Runtime {
     /// give the arithmetic node at `path` (0 left, 1 right) of the value of
     /// the EVAL at `pc`, as the interpreter works them out.
     fn precision(&mut self, pc: usize, path: &[u8]) -> Option<(u32, u32)>;
+    /// Stage 2 (S2.3): the resulting indicators of the fixed-form
+    /// arithmetic operation at `pc` for the value its result field now
+    /// holds, as the interpreter sets them.
+    fn num_inds(&mut self, pc: usize, stored: &Dec);
 }
 
 /// A sum, difference or product with the decimal places the precision

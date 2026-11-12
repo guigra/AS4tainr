@@ -1,0 +1,5 @@
+# Captures for stage 2 of the native backend, S2.3: fixed-form ADD, SUB,
+# MULT, Z-ADD and Z-SUB: results, truncation and resulting indicators.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native3.txt -f tools/golden/native3
+n3_crt_arith|!system "CRTSQLRPGI OBJ(@LIB@/GN3ARITH) SRCSTMF('@HOME@/gld/gn3arith.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n3_arith|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN3ARITH)"; cat gn1.out; rm -f gn1.out

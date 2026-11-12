@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.2");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.4");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -69,6 +69,8 @@ pub mod ir {
         Binary(u32, u32),
         Int(u32),
         Uns(u32),
+        /// Fixed-length character (S2.4).
+        Char(u32),
     }
 
     /// An operand of lowered code.
@@ -83,6 +85,8 @@ pub mod ir {
         },
         /// A numeric literal: mantissa and scale (`Dec::new`).
         Num { m: i128, s: u8 },
+        /// A character literal, its EBCDIC bytes (S2.4).
+        Str(Vec<u8>),
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -120,12 +124,53 @@ pub mod ir {
             by: Option<Operand>,
             down: bool,
         },
+        /// Fixed-form ADD, SUB, MULT, Z-ADD, Z-SUB (S2.3).
+        Arith {
+            op: FixOp,
+            /// Factor 1 (None: the result field, for ADD/SUB/MULT).
+            f1: Option<Operand>,
+            f2: Operand,
+            result: Operand,
+            half_adjust: bool,
+            /// It has resulting indicators.
+            inds: bool,
+        },
+        /// EVAL/EVALR of a character field (S2.4).
+        EvalChar {
+            target: Operand,
+            value: CharExpr,
+            half_adjust: bool,
+            right: bool,
+        },
         /// EVAL (S2.2): a numeric field gets a numeric expression.
         Eval {
             target: Operand,
             value: NumExpr,
             half_adjust: bool,
             right: bool,
+        },
+    }
+
+    /// The fixed-form arithmetic operations lowered (DIV and MVR use the
+    /// machine's remainder, so they are not).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum FixOp {
+        ZAdd,
+        ZSub,
+        Add,
+        Sub,
+        Mult,
+    }
+
+    /// A character expression of lowered code: operands and their
+    /// concatenation with `+`.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum CharExpr {
+        Leaf(Operand),
+        Cat {
+            left: Box<CharExpr>,
+            right: Box<CharExpr>,
+            path: Vec<u8>,
         },
     }
 
@@ -358,6 +403,7 @@ fn ty(t: &ir::Ty) -> String {
         Binary(d, s) => format!("{p}::Binary({d}, {s})"),
         Int(n) => format!("{p}::Int({n})"),
         Uns(n) => format!("{p}::Uns({n})"),
+        Char(n) => format!("{p}::Char({n})"),
     }
 }
 
@@ -372,6 +418,7 @@ fn value(o: &ir::Operand) -> String {
         ir::Operand::Num { m, s } => {
             format!("rpgrt::rpg::data::Value::Num(rpgrt::rpg::dec::Dec::new({m}, {s}))")
         }
+        ir::Operand::Str(b) => format!("rpgrt::rpg::data::Value::Char(vec!{b:?})"),
     }
 }
 
@@ -387,6 +434,9 @@ fn number(o: &ir::Operand) -> String {
             )
         }
         ir::Operand::Num { m, s } => format!("rpgrt::rpg::dec::Dec::new({m}, {s})"),
+        // Never in a numeric place (the lowering checks); as in the
+        // interpreter, a character value's number is an error.
+        ir::Operand::Str(b) => format!("rpgrt::rpg::data::Value::Char(vec!{b:?}).num()?"),
     }
 }
 
@@ -394,6 +444,7 @@ fn name_of(o: &ir::Operand) -> String {
     match o {
         ir::Operand::Var { name, .. } => comment(name),
         ir::Operand::Num { m, s } => format!("{m}e-{s}"),
+        ir::Operand::Str(b) => format!("a character literal of {} bytes", b.len()),
     }
 }
 
@@ -547,8 +598,124 @@ fn lowered_step(
                 format!("ev{pc}(rt).map(|()| {next})"),
             )
         }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::EvalChar {
+                target,
+                value,
+                half_adjust,
+                right,
+            },
+        ) => {
+            let ir::Operand::Var {
+                buf, off, ty: t, ..
+            } = target
+            else {
+                return Err(bad());
+            };
+            let v = char_expr(pc, value, helpers);
+            let _ = writeln!(
+                helpers,
+                "\nfn ec{pc}(rt: &mut dyn Runtime) -> NResult<()> {{"
+            );
+            let _ = writeln!(helpers, "    let v = {v};");
+            let _ = writeln!(
+                helpers,
+                "    rpgrt::native::store(\n        rt.mem(),\n        {buf},\n        {off},\n        {},\n        &v,\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: {half_adjust} }},\n        {right},\n    )\n}}",
+                ty(t)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("ec{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::Arith {
+                op,
+                f1,
+                f2,
+                result,
+                half_adjust,
+                inds,
+            },
+        ) => {
+            let ir::Operand::Var {
+                buf, off, ty: t, ..
+            } = result
+            else {
+                return Err(bad());
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn ar{pc}(rt: &mut dyn Runtime) -> NResult<()> {{"
+            );
+            let value = match op {
+                ir::FixOp::ZAdd => number(f2),
+                ir::FixOp::ZSub => format!("{}.neg()", number(f2)),
+                ir::FixOp::Add | ir::FixOp::Sub | ir::FixOp::Mult => {
+                    let a1 = number(f1.as_ref().unwrap_or(result));
+                    let _ = writeln!(helpers, "    let a1 = {a1};");
+                    let _ = writeln!(helpers, "    let a2 = {};", number(f2));
+                    let f = match op {
+                        ir::FixOp::Add => "add",
+                        ir::FixOp::Sub => "sub",
+                        _ => "mul",
+                    };
+                    format!("a1.{f}(&a2)?")
+                }
+            };
+            let _ = writeln!(helpers, "    let v = {value};");
+            let _ = writeln!(
+                helpers,
+                "    rpgrt::native::store(\n        rt.mem(),\n        {buf},\n        {off},\n        {},\n        &rpgrt::rpg::data::Value::Num(v),\n        rpgrt::rpg::data::Fit::Truncate {{ half_adjust: {half_adjust} }},\n        false,\n    )?;",
+                ty(t)
+            );
+            if *inds {
+                let _ = writeln!(
+                    helpers,
+                    "    let stored = rpgrt::native::load_num(rt.mem(), {buf}, {off}, {})?;\n    rt.num_inds({pc}, &stored);",
+                    ty(t)
+                );
+            } else {
+                // As the interpreter: the result is read back.
+                let _ = writeln!(
+                    helpers,
+                    "    let _stored = rpgrt::native::load_num(rt.mem(), {buf}, {off}, {})?;",
+                    ty(t)
+                );
+            }
+            let _ = writeln!(helpers, "    Ok(())\n}}");
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("ar{pc}(rt).map(|()| {next})"),
+            )
+        }
         _ => return Err(bad()),
     })
+}
+
+/// A character expression as a `Value` expression; each concatenation is
+/// a helper `s<pc>_<path>` that joins its operands' characters as the
+/// interpreter does (`chars` of each, the second after the first).
+fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
+    match e {
+        ir::CharExpr::Leaf(o) => value(o),
+        ir::CharExpr::Cat { left, right, path } => {
+            let id: String = path
+                .iter()
+                .map(|b| if *b == 0 { 'l' } else { 'r' })
+                .collect();
+            let name = format!("s{pc}_{id}");
+            let x = char_expr(pc, left, helpers);
+            let y = char_expr(pc, right, helpers);
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let x = {x};\n    let y = {y};\n    let mut s = x.chars()?;\n    s.extend(y.chars()?);\n    Ok(rpgrt::rpg::data::Value::Char(s))\n}}"
+            );
+            format!("{name}(rt)?")
+        }
+    }
 }
 
 /// A numeric expression as a `Dec` expression; each operation becomes a

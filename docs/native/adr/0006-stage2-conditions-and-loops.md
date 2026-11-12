@@ -51,3 +51,33 @@ The fingerprint of a lowered routine also covers each lowered operand's name, bu
 - The precision itself is not copied. The generated code asks the interpreter's own `num_precision`, through `Runtime::precision(pc, path)`, once per operation, and keeps it in a `OnceLock`. It depends only on the operands' types and the literals' digits, all of which the fingerprint covers, and it is asked only when no procedure is running.
 
 **Expected values.** The truncation, EVAL(H) rounding, the decimals of the intermediate results, and overflow come from PUB400: tools/golden/native2.txt n2_eval (IBM i 7.5, 2026-11-12). as4tainr gives the same values.
+
+## S2.3: fixed-form ADD, SUB, MULT, Z-ADD, Z-SUB (rpgcg 0.1.0+stage2.3)
+
+**What is lowered.** These operations with no E extender (H is fine), when factor 1, factor 2 and the result field are eligible. DIV and MVR are not lowered: they use the machine's remainder (`Machine::remainder`).
+
+**Why it is the same as the interpreter.** `stmt_inner`'s arithmetic arm does this, in this order:
+
+1. Z-ADD takes factor 2's value; Z-SUB takes its negation.
+2. ADD, SUB and MULT evaluate factor 1 (or the result field when there is none), then factor 2, and combine them with exact `Dec` operations. No precision rules apply.
+3. The value is assigned with `Fit::Truncate { half_adjust: H }`.
+4. The result field is read back, and `num_inds` sets the resulting indicators from it.
+
+The generated code does the same steps, with the same rpgrt functions. Steps 1 to 3 work directly on the field's bytes. The indicators are set by the interpreter's own `num_inds`, called through `Runtime::num_inds`.
+
+**Expected values.** The sums, high-order truncation (998 + 5 into a 3,0 field gives 3), MULT and MULT(H), and the resulting indicators come from PUB400: tools/golden/native3.txt n3_arith (IBM i 7.5, 2026-11-12). as4tainr gives the same ten lines.
+
+## S2.4: character fields (rpgcg 0.1.0+stage2.4)
+
+**What is lowered.** Eligible fixed-length character fields (`CHAR(n)`) and character literals, with the same exclusions as numeric fields:
+
+- in conditions: comparisons where both operands are character, or both numeric;
+- in EVAL/EVALR (no E extender): a character target and a tree of `+` (concatenation) over character operands.
+
+**Why it is the same as the interpreter:**
+
+- A character name reads as `data::load` of its bytes (`Value::Char`); a literal is `Value::Char` of its bytes.
+- `+` with a character operand is concatenation, `chars()` of each joined, after the date, pointer, timestamp and float paths, none of which applies. Comparisons are `data::compare`.
+- The assignment is `data::store` with `Fit::Strict` and `right` (EVALR), which pads and truncates as the interpreter does.
+
+**Expected values.** Concatenation keeping trailing blanks, truncation and padding with EVAL and EVALR, blank-padded comparison, and EBCDIC order (lower case before upper case before digits) come from PUB400: tools/golden/native4.txt n4_char (IBM i 7.5, 2026-11-12). as4tainr gives the same nine lines.
