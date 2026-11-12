@@ -481,29 +481,144 @@ pub fn emit(prog: &Program) {
     let Some(dir) = std::env::var_os(EMIT_VAR).filter(|d| !d.is_empty()) else {
         return;
     };
-    let dir = std::path::PathBuf::from(dir);
+    let report = emit_into(prog, std::path::Path::new(&dir));
+    for e in &report.errors {
+        use std::io::Write as _;
+        // Standard error may be closed; there is nowhere else to say it.
+        let _ = writeln!(std::io::stderr(), "as4tainr: {EMIT_VAR}: {e}");
+    }
+}
+
+/// What generating a program's routines did.
+#[derive(Debug, Default)]
+pub struct EmitReport {
+    /// Routines written now.
+    pub written: usize,
+    /// Routines whose code was there already.
+    pub present: usize,
+    /// One line per routine not written: the program, the routine, why.
+    pub errors: Vec<String>,
+}
+
+/// Generate the routines of a compiled program into `dir`:
+/// `<fingerprint>.rs` and `<fingerprint>.map.json` for each routine not
+/// there yet. A routine the generator refuses, or a file that cannot be
+/// written, is reported; the program then has no native code for it.
+pub fn emit_into(prog: &Program, dir: &std::path::Path) -> EmitReport {
+    let mut report = EmitReport::default();
     for (place, code) in routines(prog) {
         let ir = routine(prog, &place, code);
         let fp = ir.fingerprint.clone();
-        let file = dir.join(format!("{fp}.rs"));
-        if file.exists() {
+        if dir.join(format!("{fp}.rs")).exists() {
+            report.present = report.present.saturating_add(1);
             continue;
         }
         let r = rpgcg::generate(&ir)
             .map_err(|e| e.to_string())
             .and_then(|g| {
-                write_new(&dir, &format!("{fp}.map.json"), &g.map)?;
-                write_new(&dir, &format!("{fp}.rs"), &g.source)
+                write_new(dir, &format!("{fp}.map.json"), &g.map)?;
+                write_new(dir, &format!("{fp}.rs"), &g.source)
             });
-        if let Err(e) = r {
-            use std::io::Write as _;
-            // Standard error may be closed; there is nowhere else to say it.
-            let _ = writeln!(
-                std::io::stderr(),
-                "as4tainr: {EMIT_VAR}: program {}, {place}: {e}",
-                prog.name
-            );
+        match r {
+            Ok(()) => report.written = report.written.saturating_add(1),
+            Err(e) => report
+                .errors
+                .push(format!("program {}, {place}: {e}", prog.name)),
         }
+    }
+    report
+}
+
+/// One program of a library, generated (`as4tainr-native-emit`).
+#[derive(Debug)]
+pub struct LibraryProgram {
+    pub name: String,
+    /// The routines, or why the program did not compile.
+    pub result: Result<EmitReport, String>,
+}
+
+/// Compile every RPG program and service program of `library` as their
+/// activation does, with the library list they run with (`libl`,
+/// searched in order) and no file overrides, and generate their routines
+/// into `dir`: a program's entry module and the modules bound into it
+/// (CRTPGM, CRTBNDRPG with a binding directory), a service program's
+/// modules. Objects are taken in name order; each line of the result is
+/// one program or module.
+pub async fn emit_library(
+    client: &tokio_postgres::Client,
+    libl: &[String],
+    library: &str,
+    dir: &std::path::Path,
+) -> anyhow::Result<Vec<LibraryProgram>> {
+    let library = library.to_ascii_uppercase();
+    let mut out = Vec::new();
+    let rows = client
+        .query(
+            "SELECT name FROM as4tainr.programs WHERE library = $1 AND attribute IN ('RPGLE', 'SQLRPGLE', 'RPG') ORDER BY name",
+            &[&library],
+        )
+        .await?;
+    for row in rows {
+        let name: String = row.try_get(0)?;
+        let found =
+            crate::catalog::find_program(client, std::slice::from_ref(&library), &name).await?;
+        let Some(p) = found else {
+            out.push(LibraryProgram {
+                name,
+                result: Err("not found".to_string()),
+            });
+            continue;
+        };
+        let result = super::compile_ovr(client, libl, &name, &p.source, &p.options, &[])
+            .await
+            .map(|prog| emit_into(&prog, dir))
+            .map_err(|e| format!("{e:#}"));
+        out.push(LibraryProgram {
+            name: name.clone(),
+            result,
+        });
+        if let Some(b) = &p.binding {
+            emit_modules(client, libl, &name, &b.modules, dir, &mut out).await;
+        }
+    }
+    let rows = client
+        .query(
+            "SELECT name FROM as4tainr.service_programs WHERE library = $1 ORDER BY name",
+            &[&library],
+        )
+        .await?;
+    for row in rows {
+        let name: String = row.try_get(0)?;
+        match crate::ile::find_srvpgm(client, libl, &library, &name).await {
+            Ok((_, b)) => emit_modules(client, libl, &name, &b.modules, dir, &mut out).await,
+            Err(e) => out.push(LibraryProgram {
+                name,
+                result: Err(format!("{e:#}")),
+            }),
+        }
+    }
+    Ok(out)
+}
+
+/// The RPG modules of a binding, compiled as the activation compiles them
+/// (`compile_with` with the caller's library list), into `dir`.
+async fn emit_modules(
+    client: &tokio_postgres::Client,
+    libl: &[String],
+    object: &str,
+    modules: &[crate::ile::ModuleCopy],
+    dir: &std::path::Path,
+    out: &mut Vec<LibraryProgram>,
+) {
+    for m in modules.iter().filter(|m| m.attribute != "CLLE") {
+        let result = super::compile_with(client, libl, &m.name, &m.source, &m.options)
+            .await
+            .map(|prog| emit_into(&prog, dir))
+            .map_err(|e| format!("{e:#}"));
+        out.push(LibraryProgram {
+            name: format!("{object} module {}", m.name),
+            result,
+        });
     }
 }
 

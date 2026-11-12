@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "rpgrt", "rpgnative", "rpgcg"]
+members = ["core", "rpgrt", "rpgnative", "rpgcg", "native-tools"]
 resolver = "2"
 
 [workspace.package]
