@@ -123,7 +123,14 @@ File I/O, workstation, printer, SQL, system APIs and dynamic calls stay as `Runt
 - **Parity:** no difference on the three harness levels.
 - **Code generation:** every construct in the stage 2 list lowered. The constructs left as runtime calls are listed in `docs/native/fidelity.md` with the reason.
 
-## Final phase: retiring the interpreter (the user's goal, 2026-11-11)
+## Priorities (the user, 2026-11-12)
+
+1. Help upstream complete the project. This fork's defect reports and contributions are for upstream first.
+2. Keep both engines. Programs run interpreted or native, switched with `AS4TAINR_RPG_ENGINE`. This supersedes the next section's goal: the interpreter stays unless the user decides otherwise.
+3. Training (a PUB400.com equivalent) and small-scale production. The production build with programs compiled in (`native-tools`) serves this.
+4. Later, migrating RPG code bases to Rust that people maintain. That is a separate source-to-source project, not this backend's fidelity-first generated code.
+
+## Final phase: retiring the interpreter (the user's goal, 2026-11-11; superseded by the priorities above on 2026-11-12)
 
 Once the native engine is proven, the interpreter is to be removed. "Removed" means that the evaluation of the AST and `run_code_at` go:
 
