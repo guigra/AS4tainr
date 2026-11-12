@@ -378,3 +378,82 @@ async fn native_unit_lowered_trim_len() {
     )
     .await;
 }
+
+// Stage 2, S2.10: %SUBST of character expressions, lowered to Rust:
+// literal and field arguments, the rest of the string, %SUBST of %TRIM,
+// and status 00100 for a start or a length out of range.
+// Source: golden capture tools/golden/native7.txt n7_subst (PUB400, IBM i 7.5, 2026-11-12)
+#[tokio::test]
+async fn native_unit_lowered_subst() {
+    let _ = require_db!();
+    expect(
+        "NSUB",
+        include_str!("native/NSUB.rpgle"),
+        &[
+            "SUBST [CDEF ]",
+            "SUBST REST [HIJ  ]",
+            "SUBST VARS [BCD  ]",
+            "SUBST TRIM [YZQ  ]",
+            "SUBST START 00100",
+            "SUBST LEN 00100",
+        ],
+    )
+    .await;
+}
+
+// Stage 2, S2.11: fixed-form MOVE and MOVEL lowered to Rust: from the
+// right and the left, padded, character to numeric (digits from each
+// byte, the sign from the last zone), numeric to numeric and to
+// character, literals.
+// Source: golden capture tools/golden/native8.txt n8_move (PUB400, IBM i 7.5, 2026-11-12)
+#[tokio::test]
+async fn native_unit_lowered_move() {
+    let _ = require_db!();
+    expect(
+        "NMOVE",
+        include_str!("native/NMOVE.rpgle"),
+        &[
+            "MOVE [ABXYZ]",
+            "MOVEL [XYZDE]",
+            "MOVEP [  XYZ]",
+            "MOVELP [XYZ  ]",
+            "MOVE NUM [AB123]",
+            "MOVE CHR NUM 765",
+            "MOVE ZONE SIGN -121",
+            "MOVE NUM NUM 345",
+            "MOVEL NUM NUM 12.3",
+            "MOVE NEG [04K]",
+            "MOVE LIT [AB7]",
+            "MOVEL LIT [QRCDE]",
+        ],
+    )
+    .await;
+}
+
+// Stage 2, S2.12: %SCAN and %XLATE lowered to Rust: with and without a
+// start, a pattern with blanks, %SCAN in arithmetic and of a
+// concatenation, %XLATE with a shorter `to`, and status 00100 for an
+// %XLATE start past the end.
+// Source: golden capture tools/golden/native9.txt n9_scan (PUB400, IBM i 7.5, 2026-11-12)
+#[tokio::test]
+async fn native_unit_lowered_scan_xlate() {
+    let _ = require_db!();
+    expect(
+        "NSCAN",
+        include_str!("native/NSCAN.rpgle"),
+        &[
+            "SCAN 2",
+            "SCAN START 5",
+            "SCAN NONE 0",
+            "SCAN BLANK 7",
+            "SCAN EXPR 11",
+            "SCAN VAR 4",
+            "SCAN CAT 8",
+            "XLATE [AXBYC     ]",
+            "XLATE SHORT [xyCxyCXYZ ]",
+            "XLATE START [ABCzBCXYZ ]",
+            "XLATE PAST ERR 100",
+        ],
+    )
+    .await;
+}

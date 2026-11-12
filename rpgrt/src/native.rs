@@ -281,6 +281,157 @@ pub fn trim(v: &Value, left: bool, right: bool) -> NResult<Value> {
     Ok(Value::Char(rest.get(..keep).unwrap_or_default().to_vec()))
 }
 
+/// %SUBST's start (S2.10): the index of its first character, or the
+/// interpreter's error when it is outside the string (start 1 to length
+/// plus 1).
+pub fn subst_start(s: &[u8], start: &Value) -> NResult<usize> {
+    let start = start.num()?.to_i128()?;
+    let from = usize::try_from(start)
+        .ok()
+        .filter(|&n| n >= 1 && n <= s.len().saturating_add(1))
+        .and_then(|n| n.checked_sub(1));
+    from.ok_or_else(|| {
+        anyhow::anyhow!(
+            "RNQ0100: %SUBST start {start} is outside the string (length {}).",
+            s.len()
+        )
+    })
+}
+
+/// %SUBST's characters from `from` (S2.10): `len` of them, or the rest of
+/// the string; the interpreter's errors for a negative length or one
+/// past the end.
+pub fn subst_take(s: &[u8], from: usize, len: Option<&Value>) -> NResult<Value> {
+    let len = match len {
+        Some(x) => {
+            let n = x.num()?.to_i128()?;
+            if n < 0 {
+                anyhow::bail!("RNQ0100: %SUBST length {n} is negative.");
+            }
+            usize::try_from(n).unwrap_or(usize::MAX)
+        }
+        None => s.len().saturating_sub(from),
+    };
+    match from.checked_add(len).and_then(|end| s.get(from..end)) {
+        Some(part) => Ok(Value::Char(part.to_vec())),
+        None => anyhow::bail!(
+            "RNQ0100: %SUBST length {len} goes past the end of the string (length {}).",
+            s.len()
+        ),
+    }
+}
+
+/// MOVE's and MOVEL's image of a value (S2.11), as the interpreter's
+/// `move_image`: a number as zoned digits of its type's precision (a
+/// literal's own digits when `t` is not numeric), anything else as its
+/// characters.
+pub fn move_image(v: &Value, t: Option<DType>) -> NResult<Vec<u8>> {
+    match v {
+        Value::Num(d) => {
+            let (digits, decs) = match t {
+                Some(t) if t.is_numeric() => t.precision(),
+                _ => (
+                    d.int_digits().saturating_add(u32::from(d.scale())).max(1),
+                    u32::from(d.scale()),
+                ),
+            };
+            let zt = DType::Zoned(digits, decs);
+            let mut b = zt.initial();
+            data::store(
+                &zt,
+                &Value::Num(*d),
+                &mut b,
+                Fit::Truncate { half_adjust: false },
+                false,
+            )?;
+            Ok(b)
+        }
+        other => other.chars(),
+    }
+}
+
+/// MOVE (`left` false) and MOVEL (S2.11): `src` over the result's image
+/// `dst`, from the right or the left, after padding it when `pad`, and the
+/// value to assign (the interpreter's `do_move`). A numeric result takes
+/// the digits of each byte and the sign from the zone of the last.
+pub fn move_into(left: bool, pad: bool, src: &[u8], mut dst: Vec<u8>, tt: DType) -> NResult<Value> {
+    let n = dst.len();
+    if pad {
+        let fill = if tt.is_numeric() { 0xF0 } else { data::BLANK };
+        dst.fill(fill);
+    }
+    let k = src.len().min(n);
+    let (to, from) = if left {
+        (dst.get_mut(..k), src.get(..k))
+    } else {
+        (
+            dst.get_mut(n.saturating_sub(k)..),
+            src.get(src.len().saturating_sub(k)..),
+        )
+    };
+    match (to, from) {
+        (Some(to), Some(from)) if to.len() == from.len() => to.copy_from_slice(from),
+        _ => anyhow::bail!("MOVE: the operands' lengths do not fit"),
+    }
+    if !tt.is_numeric() {
+        return Ok(Value::Char(dst));
+    }
+    let (_, decs) = tt.precision();
+    let mut digits: Vec<u8> = dst.iter().map(|b| 0xF0 | (b & 0x0F).min(9)).collect();
+    if let (Some(last), Some(d)) = (dst.last(), digits.last_mut()) {
+        let neg = last & 0xF0 == 0xD0;
+        *d = if neg { 0xD0 } else { 0xF0 } | (last & 0x0F).min(9);
+    }
+    let len = u32::try_from(digits.len())?;
+    Ok(Value::Num(data::decode_num(
+        &DType::Zoned(len, decs),
+        &digits,
+    )?))
+}
+
+/// %SCAN (S2.12): the position of the first `pat` in `s` from `start`
+/// (1 when not given) on, or 0, as the interpreter computes it.
+pub fn scan(pat: &[u8], s: &[u8], start: Option<&Value>) -> NResult<Dec> {
+    let start = match start {
+        Some(x) => usize::try_from(x.num()?.to_i128()?).unwrap_or(0),
+        None => 1,
+    };
+    let found = match (start.checked_sub(1), pat.is_empty()) {
+        (Some(from), false) if start <= s.len() => s
+            .get(from..)
+            .and_then(|rest| rest.windows(pat.len()).position(|w| w == pat))
+            .and_then(|p| p.checked_add(start))
+            .unwrap_or(0),
+        _ => 0,
+    };
+    Ok(Dec::from_i64(i64::try_from(found)?))
+}
+
+/// %XLATE (S2.12): `s` with each character of `from` that has a
+/// counterpart in `to` changed to it, from position `start` (1 when not
+/// given) on; the interpreter's error for a start outside the string.
+pub fn xlate(from: &[u8], to: &[u8], s: &[u8], start: Option<&Value>) -> NResult<Value> {
+    let start = match start {
+        Some(x) => x.num()?.to_i128()?,
+        None => 1,
+    };
+    let first = usize::try_from(start)
+        .ok()
+        .filter(|&n| n >= 1 && n <= s.len().max(1));
+    let Some(first) = first else {
+        anyhow::bail!("RNQ0100: %XLATE start position {start} is outside the string.");
+    };
+    Ok(Value::Char(
+        s.iter()
+            .enumerate()
+            .map(|(k, c)| match from.iter().position(|f| f == c) {
+                Some(p) if k >= first.saturating_sub(1) => to.get(p).copied().unwrap_or(*c),
+                _ => *c,
+            })
+            .collect(),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

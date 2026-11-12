@@ -1,0 +1,4 @@
+# Captures for stage 2 of the native backend, S2.12: %SCAN and %XLATE.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native9.txt -f tools/golden/native9
+n9_crt_scan|!system "CRTSQLRPGI OBJ(@LIB@/GN9SCAN) SRCSTMF('@HOME@/gld/gn9scan.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n9_scan|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN9SCAN)"; cat gn1.out; rm -f gn1.out

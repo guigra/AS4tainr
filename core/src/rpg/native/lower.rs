@@ -129,6 +129,22 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 inds: !ind.is_empty(),
             }
         }
+        // MOVE and MOVEL with no date format and no result indicators
+        // (S2.11); eligible fields are never dates, so `move_temporal`
+        // does nothing for them.
+        Ins::Stmt(Stmt::Move {
+            left,
+            pad,
+            fmt: None,
+            from,
+            to,
+            ind,
+        }) if ind.is_empty() => ir::Lowered::Move {
+            left: *left,
+            pad: *pad,
+            from: any_operand(cx, from, &mut used)?,
+            to: variable(cx, to, &mut used)?,
+        },
         // EVAL with no E extender (H is fine): stmt_e is then plain stmt.
         Ins::Stmt(Stmt::Eval {
             target,
@@ -174,6 +190,50 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                 path,
             })
         }
+        // %SUBST of a character expression, with a start and a length that
+        // are numeric literals or fields (S2.10).
+        Expr::Bif(b, args) if b == "SUBST" => {
+            let (inner, start, len) = match args.as_slice() {
+                [i, s] => (i, s, None),
+                [i, s, l] => (i, s, Some(l)),
+                _ => return None,
+            };
+            let mut ip = path.clone();
+            ip.push(0);
+            Some(ir::CharExpr::Subst {
+                inner: Box::new(char_expr(cx, inner, used, ip)?),
+                start: operand(cx, start, used)?,
+                len: match len {
+                    Some(l) => Some(operand(cx, l, used)?),
+                    None => None,
+                },
+                path,
+            })
+        }
+        // %XLATE of character expressions, with a start that is a numeric
+        // literal or field (S2.12).
+        Expr::Bif(b, args) if b == "XLATE" => {
+            let (from, to, s, start) = match args.as_slice() {
+                [f, o, s] => (f, o, s, None),
+                [f, o, s, st] => (f, o, s, Some(st)),
+                _ => return None,
+            };
+            let child = |k: u8| {
+                let mut c = path.clone();
+                c.push(k);
+                c
+            };
+            Some(ir::CharExpr::Xlate {
+                from: Box::new(char_expr(cx, from, used, child(0))?),
+                to: Box::new(char_expr(cx, to, used, child(1))?),
+                s: Box::new(char_expr(cx, s, used, child(2))?),
+                start: match start {
+                    Some(x) => Some(operand(cx, x, used)?),
+                    None => None,
+                },
+                path,
+            })
+        }
         // %TRIM, %TRIML, %TRIMR of one character expression (S2.9).
         Expr::Bif(b, args) if matches!(b.as_str(), "TRIM" | "TRIML" | "TRIMR") => {
             let [inner] = args.as_slice() else {
@@ -212,6 +272,28 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 },
                 left: Box::new(num_expr(cx, l, used, lp)?),
                 right: Box::new(num_expr(cx, r, used, rp)?),
+                path,
+            })
+        }
+        // %SCAN of character expressions, with a start that is a numeric
+        // literal or field (S2.12).
+        Expr::Bif(b, args) if b == "SCAN" => {
+            let (pat, s, start) = match args.as_slice() {
+                [p, s] => (p, s, None),
+                [p, s, st] => (p, s, Some(st)),
+                _ => return None,
+            };
+            let mut pp = path.clone();
+            pp.push(0);
+            let mut sp = path.clone();
+            sp.push(1);
+            Some(ir::NumExpr::Scan {
+                pat: Box::new(char_expr(cx, pat, used, pp)?),
+                s: Box::new(char_expr(cx, s, used, sp)?),
+                start: match start {
+                    Some(x) => Some(operand(cx, x, used)?),
+                    None => None,
+                },
                 path,
             })
         }

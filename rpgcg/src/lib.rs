@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.9");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.12");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -152,6 +152,14 @@ pub mod ir {
             half_adjust: bool,
             right: bool,
         },
+        /// MOVE and MOVEL (S2.11), with no result indicators: a field
+        /// or a literal into a field.
+        Move {
+            left: bool,
+            pad: bool,
+            from: Operand,
+            to: Operand,
+        },
     }
 
     /// The fixed-form arithmetic operations lowered.
@@ -179,6 +187,25 @@ pub mod ir {
         Cat {
             left: Box<CharExpr>,
             right: Box<CharExpr>,
+            path: Vec<u8>,
+        },
+        /// %SUBST (S2.10): a character expression, its start and, when
+        /// given, its length (literals or fields), and its place in the
+        /// statement's expression.
+        Subst {
+            inner: Box<CharExpr>,
+            start: Operand,
+            len: Option<Operand>,
+            path: Vec<u8>,
+        },
+        /// %XLATE (S2.12): the characters `from` becomes `to` in `s`,
+        /// from `start` on; the places of its operands are its path and
+        /// 0, 1 and 2.
+        Xlate {
+            from: Box<CharExpr>,
+            to: Box<CharExpr>,
+            s: Box<CharExpr>,
+            start: Option<Operand>,
             path: Vec<u8>,
         },
         /// %TRIM (both), %TRIML (`left`) or %TRIMR (`right`) of one
@@ -210,6 +237,13 @@ pub mod ir {
             op: ArOp,
             left: Box<NumExpr>,
             right: Box<NumExpr>,
+            path: Vec<u8>,
+        },
+        /// %SCAN (S2.12): where `pat` first is in `s`, from `start` on.
+        Scan {
+            pat: Box<CharExpr>,
+            s: Box<CharExpr>,
+            start: Option<Operand>,
             path: Vec<u8>,
         },
     }
@@ -700,6 +734,49 @@ fn lowered_step(
         }
         (
             ir::Kind::Stmt,
+            ir::Lowered::Move {
+                left,
+                pad,
+                from,
+                to,
+            },
+        ) => {
+            let ir::Operand::Var {
+                buf,
+                off,
+                ty: t,
+                local,
+                ..
+            } = to
+            else {
+                return Err(bad());
+            };
+            let (prelude, sb, so) = place(*buf, *off, *local);
+            // A literal has no type (the interpreter's `type_of`).
+            let from_ty = match from {
+                ir::Operand::Var { ty: f, .. } => format!("Some({})", ty(f)),
+                _ => "None".to_string(),
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn mv{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let a = {};\n    let src = rpgrt::native::move_image(&a, {from_ty})?;\n    let b = {};\n    let dst = rpgrt::native::move_image(&b, Some({}))?;\n    let v = rpgrt::native::move_into({left}, {pad}, &src, dst, {})?;",
+                value(from),
+                value(to),
+                ty(t),
+                ty(t)
+            );
+            let _ = writeln!(
+                helpers,
+                "{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        {},\n        &v,\n        rpgrt::rpg::data::Fit::Truncate {{ half_adjust: false }},\n        false,\n    )\n}}",
+                ty(t)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("mv{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
             ir::Lowered::Arith {
                 op,
                 f1,
@@ -784,6 +861,18 @@ fn lowered_step(
     })
 }
 
+/// A helper's name for a place in a statement's expression: l, r and x
+/// for the first, second and third operand on the way from the root.
+fn path_id(path: &[u8]) -> String {
+    path.iter()
+        .map(|b| match b {
+            0 => 'l',
+            1 => 'r',
+            _ => 'x',
+        })
+        .collect()
+}
+
 /// A character expression as a `Value` expression; each concatenation is
 /// a helper `s<pc>_<path>` that joins its operands' characters as the
 /// interpreter does (`chars` of each, the second after the first).
@@ -791,10 +880,7 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
     match e {
         ir::CharExpr::Leaf(o) => value(o),
         ir::CharExpr::Cat { left, right, path } => {
-            let id: String = path
-                .iter()
-                .map(|b| if *b == 0 { 'l' } else { 'r' })
-                .collect();
+            let id = path_id(path);
             let name = format!("s{pc}_{id}");
             let x = char_expr(pc, left, helpers);
             let y = char_expr(pc, right, helpers);
@@ -804,16 +890,60 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
             );
             format!("{name}(rt)?")
         }
+        ir::CharExpr::Subst {
+            inner,
+            start,
+            len,
+            path,
+        } => {
+            let id = path_id(path);
+            let name = format!("u{pc}_{id}");
+            let x = char_expr(pc, inner, helpers);
+            // As the interpreter: the string, then the start (checked),
+            // then the length.
+            let take = match len {
+                Some(l) => format!(
+                    "    let n = {};\n    rpgrt::native::subst_take(&s, from, Some(&n))",
+                    value(l)
+                ),
+                None => "    rpgrt::native::subst_take(&s, from, None)".to_string(),
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let s = {x}.chars()?;\n    let st = {};\n    let from = rpgrt::native::subst_start(&s, &st)?;\n{take}\n}}",
+                value(start)
+            );
+            format!("{name}(rt)?")
+        }
+        ir::CharExpr::Xlate {
+            from,
+            to,
+            s,
+            start,
+            path,
+        } => {
+            let name = format!("x{pc}_{}", path_id(path));
+            let f = char_expr(pc, from, helpers);
+            let o = char_expr(pc, to, helpers);
+            let x = char_expr(pc, s, helpers);
+            // As the interpreter: from, to, the string, the start.
+            let st = match start {
+                Some(o) => format!("Some({})", value(o)),
+                None => "None".to_string(),
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let f = {f}.chars()?;\n    let o = {o}.chars()?;\n    let s = {x}.chars()?;\n    let st = {st};\n    rpgrt::native::xlate(&f, &o, &s, st.as_ref())\n}}"
+            );
+            format!("{name}(rt)?")
+        }
         ir::CharExpr::Trim {
             inner,
             left,
             right,
             path,
         } => {
-            let id: String = path
-                .iter()
-                .map(|b| if *b == 0 { 'l' } else { 'r' })
-                .collect();
+            let id = path_id(path);
             let name = format!("t{pc}_{id}");
             let x = char_expr(pc, inner, helpers);
             let _ = writeln!(
@@ -838,10 +968,7 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             right,
             path,
         } => {
-            let id: String = path
-                .iter()
-                .map(|b| if *b == 0 { 'l' } else { 'r' })
-                .collect();
+            let id = path_id(path);
             let name = format!("e{pc}_{id}");
             let path_lit: Vec<String> = path.iter().map(|b| b.to_string()).collect();
             let mut body = String::new();
@@ -869,6 +996,26 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             };
             let _ = writeln!(body, "    Ok(rpgrt::native::rule_scale(p, a.{f}(&b)?))\n}}");
             helpers.push_str(&body);
+            format!("{name}(rt)?")
+        }
+        ir::NumExpr::Scan {
+            pat,
+            s,
+            start,
+            path,
+        } => {
+            let name = format!("n{pc}_{}", path_id(path));
+            let p = char_expr(pc, pat, helpers);
+            let x = char_expr(pc, s, helpers);
+            // As the interpreter: the pattern, the string, the start.
+            let st = match start {
+                Some(o) => format!("Some({})", value(o)),
+                None => "None".to_string(),
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::dec::Dec> {{\n    let p = {p}.chars()?;\n    let s = {x}.chars()?;\n    let st = {st};\n    rpgrt::native::scan(&p, &s, st.as_ref())\n}}"
+            );
             format!("{name}(rt)?")
         }
     }

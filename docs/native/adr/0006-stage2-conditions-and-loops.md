@@ -131,3 +131,46 @@ Anywhere else the interpreter runs the instruction, as in stage 1.
 - %LEN in arithmetic.
 
 The expected values were captured on PUB400: tools/golden/native6.txt n6_bif (IBM i 7.5, 2026-11-12).
+
+## S2.10: %SUBST (rpgcg 0.1.0+stage2.10)
+
+**What changes.** A character expression can now hold %SUBST of a character expression, with a start and an optional length. Each of them is a numeric literal or an eligible field. The generated helper `u<pc>_<path>` evaluates in the interpreter's order: the string, then the start, which `rpgrt::native::subst_start` checks, then the length, which `subst_take` checks. Both functions raise the interpreter's RNQ0100 errors, with the same message texts (as4tainr's own), so status 00100, MONITOR and *PSSR see the same thing.
+
+**One difference, for absurd values only.** A start or a length beyond `usize` is out of range in the native code. The interpreter truncates it with `as usize`.
+
+**Not lowered.** A start or a length that is an expression, and %SUBST as the target of an assignment.
+
+**Expected values.** `core/tests/native/NSUB.rpgle`, captured on PUB400: tools/golden/native7.txt n7_subst (IBM i 7.5, 2026-11-12). That capture found two interpreter defects (fidelity.md): a start one past the end with length 0 is status 00100 on IBM i, and constant arguments out of range do not compile. Both are left out of the test.
+
+## S2.11: fixed-form MOVE and MOVEL (rpgcg 0.1.0+stage2.11)
+
+**What changes.** MOVE and MOVEL, with or without P, are now lowered when:
+
+- they have no date format in factor 1 and no result indicators;
+- factor 2 is a literal or an eligible field;
+- the result is an eligible field.
+
+Eligible fields are never dates, times or timestamps, so the interpreter's `move_temporal` would do nothing for them. The generated helper `mv<pc>` uses `rpgrt::native::move_image` and `move_into`, which are the interpreter's `move_image` and `do_move` written again under section 5's lints:
+
+- a number is moved as zoned digits of its type's precision (a literal's own digits);
+- a numeric result takes the digit of each byte and the sign from the zone of the last;
+- the value is assigned with truncation.
+
+**Not lowered.** Result indicators, figurative constants, data structures, arrays, and dates.
+
+**Expected values.** `core/tests/native/NMOVE.rpgle`, captured on PUB400: tools/golden/native8.txt n8_move (IBM i 7.5, 2026-11-12). The interpreter gives the same values.
+
+## S2.12: %SCAN and %XLATE (rpgcg 0.1.0+stage2.12)
+
+**What changes.**
+
+- %SCAN of two character expressions, with a start that is a numeric literal or an eligible field, is now a numeric expression of lowered code. Its helper is `n<pc>_<path>`.
+- %XLATE of three character expressions, with an optional start of the same kind, is a character expression. Its helper is `x<pc>_<path>`.
+
+The helpers evaluate the arguments in the interpreter's order. `rpgrt::native::scan` and `xlate` compute what the interpreter's `"SCAN"` and `"XLATE"` arms compute, with the same RNQ0100 error for an %XLATE start outside the string.
+
+Helper names now spell a third operand `x` (`path_id`). The names of existing helpers, which have only first and second operands, are unchanged.
+
+**Not lowered.** %SCAN in a condition (IF %SCAN(...) > 0), %SCANRPL, %CHECK and %REPLACE.
+
+**Expected values.** `core/tests/native/NSCAN.rpgle`, captured on PUB400: tools/golden/native9.txt n9_scan (IBM i 7.5, 2026-11-12). The capture found an interpreter defect (fidelity.md): %SCAN with a start outside the string is status 00100 on IBM i. It is left out of the test.
