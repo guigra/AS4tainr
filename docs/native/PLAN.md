@@ -101,6 +101,12 @@ Each phase is one or more small commits on its own `native/<topic>` branch, reba
 
 ### Stage 2 order (first estimate, revised by measurement)
 
+Done so far:
+
+- **S2.1** (ADR 0006): conditions of IF/DOW/DOU/WHEN, and FOR/DO control, on global numeric fields of the main program.
+- **Prerequisite for anything that depends on layout:** the buffer numbers of file fields must be made stable. That is a one-line sort in program.rs, waiting for the user's approval (fidelity.md, notes for stage 2).
+
+
 1. Conditioning indicators and indicator conditions (direct access to the indicator state through narrow `Runtime` accessors).
 2. Comparisons of fields with literals and fields (JumpIfNot, LoopTest, CAB) for character and numeric types.
 3. Numeric EVAL and fixed-form arithmetic (ADD, SUB, MULT, DIV/MVR, Z-ADD, Z-SUB) on packed, zoned and binary fields. This needs the precision rules extracted into `rpgrt`, which is an upstream change needing approval.
