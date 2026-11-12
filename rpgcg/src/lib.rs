@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage1.1");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.2");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -55,6 +55,101 @@ pub mod ir {
         pub cond: bool,
         /// What it is, for the comment (an operation code); any text.
         pub what: String,
+        /// Stage 2 (docs/native/adr/0006): what the instruction evaluates,
+        /// lowered to direct Rust; None: the runtime evaluates it.
+        pub lowered: Option<Lowered>,
+    }
+
+    /// A numeric type lowered code reads and writes (the `DType`s of
+    /// rpgrt::rpg::data with these names).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Ty {
+        Packed(u32, u32),
+        Zoned(u32, u32),
+        Binary(u32, u32),
+        Int(u32),
+        Uns(u32),
+    }
+
+    /// An operand of lowered code.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum Operand {
+        /// A field: its buffer, offset and type (and name, for comments).
+        Var {
+            name: String,
+            buf: usize,
+            off: usize,
+            ty: Ty,
+        },
+        /// A numeric literal: mantissa and scale (`Dec::new`).
+        Num { m: i128, s: u8 },
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum CmpOp {
+        Eq,
+        Ne,
+        Lt,
+        Le,
+        Gt,
+        Ge,
+    }
+
+    /// A lowered condition.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum Cond {
+        Cmp(CmpOp, Operand, Operand),
+        And(Box<Cond>, Box<Cond>),
+        Or(Box<Cond>, Box<Cond>),
+    }
+
+    /// What a lowered instruction evaluates.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum Lowered {
+        /// The condition of a jump-if-not.
+        Cond(Cond),
+        /// FOR/DO: the index past its limit.
+        LoopTest {
+            var: Operand,
+            limit: Option<Operand>,
+            down: bool,
+        },
+        /// FOR/DO: step the index.
+        LoopStep {
+            var: Operand,
+            by: Option<Operand>,
+            down: bool,
+        },
+        /// EVAL (S2.2): a numeric field gets a numeric expression.
+        Eval {
+            target: Operand,
+            value: NumExpr,
+            half_adjust: bool,
+            right: bool,
+        },
+    }
+
+    /// +, - and * in lowered code.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum ArOp {
+        Add,
+        Sub,
+        Mul,
+    }
+
+    /// A numeric expression of lowered code.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum NumExpr {
+        Leaf(Operand),
+        /// An operation, and its place in the statement's expression (0
+        /// left, 1 right from the root): where the runtime finds it to give
+        /// its precision.
+        Bin {
+            op: ArOp,
+            left: Box<NumExpr>,
+            right: Box<NumExpr>,
+            path: Vec<u8>,
+        },
     }
 
     /// The instruction kinds of `code::Ins`, with the targets the
@@ -110,6 +205,11 @@ pub enum Error {
         line: usize,
         to: usize,
     },
+    /// A lowered evaluation that does not fit its instruction's kind.
+    Lowered {
+        at: usize,
+        line: usize,
+    },
 }
 
 impl std::fmt::Display for Error {
@@ -123,6 +223,10 @@ impl std::fmt::Display for Error {
             Error::Target { at, line, to } => write!(
                 f,
                 "instruction {at} (line {line}) jumps to {to}, past the end of the routine"
+            ),
+            Error::Lowered { at, line } => write!(
+                f,
+                "instruction {at} (line {line}): its lowered form is not for its kind"
             ),
         }
     }
@@ -245,6 +349,257 @@ fn targets(kind: &ir::Kind) -> Vec<usize> {
     }
 }
 
+fn ty(t: &ir::Ty) -> String {
+    use ir::Ty::*;
+    let p = "rpgrt::rpg::data::DType";
+    match t {
+        Packed(d, s) => format!("{p}::Packed({d}, {s})"),
+        Zoned(d, s) => format!("{p}::Zoned({d}, {s})"),
+        Binary(d, s) => format!("{p}::Binary({d}, {s})"),
+        Int(n) => format!("{p}::Int({n})"),
+        Uns(n) => format!("{p}::Uns({n})"),
+    }
+}
+
+/// An operand as a `Value` expression (inside a helper with `rt`).
+fn value(o: &ir::Operand) -> String {
+    match o {
+        ir::Operand::Var {
+            buf, off, ty: t, ..
+        } => {
+            format!("rpgrt::native::load(rt.mem(), {buf}, {off}, {})?", ty(t))
+        }
+        ir::Operand::Num { m, s } => {
+            format!("rpgrt::rpg::data::Value::Num(rpgrt::rpg::dec::Dec::new({m}, {s}))")
+        }
+    }
+}
+
+/// An operand as a `Dec` expression.
+fn number(o: &ir::Operand) -> String {
+    match o {
+        ir::Operand::Var {
+            buf, off, ty: t, ..
+        } => {
+            format!(
+                "rpgrt::native::load_num(rt.mem(), {buf}, {off}, {})?",
+                ty(t)
+            )
+        }
+        ir::Operand::Num { m, s } => format!("rpgrt::rpg::dec::Dec::new({m}, {s})"),
+    }
+}
+
+fn name_of(o: &ir::Operand) -> String {
+    match o {
+        ir::Operand::Var { name, .. } => comment(name),
+        ir::Operand::Num { m, s } => format!("{m}e-{s}"),
+    }
+}
+
+/// Helper functions of a lowered condition: `c<pc>` for the whole, then
+/// `c<pc>_<k>` for its parts.
+fn cond_fns(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usize) {
+    let _ = writeln!(out, "\nfn {id}(rt: &mut dyn Runtime) -> NResult<bool> {{");
+    match c {
+        ir::Cond::Cmp(op, a, b) => {
+            let op = match op {
+                ir::CmpOp::Eq => "Eq",
+                ir::CmpOp::Ne => "Ne",
+                ir::CmpOp::Lt => "Lt",
+                ir::CmpOp::Le => "Le",
+                ir::CmpOp::Gt => "Gt",
+                ir::CmpOp::Ge => "Ge",
+            };
+            let _ = writeln!(out, "    // {} {op} {}", name_of(a), name_of(b));
+            let _ = writeln!(out, "    let x = {};", value(a));
+            let _ = writeln!(out, "    let y = {};", value(b));
+            let _ = writeln!(
+                out,
+                "    rpgrt::native::cmp(rpgrt::native::CmpOp::{op}, &x, &y)\n}}"
+            );
+        }
+        ir::Cond::And(l, r) | ir::Cond::Or(l, r) => {
+            let both = if matches!(c, ir::Cond::And(..)) {
+                "&&"
+            } else {
+                "||"
+            };
+            *n = n.saturating_add(1);
+            let li = format!("c{pc}_{n}");
+            *n = n.saturating_add(1);
+            let ri = format!("c{pc}_{n}");
+            let _ = writeln!(out, "    Ok({li}(rt)? {both} {ri}(rt)?)\n}}");
+            cond_fns(pc, l, &li, out, n);
+            cond_fns(pc, r, &ri, out, n);
+        }
+    }
+}
+
+/// The arm of an instruction whose evaluation is lowered, and its
+/// helpers: the lowered code runs unless a procedure is running.
+fn lowered_step(
+    pc: usize,
+    next: usize,
+    i: &ir::Ins,
+    l: &ir::Lowered,
+    helpers: &mut String,
+) -> Result<String, Error> {
+    let bad = || Error::Lowered {
+        at: pc,
+        line: i.line,
+    };
+    let guarded = |interp: String, native: String| {
+        format!(
+            "if rt.in_procedure() {{\n                    {interp}\n                }} else {{\n                    {native}\n                }}"
+        )
+    };
+    Ok(match (&i.kind, l) {
+        (ir::Kind::JumpIfNot(t), ir::Lowered::Cond(c)) => {
+            let mut n = 0;
+            cond_fns(pc, c, &format!("c{pc}"), helpers, &mut n);
+            guarded(
+                format!("rt.truth({pc}).map(|c| if c {{ {next} }} else {{ {t} }})"),
+                format!("c{pc}(rt).map(|c| if c {{ {next} }} else {{ {t} }})"),
+            )
+        }
+        (ir::Kind::LoopTest { end }, ir::Lowered::LoopTest { var, limit, down }) => {
+            let _ = writeln!(
+                helpers,
+                "\nfn lt{pc}(rt: &mut dyn Runtime) -> NResult<bool> {{"
+            );
+            let _ = writeln!(helpers, "    let v = {};", number(var));
+            match limit {
+                Some(lim) => {
+                    let _ = writeln!(helpers, "    let l = {};", number(lim));
+                    let _ = writeln!(helpers, "    Ok(v {} l)\n}}", if *down { "<" } else { ">" });
+                }
+                None => {
+                    let _ = writeln!(helpers, "    let _ = v;\n    Ok(false)\n}}");
+                }
+            }
+            guarded(
+                format!("rt.loop_past({pc}).map(|past| if past {{ {end} }} else {{ {next} }})"),
+                format!("lt{pc}(rt).map(|past| if past {{ {end} }} else {{ {next} }})"),
+            )
+        }
+        (ir::Kind::LoopStep, ir::Lowered::LoopStep { var, by, down }) => {
+            let ir::Operand::Var {
+                buf, off, ty: t, ..
+            } = var
+            else {
+                return Err(bad());
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn ls{pc}(rt: &mut dyn Runtime) -> NResult<()> {{"
+            );
+            let step = by
+                .as_ref()
+                .map(number)
+                .unwrap_or_else(|| "rpgrt::rpg::dec::Dec::from_i64(1)".to_string());
+            let _ = writeln!(helpers, "    let step = {step};");
+            let _ = writeln!(helpers, "    let v = {};", number(var));
+            let _ = writeln!(
+                helpers,
+                "    let n = v.{}(&step)?;",
+                if *down { "sub" } else { "add" }
+            );
+            let _ = writeln!(
+                helpers,
+                "    rpgrt::native::store(\n        rt.mem(),\n        {buf},\n        {off},\n        {},\n        &rpgrt::rpg::data::Value::Num(n),\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: false }},\n        false,\n    )\n}}",
+                ty(t)
+            );
+            guarded(
+                format!("rt.loop_step({pc}).map(|()| {next})"),
+                format!("ls{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::Eval {
+                target,
+                value,
+                half_adjust,
+                right,
+            },
+        ) => {
+            let ir::Operand::Var {
+                buf, off, ty: t, ..
+            } = target
+            else {
+                return Err(bad());
+            };
+            // The expression's helpers first, then this one whole.
+            let v = num_expr(pc, value, helpers);
+            let _ = writeln!(
+                helpers,
+                "\nfn ev{pc}(rt: &mut dyn Runtime) -> NResult<()> {{"
+            );
+            let _ = writeln!(helpers, "    let v = {v};");
+            let _ = writeln!(
+                helpers,
+                "    rpgrt::native::store(\n        rt.mem(),\n        {buf},\n        {off},\n        {},\n        &rpgrt::rpg::data::Value::Num(v),\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: {half_adjust} }},\n        {right},\n    )\n}}",
+                ty(t)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("ev{pc}(rt).map(|()| {next})"),
+            )
+        }
+        _ => return Err(bad()),
+    })
+}
+
+/// A numeric expression as a `Dec` expression; each operation becomes a
+/// helper `e<pc>_<path>` that keeps its precision in a `OnceLock` (the
+/// precision depends only on the operands' types, which the fingerprint
+/// covers).
+fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
+    match e {
+        ir::NumExpr::Leaf(o) => number(o),
+        ir::NumExpr::Bin {
+            op,
+            left,
+            right,
+            path,
+        } => {
+            let id: String = path
+                .iter()
+                .map(|b| if *b == 0 { 'l' } else { 'r' })
+                .collect();
+            let name = format!("e{pc}_{id}");
+            let path_lit: Vec<String> = path.iter().map(|b| b.to_string()).collect();
+            let mut body = String::new();
+            let _ = writeln!(
+                body,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::dec::Dec> {{"
+            );
+            let a = num_expr(pc, left, helpers);
+            let b = num_expr(pc, right, helpers);
+            let _ = writeln!(body, "    let a = {a};");
+            let _ = writeln!(body, "    let b = {b};");
+            let _ = writeln!(
+                body,
+                "    static P: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();"
+            );
+            let _ = writeln!(
+                body,
+                "    let p = *P.get_or_init(|| rt.precision({pc}, &[{}]));",
+                path_lit.join(", ")
+            );
+            let f = match op {
+                ir::ArOp::Add => "add",
+                ir::ArOp::Sub => "sub",
+                ir::ArOp::Mul => "mul",
+            };
+            let _ = writeln!(body, "    Ok(rpgrt::native::rule_scale(p, a.{f}(&b)?))\n}}");
+            helpers.push_str(&body);
+            format!("{name}(rt)?")
+        }
+    }
+}
+
 /// Generate a routine.
 pub fn generate(r: &ir::Routine) -> Result<Generated, Error> {
     if !valid_fingerprint(&r.fingerprint) {
@@ -297,6 +652,8 @@ pub fn generate(r: &ir::Routine) -> Result<Generated, Error> {
          \x20       let step: NResult<usize> = match pc {{\n",
         fp = r.fingerprint
     );
+    // Helper functions of lowered instructions, after `run`.
+    let mut helpers = String::new();
     // The 1-based line of the generated source the next text starts on.
     let mut src_line = src
         .bytes()
@@ -332,7 +689,11 @@ pub fn generate(r: &ir::Routine) -> Result<Generated, Error> {
             );
         }
         let _ = writeln!(arm, "                rt.line({pc});");
-        let _ = writeln!(arm, "                {}", step(pc, next, &i.kind));
+        let body = match &i.lowered {
+            Some(l) => lowered_step(pc, next, i, l, &mut helpers)?,
+            None => step(pc, next, &i.kind),
+        };
+        let _ = writeln!(arm, "                {body}");
         let _ = writeln!(arm, "            }}");
         src_line = src_line.saturating_add(arm.bytes().filter(|&b| b == b'\n').count());
         src.push_str(&arm);
@@ -347,6 +708,7 @@ pub fn generate(r: &ir::Routine) -> Result<Generated, Error> {
          \x20   }\n\
          }\n",
     );
+    src.push_str(&helpers);
     map.push_str("]}\n");
     Ok(Generated { source: src, map })
 }
@@ -366,6 +728,7 @@ mod tests {
             line,
             cond,
             what: "EVAL".to_string(),
+            lowered: None,
         }
     }
 
@@ -406,6 +769,129 @@ mod tests {
     }
 
     #[test]
+    fn lowered_conditions_and_loops() {
+        use super::ir::{CmpOp, Cond, Lowered, Operand, Ty};
+        let var = |name: &str, buf| Operand::Var {
+            name: name.to_string(),
+            buf,
+            off: 0,
+            ty: Ty::Packed(5, 0),
+        };
+        let mut test = ins(Kind::LoopTest { end: 3 }, 1, false);
+        test.lowered = Some(Lowered::LoopTest {
+            var: var("I", 2),
+            limit: Some(Operand::Num { m: 10, s: 0 }),
+            down: false,
+        });
+        let mut cond = ins(Kind::JumpIfNot(3), 2, false);
+        cond.lowered = Some(Lowered::Cond(Cond::And(
+            Box::new(Cond::Cmp(
+                CmpOp::Gt,
+                var("I", 2),
+                Operand::Num { m: 0, s: 0 },
+            )),
+            Box::new(Cond::Cmp(
+                CmpOp::Ne,
+                var("N", 3),
+                Operand::Num { m: 105, s: 2 },
+            )),
+        )));
+        let mut step = ins(Kind::LoopStep, 3, false);
+        step.lowered = Some(Lowered::LoopStep {
+            var: var("I", 2),
+            by: None,
+            down: false,
+        });
+        let r = Routine {
+            fingerprint: fp(),
+            ins: vec![test, cond, step],
+        };
+        let Ok(g) = generate(&r) else {
+            return assert!(generate(&r).is_ok());
+        };
+        // The runtime still runs it inside a procedure; the helpers run it
+        // otherwise.
+        for want in [
+            "if rt.in_procedure() {",
+            "rt.loop_past(0)",
+            "lt0(rt)",
+            "fn lt0(rt: &mut dyn Runtime) -> NResult<bool> {",
+            "Ok(v > l)",
+            "fn c1(rt: &mut dyn Runtime) -> NResult<bool> {",
+            "Ok(c1_1(rt)? && c1_2(rt)?)",
+            "rpgrt::rpg::dec::Dec::new(105, 2)",
+            "fn ls2(rt: &mut dyn Runtime) -> NResult<()> {",
+            "rpgrt::rpg::dec::Dec::from_i64(1)",
+            "let n = v.add(&step)?;",
+        ] {
+            assert!(g.source.contains(want), "{want} not in\n{}", g.source);
+        }
+        assert_eq!(generate(&r), generate(&r.clone()));
+        // A lowered form that does not fit its instruction is refused.
+        let mut bad = ins(Kind::Stmt, 9, false);
+        bad.lowered = Some(Lowered::LoopStep {
+            var: var("I", 2),
+            by: None,
+            down: false,
+        });
+        let r = Routine {
+            fingerprint: fp(),
+            ins: vec![bad],
+        };
+        assert_eq!(generate(&r), Err(Error::Lowered { at: 0, line: 9 }));
+    }
+
+    #[test]
+    fn lowered_eval() {
+        use super::ir::{ArOp, Lowered, NumExpr, Operand, Ty};
+        let var = |name: &str, buf| Operand::Var {
+            name: name.to_string(),
+            buf,
+            off: 0,
+            ty: Ty::Packed(5, 2),
+        };
+        let mut ev = ins(Kind::Stmt, 4, true);
+        // r = x * y - 0.001
+        ev.lowered = Some(Lowered::Eval {
+            target: var("R", 1),
+            value: NumExpr::Bin {
+                op: ArOp::Sub,
+                left: Box::new(NumExpr::Bin {
+                    op: ArOp::Mul,
+                    left: Box::new(NumExpr::Leaf(var("X", 2))),
+                    right: Box::new(NumExpr::Leaf(var("Y", 3))),
+                    path: vec![0],
+                }),
+                right: Box::new(NumExpr::Leaf(Operand::Num { m: 1, s: 3 })),
+                path: vec![],
+            },
+            half_adjust: true,
+            right: false,
+        });
+        let r = Routine {
+            fingerprint: fp(),
+            ins: vec![ev],
+        };
+        let Ok(g) = generate(&r) else {
+            return assert!(generate(&r).is_ok());
+        };
+        for want in [
+            "rt.stmt(0).map(|()| 1)",
+            "ev0(rt).map(|()| 1)",
+            "fn ev0(rt: &mut dyn Runtime) -> NResult<()> {",
+            "let v = e0_(rt)?;",
+            "fn e0_l(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::dec::Dec> {",
+            "rt.precision(0, &[0])",
+            "rt.precision(0, &[])",
+            "a.mul(&b)?",
+            "a.sub(&b)?",
+            "half_adjust: true",
+        ] {
+            assert!(g.source.contains(want), "{want} not in\n{}", g.source);
+        }
+    }
+
+    #[test]
     fn comments_and_map_are_safe() {
         let r = Routine {
             fingerprint: fp(),
@@ -414,6 +900,7 @@ mod tests {
                 line: 1,
                 cond: false,
                 what: "A\n} fn x() {\"q\"".to_string(),
+                lowered: None,
             }],
         };
         let g = generate(&r);

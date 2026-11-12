@@ -47,11 +47,43 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "pub(super) fn on_error_takes(entry: &str, code: u32) -> bool {",
             "",
         ),
+        // Stage 2, ADR 0006: what lowered code reads, writes and compares
+        // as the interpreter does.
+        function(
+            INTERP,
+            "    fn load_var(&self, v: &VarInfo, index: Option<i128>) -> Result<Value> {",
+            "    ",
+        ),
+        function(INTERP, "    fn store_var(\n", "    "),
+        function(
+            INTERP,
+            "    pub fn eval(&mut self, ex: &Expr) -> Result<Value> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn assign(&mut self, target: &Expr, val: &Value, fit: Fit, right: bool) -> Result<()> {",
+            "    ",
+        ),
+        // S2.2: EVAL and the precision rules lowered code asks for.
+        function(INTERP, "    fn stmt_inner(&mut self, s: &Stmt) -> Result<()> {", "    "),
+        function(
+            INTERP,
+            "    fn to_rule_scale(&self, ex: &Expr, v: Dec) -> Dec {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn num_precision(&self, ex: &Expr) -> Option<(u32, u32)> {",
+            "    ",
+        ),
+        function(ERRORS, "    pub(super) fn stmt_e(&mut self, s: &Stmt) -> Result<()> {", "    "),
     ];
     let hash = sha256(&watched.concat());
-    // Reviewed against native_rt.rs on 2026-11-11 (upstream 29f23f6 plus
-    // the native hook at the start of run_code_at).
-    let reviewed = "7491eb2a14daf1760610cb04adcfe070b8fdfa9743be7e4b3c64f158c26cbee6";
+    // Reviewed on 2026-11-12 against native_rt.rs and the stage 2
+    // helpers of rpgrt/src/native.rs (upstream 29f23f6 plus the native
+    // hook at the start of run_code_at).
+    let reviewed = "1376f498322c118f915fbeebf70d627e5b3644a4803596356f0dfc6c829d9cd7";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

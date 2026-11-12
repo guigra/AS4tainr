@@ -12,7 +12,9 @@
 //! the runtime reads that instruction (its statement, its expressions) from
 //! the routine it was given.
 
-use crate::rpg::data::Value;
+use crate::rpg::data::{self, DType, Fit, Value};
+use crate::rpg::dec::Dec;
+use crate::rpg::mem::Mem;
 
 /// What every runtime call returns: errors are the interpreter's
 /// (RNQ message IDs, control signals) and pass through unchanged.
@@ -129,6 +131,96 @@ pub trait Runtime {
     /// instruction), routed as the interpreter routes it (pointer faults,
     /// control signals, MONITOR groups, the source line).
     fn settle(&mut self, pc: usize, step: NResult<usize>, monitors: &mut MonitorStack) -> Settled;
+    /// Stage 2 (docs/native/adr/0006): a procedure is running, so names
+    /// may be its locals; lowered code then lets the interpreter do it.
+    fn in_procedure(&self) -> bool;
+    /// Stage 2: the program's storage, for lowered code.
+    fn mem(&mut self) -> &mut Mem;
+    /// Stage 2 (S2.2): the digits and decimal places the precision rules
+    /// give the arithmetic node at `path` (0 left, 1 right) of the value of
+    /// the EVAL at `pc`, as the interpreter works them out.
+    fn precision(&mut self, pc: usize, path: &[u8]) -> Option<(u32, u32)>;
+}
+
+/// A sum, difference or product with the decimal places the precision
+/// rules give it, when known; extra places cut off (the interpreter's
+/// `to_rule_scale`).
+pub fn rule_scale(p: Option<(u32, u32)>, v: Dec) -> Dec {
+    match p {
+        Some((_, dr)) if dr <= 37 => u8::try_from(dr)
+            .ok()
+            .and_then(|d| v.rescale(d, false).ok())
+            .unwrap_or(v),
+        _ => v,
+    }
+}
+
+/// A comparison operator of lowered code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CmpOp {
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+/// The bytes of a field: buffer `buf`, `off`, the type's size.
+fn bytes<'m>(mem: &'m Mem, buf: usize, off: usize, t: &DType) -> NResult<&'m [u8]> {
+    let end = off
+        .checked_add(t.size())
+        .ok_or_else(|| anyhow::anyhow!("native: a field past the end of storage"))?;
+    mem.get(buf)
+        .and_then(|b| b.get(off..end))
+        .ok_or_else(|| anyhow::anyhow!("native: a field past the end of its storage"))
+}
+
+/// A field's value, as the interpreter reads a standalone field with no
+/// index (`load_var`: `data::load` over its bytes).
+pub fn load(mem: &Mem, buf: usize, off: usize, t: DType) -> NResult<Value> {
+    data::load(&t, bytes(mem, buf, off, &t)?)
+}
+
+/// A field's number (`load` then `Value::num`).
+pub fn load_num(mem: &Mem, buf: usize, off: usize, t: DType) -> NResult<Dec> {
+    load(mem, buf, off, t)?.num()
+}
+
+/// Assign to a field as the interpreter assigns to a standalone field
+/// with no index (`store_var`: `data::store` into its bytes).
+pub fn store(
+    mem: &mut Mem,
+    buf: usize,
+    off: usize,
+    t: DType,
+    v: &Value,
+    fit: Fit,
+    right: bool,
+) -> NResult<()> {
+    let end = off
+        .checked_add(t.size())
+        .ok_or_else(|| anyhow::anyhow!("native: a field past the end of storage"))?;
+    let out = mem
+        .get_mut(buf)
+        .and_then(|b| b.get_mut(off..end))
+        .ok_or_else(|| anyhow::anyhow!("native: a field past the end of its storage"))?;
+    data::store(&t, v, out, fit, right)
+}
+
+/// Compare as the interpreter compares two non-float operands
+/// (`data::compare`, then the operator).
+pub fn cmp(op: CmpOp, x: &Value, y: &Value) -> NResult<bool> {
+    use std::cmp::Ordering::*;
+    let o = data::compare(x, y)?;
+    Ok(match op {
+        CmpOp::Eq => o == Equal,
+        CmpOp::Ne => o != Equal,
+        CmpOp::Lt => o == Less,
+        CmpOp::Le => o != Greater,
+        CmpOp::Gt => o == Greater,
+        CmpOp::Ge => o != Less,
+    })
 }
 
 #[cfg(test)]

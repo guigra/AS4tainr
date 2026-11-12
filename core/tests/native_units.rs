@@ -202,3 +202,66 @@ async fn native_unit_goto_tag_state_machine() {
     )
     .await;
 }
+
+// Stage 2 (docs/native/adr/0006): FOR/DO control and conditions on global
+// numeric fields, lowered to Rust. FOR compares the index with the limit
+// before each pass and steps it after the body (so 1 to 10 by 3 sees 1,
+// 4, 7, 10 and ends at 13; 10 downto 1 by 4 ends at -2; 5 to 4 does not
+// run), and the index must hold one more than the limit.
+// Source: IBM Docs, "FOR (For)", IBM i 7.5,
+// https://www.ibm.com/docs/en/ssw_ibm_i_75/rzasd/zzfor.htm, read 2026-11-12
+// Source: IBM Docs, "DOW (Do While)", IBM i 7.5,
+// https://www.ibm.com/docs/en/ssw_ibm_i_75/rzasd/zzdow.htm, read 2026-11-12
+// Source: IBM Docs, "Program Status Codes", IBM i 7.5,
+// https://www.ibm.com/docs/en/ssw_ibm_i_75/rzasd/ptacode.htm, read 2026-11-11
+#[tokio::test]
+async fn native_unit_lowered_loops_and_conditions() {
+    let _ = require_db!();
+    expect(
+        "NLOOP",
+        include_str!("native/NLOOP.rpgle"),
+        &[
+            "FOR TO OK",
+            "FOR DOWNTO OK",
+            "FOR ZERO OK",
+            "DOW OK",
+            "INDEX OVERFLOW OK",
+        ],
+    )
+    .await;
+}
+
+// Two reference parameters that are one variable share its storage.
+// Source: golden capture tools/golden/native1.txt n1_alias (PUB400, IBM i 7.5, 2026-11-12)
+#[tokio::test]
+async fn native_unit_aliased_reference_parameters() {
+    let _ = require_db!();
+    expect("NALIAS", include_str!("native/ALIAS.rpgle"), &["ALIAS OK"]).await;
+}
+
+// Stage 2, S2.2 (docs/native/adr/0006): numeric EVAL of +, - and *,
+// lowered to Rust: truncation, EVAL(H) rounding, the decimals of the
+// intermediate results, and overflow.
+// Source: golden capture tools/golden/native2.txt n2_eval (PUB400, IBM i 7.5, 2026-11-12)
+// Source: IBM Docs, "Precision of Intermediate Results", IBM i 7.5,
+// https://www.ibm.com/docs/en/ssw_ibm_i_75/rzasd/prectdf.htm, read 2026-11-11
+// Source: IBM Docs, "Program Status Codes", IBM i 7.5,
+// https://www.ibm.com/docs/en/ssw_ibm_i_75/rzasd/ptacode.htm, read 2026-11-11
+#[tokio::test]
+async fn native_unit_lowered_eval() {
+    let _ = require_db!();
+    expect(
+        "NEVAL",
+        include_str!("native/NEVAL.rpgle"),
+        &[
+            "EVAL TRUNC OK",
+            "EVAL HALF OK",
+            "EVAL HALF NEG OK",
+            "EVAL FULL OK",
+            "EVAL ADDSUB OK",
+            "EVAL EDGE OK",
+            "EVAL OVERFLOW OK",
+        ],
+    )
+    .await;
+}

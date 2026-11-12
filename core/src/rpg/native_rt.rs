@@ -353,6 +353,38 @@ impl Runtime for Rt<'_, '_> {
         Ok(())
     }
 
+    fn in_procedure(&self) -> bool {
+        // Names resolve against the running procedure's locals first
+        // (`Machine::sym`): lowered code then lets the interpreter do it.
+        !self.m.frames.is_empty()
+    }
+
+    fn mem(&mut self) -> &mut rpgrt::rpg::mem::Mem {
+        &mut self.m.bufs
+    }
+
+    fn precision(&mut self, pc: usize, path: &[u8]) -> Option<(u32, u32)> {
+        let Some(Ins::Stmt(super::super::ast::Stmt::Eval { value, .. })) =
+            self.code.get(pc).map(|i| &i.ins)
+        else {
+            return None;
+        };
+        let mut node = value;
+        for step in path {
+            node = match node {
+                Expr::Bin(_, l, r) => {
+                    if *step == 0 {
+                        l
+                    } else {
+                        r
+                    }
+                }
+                _ => return None,
+            };
+        }
+        self.m.num_precision(node)
+    }
+
     fn settle(&mut self, pc: usize, step: NResult<usize>, monitors: &mut MonitorStack) -> Settled {
         // A pointer fault in a condition (IF, DOW...).
         let step = match (step, self.m.take_fault()) {

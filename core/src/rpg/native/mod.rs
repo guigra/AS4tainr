@@ -308,9 +308,10 @@ pub fn fingerprint_header() -> String {
     )
 }
 
-/// The fingerprint of a compiled routine: SHA-256 over the header and
-/// each instruction's Debug text (ADR 0002), in lower-case hexadecimal.
-pub fn fingerprint(code: &Code) -> String {
+/// The fingerprint of a compiled routine: SHA-256 over the header, each
+/// instruction's Debug text, and the storage layout its lowered code uses
+/// (ADR 0002, 0006), in lower-case hexadecimal.
+pub fn fingerprint(code: &Code, layout: &[String]) -> String {
     let mut ctx = ring::digest::Context::new(&ring::digest::SHA256);
     ctx.update(fingerprint_header().as_bytes());
     let mut line = String::new();
@@ -320,11 +321,24 @@ pub fn fingerprint(code: &Code) -> String {
         let _ = writeln!(line, "{i:?}");
         ctx.update(line.as_bytes());
     }
+    for l in layout {
+        ctx.update(l.as_bytes());
+        ctx.update(b"\n");
+    }
     let mut hex = String::with_capacity(64);
     for b in ctx.finish().as_ref() {
         let _ = write!(hex, "{b:02x}");
     }
     hex
+}
+
+/// A routine as the generator gets it, with its fingerprint.
+pub fn routine(prog: &Program, place: &Place, code: &Code) -> rpgcg::ir::Routine {
+    let (ins, layout) = lower::lower(prog, place, code);
+    rpgcg::ir::Routine {
+        fingerprint: fingerprint(code, &layout),
+        ins,
+    }
 }
 
 /// One routine of a program in its native table.
@@ -351,7 +365,7 @@ impl NativeTable {
         let mut entries = Vec::new();
         let mut by_place = HashMap::new();
         for (place, code) in routines(prog) {
-            let fingerprint = fingerprint(code);
+            let fingerprint = routine(prog, &place, code).fingerprint;
             let run = rpgnative::lookup(&fingerprint);
             by_place.insert(place.clone(), entries.len());
             entries.push(Entry {
@@ -410,12 +424,13 @@ pub fn emit(prog: &Program) {
     };
     let dir = std::path::PathBuf::from(dir);
     for (place, code) in routines(prog) {
-        let fp = fingerprint(code);
+        let ir = routine(prog, &place, code);
+        let fp = ir.fingerprint.clone();
         let file = dir.join(format!("{fp}.rs"));
         if file.exists() {
             continue;
         }
-        let r = rpgcg::generate(&lower::lower(code, fp.clone()))
+        let r = rpgcg::generate(&ir)
             .map_err(|e| e.to_string())
             .and_then(|g| {
                 write_new(&dir, &format!("{fp}.map.json"), &g.map)?;
@@ -560,13 +575,17 @@ mod tests {
             cond: Default::default(),
         }];
         let mut b = a.clone();
-        let fa = fingerprint(&a);
+        let fa = fingerprint(&a, &[]);
         assert_eq!(fa.len(), 64);
         assert!(fa.bytes().all(|c| c.is_ascii_hexdigit()));
-        assert_eq!(fa, fingerprint(&a.clone()));
+        assert_eq!(fa, fingerprint(&a.clone(), &[]));
+        assert_ne!(
+            fa,
+            fingerprint(&a, &["layout X 1 0 Packed(5, 0)".to_string()])
+        );
         if let Some(i) = b.first_mut() {
             i.line = 2;
         }
-        assert_ne!(fa, fingerprint(&b));
+        assert_ne!(fa, fingerprint(&b, &[]));
     }
 }
