@@ -336,3 +336,21 @@ async fn native_unit_lowered_div_mvr() {
     )
     .await;
 }
+
+// Stage 2, S2.8: lowered code inside procedures (locals, parameters).
+// Source: IBM Docs, "Passing by Reference", IBM i 7.5,
+// https://www.ibm.com/docs/en/ssw_ibm_i_75/rzasc/hpsref.htm, read 2026-11-11
+// Source: IBM Docs, "Passing by Value", IBM i 7.5,
+// https://www.ibm.com/docs/en/ssw_ibm_i_75/rzasc/hpsval.htm, read 2026-11-11
+// Source: IBM Docs, "FOR (For)", IBM i 7.5,
+// https://www.ibm.com/docs/en/ssw_ibm_i_75/rzasd/zzfor.htm, read 2026-11-12
+#[tokio::test]
+async fn native_unit_lowered_procedures() {
+    let _ = require_db!();
+    expect(
+        "NPROC",
+        include_str!("native/NPROC.rpgle"),
+        &["PROC LOOP OK", "PROC BYREF OK", "PROC RECURSION OK"],
+    )
+    .await;
+}

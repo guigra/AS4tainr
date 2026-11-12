@@ -97,3 +97,20 @@ The generated code does the same steps, with the same rpgrt functions. Steps 1 t
 The remainder is the machine's (`Machine::remainder`), reached through `Runtime::remainder` and `set_remainder`, so an MVR finds it whichever engine ran the DIV. Division by zero is `div_scale`'s own error (status 00102).
 
 **Expected values.** The quotient's decimals, DIV(H), the remainder and its sign, the indicators, and status 00102 come from PUB400: tools/golden/native5.txt n5_div (IBM i 7.5, 2026-11-12). as4tainr gives the same six lines.
+
+## S2.8: procedures (rpgcg 0.1.0+stage2.8)
+
+**What changes.** Lowering now covers a procedure's routines too: its body, its subroutines and ON-EXIT. Names are looked up as the procedure sees them: its own `syms`, which hold its locals and the globals bound into it.
+
+**Locals.** A local (not based, not an array) is lowered with its frame buffer and offset. The generated code asks `Runtime::local(buf, off)` where it is in this call. That is `Machine::sym`'s rule: a parameter passed by reference (`Frame::alias`) is the caller's storage, anything else is `base + buf`, and `check_buf` applies. The tripwire now watches `sym`.
+
+**Storage.** `rpgrt::native::load` and `store` now also copy `load_var`'s and `store_var`'s handling of a parameter longer than the storage passed for it (OPTIONS(*VARSIZE)): blanks after what is there, and only the argument's storage written.
+
+**When lowered code runs.** The guard is now `Runtime::native_ok`, worked out once at the routine's entry:
+
+- a main-program routine runs lowered code only with no procedure frame;
+- a procedure's routine runs it only when the top frame is that procedure's own (`ProcInfo` compared by address).
+
+Anywhere else the interpreter runs the instruction, as in stage 1.
+
+**Expected values.** `core/tests/native/NPROC.rpgle`: a FOR loop and EVAL on locals, a parameter passed by reference and changed, a CONST parameter read, recursion. The values are the arithmetic, under the parameter rules of IBM Docs "Passing by Reference" and "Passing by Value".

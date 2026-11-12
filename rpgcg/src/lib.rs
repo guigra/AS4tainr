@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.7");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.8");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -82,6 +82,9 @@ pub mod ir {
             buf: usize,
             off: usize,
             ty: Ty,
+            /// A procedure local (S2.8): `buf` is the frame's, and the
+            /// runtime gives where it is in this call (`Runtime::local`).
+            local: bool,
         },
         /// A numeric literal: mantissa and scale (`Dec::new`).
         Num { m: i128, s: u8 },
@@ -413,13 +416,39 @@ fn ty(t: &ir::Ty) -> String {
     }
 }
 
+/// Where a field written by lowered code is: a statement to put first
+/// (empty for a global), then the buffer and offset expressions. A
+/// procedure local's place is the runtime's, for this call.
+fn place(buf: usize, off: usize, local: bool) -> (String, String, String) {
+    if local {
+        (
+            format!("    let (sb, so) = rt.local({buf}, {off})?;\n"),
+            "sb".to_string(),
+            "so".to_string(),
+        )
+    } else {
+        (String::new(), buf.to_string(), off.to_string())
+    }
+}
+
 /// An operand as a `Value` expression (inside a helper with `rt`).
 fn value(o: &ir::Operand) -> String {
     match o {
         ir::Operand::Var {
-            buf, off, ty: t, ..
+            buf,
+            off,
+            ty: t,
+            local,
+            ..
         } => {
-            format!("rpgrt::native::load(rt.mem(), {buf}, {off}, {})?", ty(t))
+            if *local {
+                format!(
+                    "{{ let (b, o) = rt.local({buf}, {off})?; rpgrt::native::load(rt.mem(), b, o, {})? }}",
+                    ty(t)
+                )
+            } else {
+                format!("rpgrt::native::load(rt.mem(), {buf}, {off}, {})?", ty(t))
+            }
         }
         ir::Operand::Num { m, s } => {
             format!("rpgrt::rpg::data::Value::Num(rpgrt::rpg::dec::Dec::new({m}, {s}))")
@@ -432,12 +461,23 @@ fn value(o: &ir::Operand) -> String {
 fn number(o: &ir::Operand) -> String {
     match o {
         ir::Operand::Var {
-            buf, off, ty: t, ..
+            buf,
+            off,
+            ty: t,
+            local,
+            ..
         } => {
-            format!(
-                "rpgrt::native::load_num(rt.mem(), {buf}, {off}, {})?",
-                ty(t)
-            )
+            if *local {
+                format!(
+                    "{{ let (b, o) = rt.local({buf}, {off})?; rpgrt::native::load_num(rt.mem(), b, o, {})? }}",
+                    ty(t)
+                )
+            } else {
+                format!(
+                    "rpgrt::native::load_num(rt.mem(), {buf}, {off}, {})?",
+                    ty(t)
+                )
+            }
         }
         ir::Operand::Num { m, s } => format!("rpgrt::rpg::dec::Dec::new({m}, {s})"),
         // Never in a numeric place (the lowering checks); as in the
@@ -508,7 +548,7 @@ fn lowered_step(
     };
     let guarded = |interp: String, native: String| {
         format!(
-            "if rt.in_procedure() {{\n                    {interp}\n                }} else {{\n                    {native}\n                }}"
+            "if rt.native_ok() {{\n                    {native}\n                }} else {{\n                    {interp}\n                }}"
         )
     };
     Ok(match (&i.kind, l) {
@@ -542,11 +582,16 @@ fn lowered_step(
         }
         (ir::Kind::LoopStep, ir::Lowered::LoopStep { var, by, down }) => {
             let ir::Operand::Var {
-                buf, off, ty: t, ..
+                buf,
+                off,
+                ty: t,
+                local,
+                ..
             } = var
             else {
                 return Err(bad());
             };
+            let (prelude, sb, so) = place(*buf, *off, *local);
             let _ = writeln!(
                 helpers,
                 "\nfn ls{pc}(rt: &mut dyn Runtime) -> NResult<()> {{"
@@ -564,7 +609,7 @@ fn lowered_step(
             );
             let _ = writeln!(
                 helpers,
-                "    rpgrt::native::store(\n        rt.mem(),\n        {buf},\n        {off},\n        {},\n        &rpgrt::rpg::data::Value::Num(n),\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: false }},\n        false,\n    )\n}}",
+                "{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        {},\n        &rpgrt::rpg::data::Value::Num(n),\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: false }},\n        false,\n    )\n}}",
                 ty(t)
             );
             guarded(
@@ -582,11 +627,16 @@ fn lowered_step(
             },
         ) => {
             let ir::Operand::Var {
-                buf, off, ty: t, ..
+                buf,
+                off,
+                ty: t,
+                local,
+                ..
             } = target
             else {
                 return Err(bad());
             };
+            let (prelude, sb, so) = place(*buf, *off, *local);
             // The expression's helpers first, then this one whole.
             let v = num_expr(pc, value, helpers);
             let _ = writeln!(
@@ -596,7 +646,7 @@ fn lowered_step(
             let _ = writeln!(helpers, "    let v = {v};");
             let _ = writeln!(
                 helpers,
-                "    rpgrt::native::store(\n        rt.mem(),\n        {buf},\n        {off},\n        {},\n        &rpgrt::rpg::data::Value::Num(v),\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: {half_adjust} }},\n        {right},\n    )\n}}",
+                "{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        {},\n        &rpgrt::rpg::data::Value::Num(v),\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: {half_adjust} }},\n        {right},\n    )\n}}",
                 ty(t)
             );
             guarded(
@@ -614,11 +664,16 @@ fn lowered_step(
             },
         ) => {
             let ir::Operand::Var {
-                buf, off, ty: t, ..
+                buf,
+                off,
+                ty: t,
+                local,
+                ..
             } = target
             else {
                 return Err(bad());
             };
+            let (prelude, sb, so) = place(*buf, *off, *local);
             let v = char_expr(pc, value, helpers);
             let _ = writeln!(
                 helpers,
@@ -627,7 +682,7 @@ fn lowered_step(
             let _ = writeln!(helpers, "    let v = {v};");
             let _ = writeln!(
                 helpers,
-                "    rpgrt::native::store(\n        rt.mem(),\n        {buf},\n        {off},\n        {},\n        &v,\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: {half_adjust} }},\n        {right},\n    )\n}}",
+                "{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        {},\n        &v,\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: {half_adjust} }},\n        {right},\n    )\n}}",
                 ty(t)
             );
             guarded(
@@ -647,11 +702,16 @@ fn lowered_step(
             },
         ) => {
             let ir::Operand::Var {
-                buf, off, ty: t, ..
+                buf,
+                off,
+                ty: t,
+                local,
+                ..
             } = result
             else {
                 return Err(bad());
             };
+            let (prelude, sb, so) = place(*buf, *off, *local);
             let _ = writeln!(
                 helpers,
                 "\nfn ar{pc}(rt: &mut dyn Runtime) -> NResult<()> {{"
@@ -689,20 +749,20 @@ fn lowered_step(
             let _ = writeln!(helpers, "    let v = {value};");
             let _ = writeln!(
                 helpers,
-                "    rpgrt::native::store(\n        rt.mem(),\n        {buf},\n        {off},\n        {},\n        &rpgrt::rpg::data::Value::Num(v),\n        rpgrt::rpg::data::Fit::Truncate {{ half_adjust: {half_adjust} }},\n        false,\n    )?;",
+                "{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        {},\n        &rpgrt::rpg::data::Value::Num(v),\n        rpgrt::rpg::data::Fit::Truncate {{ half_adjust: {half_adjust} }},\n        false,\n    )?;",
                 ty(t)
             );
             if *inds {
                 let _ = writeln!(
                     helpers,
-                    "    let stored = rpgrt::native::load_num(rt.mem(), {buf}, {off}, {})?;\n    rt.num_inds({pc}, &stored);",
+                    "    let stored = rpgrt::native::load_num(rt.mem(), {sb}, {so}, {})?;\n    rt.num_inds({pc}, &stored);",
                     ty(t)
                 );
             } else {
                 // As the interpreter: the result is read back.
                 let _ = writeln!(
                     helpers,
-                    "    let _stored = rpgrt::native::load_num(rt.mem(), {buf}, {off}, {})?;",
+                    "    let _stored = rpgrt::native::load_num(rt.mem(), {sb}, {so}, {})?;",
                     ty(t)
                 );
             }
@@ -964,6 +1024,7 @@ mod tests {
             buf,
             off: 0,
             ty: Ty::Packed(5, 0),
+            local: false,
         };
         let mut test = ins(Kind::LoopTest { end: 3 }, 1, false);
         test.lowered = Some(Lowered::LoopTest {
@@ -1000,7 +1061,7 @@ mod tests {
         // The runtime still runs it inside a procedure; the helpers run it
         // otherwise.
         for want in [
-            "if rt.in_procedure() {",
+            "if rt.native_ok() {",
             "rt.loop_past(0)",
             "lt0(rt)",
             "fn lt0(rt: &mut dyn Runtime) -> NResult<bool> {",
@@ -1037,6 +1098,7 @@ mod tests {
             buf,
             off: 0,
             ty: Ty::Packed(5, 2),
+            local: false,
         };
         let mut ev = ins(Kind::Stmt, 4, true);
         // r = x * y - 0.001
@@ -1074,6 +1136,40 @@ mod tests {
             "a.mul(&b)?",
             "a.sub(&b)?",
             "half_adjust: true",
+        ] {
+            assert!(g.source.contains(want), "{want} not in\n{}", g.source);
+        }
+    }
+
+    #[test]
+    fn lowered_procedure_locals() {
+        use super::ir::{Lowered, NumExpr, Operand, Ty};
+        let local = |name: &str, buf| Operand::Var {
+            name: name.to_string(),
+            buf,
+            off: 4,
+            ty: Ty::Int(10),
+            local: true,
+        };
+        let mut ev = ins(Kind::Stmt, 2, false);
+        ev.lowered = Some(Lowered::Eval {
+            target: local("R", 1),
+            value: NumExpr::Leaf(local("P", 0)),
+            half_adjust: false,
+            right: false,
+        });
+        let r = Routine {
+            fingerprint: fp(),
+            ins: vec![ev],
+        };
+        let Ok(g) = generate(&r) else {
+            return assert!(generate(&r).is_ok());
+        };
+        for want in [
+            "if rt.native_ok() {",
+            "rt.local(0, 4)?; rpgrt::native::load_num(rt.mem(), b, o,",
+            "let (sb, so) = rt.local(1, 4)?;",
+            "rt.mem(),\n        sb,\n        so,",
         ] {
             assert!(g.source.contains(want), "{want} not in\n{}", g.source);
         }

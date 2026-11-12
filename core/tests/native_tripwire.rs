@@ -78,12 +78,15 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    ",
         ),
         function(ERRORS, "    pub(super) fn stmt_e(&mut self, s: &Stmt) -> Result<()> {", "    "),
+        // S2.8: where a procedure local is (Runtime::local copies sym's
+        // place rule).
+        function(INTERP, "    fn sym(&self, name: &str) -> Option<Sym> {", "    "),
     ];
     let hash = sha256(&watched.concat());
     // Reviewed on 2026-11-12 against native_rt.rs and the stage 2
     // helpers of rpgrt/src/native.rs (upstream 29f23f6 plus the native
     // hook at the start of run_code_at).
-    let reviewed = "1376f498322c118f915fbeebf70d627e5b3644a4803596356f0dfc6c829d9cd7";
+    let reviewed = "0447377ed9cbc97e6020efe45fe5162b0a38a1d8580162d6392139ecd48f2960";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"
