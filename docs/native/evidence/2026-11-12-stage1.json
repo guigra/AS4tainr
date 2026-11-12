@@ -1,0 +1,214 @@
+{
+  "topic": "native engine stage 1 (N1-N4) and first baseline",
+  "date": "2026-11-12",
+  "branch": "native/engine",
+  "commit": "96bd6a7",
+  "tree": "2697810bed8f12d0845176d67d6fc906f5558ea0",
+  "runs": [
+    {
+      "id": "x86_64",
+      "platform": "debian-harnes: Linux 6.12.113+deb13-cloud-amd64 x86_64, 2 CPUs, 3.8 GB; rustc 1.99.1 (pinned); PostgreSQL 16.15 (podman); /QSYS.LIB present; CARGO_BUILD_JOBS=1",
+      "logs_dir": "target/evidence/2026-11-12-stage1-x86_64",
+      "steps": {
+        "1-fmt": {
+          "exit": 0,
+          "start": "2026-11-12T00:12:55Z",
+          "end": "2026-11-12T00:13:01Z",
+          "command": "cargo fmt --all -- --check",
+          "status": "PASS"
+        },
+        "2-clippy": {
+          "exit": 101,
+          "start": "2026-11-12T00:13:01Z",
+          "end": "2026-11-12T00:16:30Z",
+          "command": "cargo clippy --locked --all-targets -- -D warnings",
+          "status": "FAIL",
+          "pre_existing": true,
+          "cause": "only clippy::chunks_exact_to_as_chunks at core/src/hostcmd.rs:163 and core/src/hostdb.rs:657 (upstream; upstream CI fails the same way)"
+        },
+        "3-test": {
+          "exit": 0,
+          "start": "2026-11-12T00:16:30Z",
+          "end": "2026-11-12T00:35:46Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked",
+          "status": "PASS"
+        },
+        "4-test-release": {
+          "exit": 0,
+          "start": "2026-11-12T00:35:46Z",
+          "end": "2026-11-12T01:31:52Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked --release",
+          "status": "PASS"
+        },
+        "5-build-release": {
+          "exit": 0,
+          "start": "2026-11-12T01:31:52Z",
+          "end": "2026-11-12T01:31:54Z",
+          "command": "cargo build --locked --release",
+          "status": "PASS"
+        },
+        "6-demo": {
+          "exit": 0,
+          "start": "2026-11-12T01:31:56Z",
+          "end": "2026-11-12T01:32:15Z",
+          "command": "env AS4TAINR_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_demo AS4TAINR_BIN=target/debug/as4tainr scripts/demo.sh",
+          "status": "PASS"
+        },
+        "7-native-diff": {
+          "exit": 0,
+          "start": "2026-11-12T01:32:15Z",
+          "end": "2026-11-12T02:10:48Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr NATIVE_DIFF_OUT=/home/ctl/data/Projects/PERSONAL/IBMi/AS4tainr/target/evidence/2026-11-12-stage1-x86_64/native-diff scripts/native-diff.sh",
+          "status": "PASS",
+          "note": "levels 1, 2 (auto: 614 tests, same results) and 3 PASS; level 2 rust coverage NOT_DEMONSTRATED: the script took an absolute NATIVE_DIFF_OUT as relative, noted no refusals and passed without checking (fixed in b0315e1; measured correctly in the stage-2 runs)"
+        },
+        "8-bench": {
+          "exit": 1,
+          "start": "2026-11-12T02:10:49Z",
+          "end": "2026-11-12T02:10:54Z",
+          "command": "env AS4TAINR_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_bench NATIVE_BENCH_OUT=/home/ctl/data/Projects/PERSONAL/IBMi/AS4tainr/target/evidence/2026-11-12-stage1-x86_64/bench scripts/native-bench.sh",
+          "status": "FAIL",
+          "cause": "the bench's new database had no catalog (as4tainr init missing; fixed in b0315e1); no performance figure recorded"
+        }
+      },
+      "logs_sha256": {
+        "0-platform.log": "f06860a04f1d3ea7fd8cf32e9d8febd247d67d65befd45507b387e751669503d",
+        "1-fmt.log": "e95ad7a0281da57156d74f9ca39da40fb76d96f2a945a8916259f217d768b0fc",
+        "2-clippy.log": "3b3e9840c3c90827b421672eea0aad617f93a586c30602680b923f2dc0fb2373",
+        "3-test.log": "02bb62f0ae64b33405ffee6f75d2537e848e19a7dd56aaa72433dc0af2b5fe87",
+        "4-test-release.log": "b7857f092baac19ed75a03eb6f9eb6a99965bc86fd8ce181d7be2ec2c45db285",
+        "5-build-release.log": "476054f8cbd010358a889b8d6a8c36a3dffb9e7358d13653e0d7d1e5c519fb32",
+        "6-demo.log": "96b056717db4e627ed820fd1bd5f723d677cfa181a2f55cc73a2dccfbe55d92c",
+        "7-native-diff.log": "331674cd86e5f8eccb79b2a47a7e2094fa6531a4efaf371ab8e3e15172f304f9",
+        "8-bench.log": "651a9838cc261db675b04fb3e3ab61268242c0a57a59d6fb8319d2e035900d88",
+        "artifacts.sha256": "898fa4fee6389eccaa7ae4f335ea587fdd846b1ff0652fcbf3018658f2043ccb",
+        "bench/build-interp.log": "5d1e11b54338995acd297dd0237fba929919e5e5b5f4855484604c2a79d47adc",
+        "bench/emit.log": "1f4332d0a15b306d0e6c4eee128e622e24fe1d28cbb6f2b631ceb57e33146671",
+        "native-diff/1-demo-interp.log": "9af924ec2679913e331d940f8235a5614ea9b2821c4e58f8efee0a461c470c5e",
+        "native-diff/1-interp.log": "3ba935421a3d121728ef8cef463bf70f369682667f09c966fdc11c20b16065b3",
+        "native-diff/1-interp.res": "e4d7a5cb91e63282f88785c58f40cceda53f27ba902a4235dd52f0ec5c87c0ae",
+        "native-diff/2-build.log": "149bbbb4058285a19d94166d32b53cc94eaa5db278774d9b525e5f2f9e48ef60",
+        "native-diff/3-level1.log": "92c5aad497de72fd5c894be0ebf53723a150efdebbee5c7867785bef21d7408c",
+        "native-diff/4-auto.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-diff/4-auto.log": "7f2f030d5237761dba9feeb49e6add2032fb7163043deb710245ba9642505782",
+        "native-diff/4-auto.res": "e4d7a5cb91e63282f88785c58f40cceda53f27ba902a4235dd52f0ec5c87c0ae",
+        "native-diff/4-rust.log": "c37073c718b61bd8f9b9beaae8023159ad648dc855a00ffc0e580f87d4fb3492",
+        "native-diff/4-rust.refusals": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-diff/4-rust.res": "baeca80dcaca8b02e2a87754b4e014656b7e96ed28005d3ae8087fe21f0e8830",
+        "native-diff/5-demo-rust.log": "9af924ec2679913e331d940f8235a5614ea9b2821c4e58f8efee0a461c470c5e",
+        "native-diff/5-demo.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-diff/logs.sha256": "8be285b4f2623b7050a58b39038f424489c9ed0e7632da0f40174577f0b3ce77",
+        "native-diff/status.tsv": "51b65ec651922df3dab4736723ef145e3741a53a5320c3cbfeabeaf1e9d61ed1",
+        "status.tsv": "79a005ba56a4d05b337724c6859cf16e5db36499320dffc992009f0b57f913b3"
+      }
+    },
+    {
+      "id": "aarch64",
+      "platform": "jsr-test-arm: Linux 6.12.113+deb13-arm64 aarch64 (native), 2 CPUs, 3.8 GB; rustc 1.99.1 (pinned); PostgreSQL 16.15 (podman); /QSYS.LIB present",
+      "logs_dir": "target/evidence/2026-11-12-stage1-aarch64",
+      "steps": {
+        "1-fmt": {
+          "exit": 0,
+          "start": "2026-11-12T00:12:35Z",
+          "end": "2026-11-12T00:12:38Z",
+          "command": "cargo fmt --all -- --check",
+          "status": "PASS"
+        },
+        "2-clippy": {
+          "exit": 101,
+          "start": "2026-11-12T00:12:38Z",
+          "end": "2026-11-12T00:14:05Z",
+          "command": "cargo clippy --locked --all-targets -- -D warnings",
+          "status": "FAIL",
+          "pre_existing": true,
+          "cause": "only clippy::chunks_exact_to_as_chunks at core/src/hostcmd.rs:163 and core/src/hostdb.rs:657 (upstream)"
+        },
+        "3-test": {
+          "exit": 0,
+          "start": "2026-11-12T00:14:05Z",
+          "end": "2026-11-12T00:23:25Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked",
+          "status": "PASS"
+        },
+        "4-test-release": {
+          "exit": 0,
+          "start": "2026-11-12T00:23:25Z",
+          "end": "2026-11-12T00:42:53Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked --release",
+          "status": "PASS"
+        },
+        "5-build-release": {
+          "exit": 0,
+          "start": "2026-11-12T00:42:53Z",
+          "end": "2026-11-12T00:42:54Z",
+          "command": "cargo build --locked --release",
+          "status": "PASS"
+        },
+        "6-demo": {
+          "exit": 0,
+          "start": "2026-11-12T00:42:55Z",
+          "end": "2026-11-12T00:43:04Z",
+          "command": "env AS4TAINR_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_demo AS4TAINR_BIN=target/debug/as4tainr scripts/demo.sh",
+          "status": "PASS"
+        },
+        "7-native-diff": {
+          "exit": 0,
+          "start": "2026-11-12T00:43:04Z",
+          "end": "2026-11-12T01:04:25Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr NATIVE_DIFF_OUT=/home/ctl/data/as4tainr-native/evidence/2026-11-12-stage1-aarch64/native-diff scripts/native-diff.sh",
+          "status": "PASS",
+          "note": "levels 1, 2 (auto: 614 tests) and 3 PASS; level 2 rust coverage NOT_DEMONSTRATED for the same script defect (fixed in b0315e1)"
+        },
+        "8-bench": {
+          "exit": 1,
+          "start": "2026-11-12T01:04:26Z",
+          "end": "2026-11-12T01:04:27Z",
+          "command": "env AS4TAINR_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_bench NATIVE_BENCH_OUT=/home/ctl/data/as4tainr-native/evidence/2026-11-12-stage1-aarch64/bench scripts/native-bench.sh",
+          "status": "FAIL",
+          "cause": "as for x86_64: no catalog in the bench database (fixed in b0315e1)"
+        }
+      },
+      "logs_sha256": {
+        "0-platform.log": "8c9c36467a265f05c5cccb053f13cc812bd86a9386347565c9ac2e206925b86e",
+        "1-fmt.log": "e95ad7a0281da57156d74f9ca39da40fb76d96f2a945a8916259f217d768b0fc",
+        "2-clippy.log": "d1e4131f762d2fc4432eb59309b98f5f4df7d0b5a8716e1ebf84b5041fe894c5",
+        "3-test.log": "28b02239e2e5f80a736f642849813babbc8eea7cf5632f2237a5ae541eff0141",
+        "4-test-release.log": "814fa88831a7999a573f3f3c827307850759f244220ba870e995c1a53f8c08e8",
+        "5-build-release.log": "3102aec89fe6461487255b1f2739fecc8ed4d5bb1b093a7abd7cacc4cdc4d579",
+        "6-demo.log": "96b056717db4e627ed820fd1bd5f723d677cfa181a2f55cc73a2dccfbe55d92c",
+        "7-native-diff.log": "423db712977dc06b6a283271bcf9dd1dee94fbae17cc1d40089a157f38a1cdea",
+        "8-bench.log": "da2efcdd5a0158cb7bf96aacadcd55cafd17da37e068855bdcfb3a227bc2c812",
+        "artifacts.sha256": "93d63a815753b8b30c400cad000f55d9297c8af776d2ffbac07c378f4263c8aa",
+        "bench/build-interp.log": "a8c02d189dd24ac20a662d0f024dd8fa4856927ec1b99ac33e00f565be5f2984",
+        "bench/emit.log": "1f4332d0a15b306d0e6c4eee128e622e24fe1d28cbb6f2b631ceb57e33146671",
+        "native-diff/1-demo-interp.log": "9af924ec2679913e331d940f8235a5614ea9b2821c4e58f8efee0a461c470c5e",
+        "native-diff/1-interp.log": "4d7b398fd032778466e213b80fa37920ea0206e353a24ab6037b2ece9d8278fd",
+        "native-diff/1-interp.res": "e4d7a5cb91e63282f88785c58f40cceda53f27ba902a4235dd52f0ec5c87c0ae",
+        "native-diff/2-build.log": "4e71afc2f5477d4ba6b56840e769ce0a30221327dc62dd64668191532653d6e0",
+        "native-diff/3-level1.log": "afd7f94287e9f8fa067dc84a05c368af26d136289b0e16fd90792f2ca73a398a",
+        "native-diff/4-auto.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-diff/4-auto.log": "acab4cba122257df8181cb4739498e6a8121bc002243d5e8a6e17618c09fafc0",
+        "native-diff/4-auto.res": "e4d7a5cb91e63282f88785c58f40cceda53f27ba902a4235dd52f0ec5c87c0ae",
+        "native-diff/4-rust.log": "0e4e150aedfd37a26e3e42e80e360d148787c5c873f650d7aaf560cee2719224",
+        "native-diff/4-rust.refusals": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-diff/4-rust.res": "baeca80dcaca8b02e2a87754b4e014656b7e96ed28005d3ae8087fe21f0e8830",
+        "native-diff/5-demo-rust.log": "9af924ec2679913e331d940f8235a5614ea9b2821c4e58f8efee0a461c470c5e",
+        "native-diff/5-demo.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-diff/logs.sha256": "6eac93f4cc36e3bdf4917b037034afb693a74ff7bf7b5c63a3f75ef08ec6c985",
+        "native-diff/status.tsv": "51b65ec651922df3dab4736723ef145e3741a53a5320c3cbfeabeaf1e9d61ed1",
+        "status.tsv": "a8a767f10ec0c223d1030c8b2a16ffc370e79be506278eb92ead5d8b18ce12b4"
+      }
+    }
+  ],
+  "tested_tree_note": "both runs on a clean tree of commit 96bd6a7 (tree 2697810bed8f12d0845176d67d6fc906f5558ea0): a git worktree on x86_64, a git archive on aarch64",
+  "levels": {
+    "implemented": true,
+    "validated_locally": "x86_64 and aarch64: section 7 checks PASS except clippy (pre-existing upstream); native-diff levels 1, 2 (auto) and 3 PASS",
+    "contrasted_with_ibm_i": "the native unit tests' expected values come from IBM Docs; four interpreter defects confirmed on PUB400 (commit b0315e1)",
+    "fit_for_production": false
+  },
+  "not_run": {
+    "tools/golden.py": "no captures in target/ibmi/golden at the time",
+    "5250 end-to-end tests": "the change touches no screens, jobs or locks"
+  }
+}
