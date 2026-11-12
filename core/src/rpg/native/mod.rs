@@ -1,0 +1,572 @@
+//! The native engine (docs/native/PLAN.md, ADR 0001-0005): which engine
+//! runs RPG (`AS4TAINR_RPG_ENGINE`), the fingerprints of compiled
+//! routines, and each program's table of generated routines. The
+//! dispatcher that runs them is `interp::native_rt`.
+
+#![forbid(unsafe_code, unused_must_use)]
+#![forbid(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::unimplemented,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::arithmetic_side_effects
+)]
+
+pub mod lower;
+
+use super::code::{Code, Routines};
+use super::program::Program;
+use rpgrt::native::RoutineFn;
+use std::cell::Cell;
+use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
+use std::sync::{Arc, Mutex, OnceLock};
+
+/// The variable that chooses the engine.
+pub const ENGINE_VAR: &str = "AS4TAINR_RPG_ENGINE";
+
+/// Which engine runs RPG programs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Engine {
+    /// The interpreter (the default; upstream's behavior).
+    Interp,
+    /// Generated code; a program without it does not run.
+    Rust,
+    /// Generated code when a program has it for every routine, else the
+    /// interpreter.
+    Auto,
+}
+
+impl Engine {
+    /// The engine a value of `AS4TAINR_RPG_ENGINE` names.
+    pub fn parse(value: Option<&str>) -> Result<Engine, String> {
+        match value {
+            None | Some("") | Some("interp") => Ok(Engine::Interp),
+            Some("rust") => Ok(Engine::Rust),
+            Some("auto") => Ok(Engine::Auto),
+            Some("native") => Err(format!(
+                "{ENGINE_VAR}=native is no longer used (it chose the Rust interpreter over Jariko, \
+                 which is gone); use interp, rust or auto"
+            )),
+            Some(v) => Err(format!(
+                "{ENGINE_VAR}={v:?} is not valid; use interp, rust or auto"
+            )),
+        }
+    }
+}
+
+thread_local! {
+    /// A test's choice of engine for this thread (`with_engine`).
+    static OVERRIDE: Cell<Option<Engine>> = const { Cell::new(None) };
+    /// Where a test collects what programs left when they ended
+    /// (`observe_into`).
+    static SINK: std::cell::RefCell<Option<Sink>> = const { std::cell::RefCell::new(None) };
+}
+
+/// What a program left when its call ended, for comparing engines
+/// (docs/native/adr/0005): its global storage (the PSDS's date and time
+/// positions blanked), its indicators, and the engine that ran it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Observation {
+    pub program: String,
+    pub engine: Option<Engine>,
+    pub globals: Vec<Vec<u8>>,
+    /// The names of the variables and data structures in each global
+    /// buffer, sorted (for reporting a difference).
+    pub names: Vec<Vec<String>>,
+    pub indicators: Vec<(String, bool)>,
+}
+
+/// Observations collected by a test.
+pub type Sink = Arc<Mutex<Vec<Observation>>>;
+
+/// The most observations a sink keeps.
+const MAX_OBSERVATIONS: usize = 10_000;
+
+/// Record an observation in this thread's sink, if a test set one.
+pub fn record(o: Observation) {
+    SINK.with(|s| {
+        if let Ok(slot) = s.try_borrow() {
+            if let Some(sink) = slot.as_ref() {
+                let mut v = sink.lock().unwrap_or_else(|e| e.into_inner());
+                if v.len() < MAX_OBSERVATIONS {
+                    v.push(o);
+                }
+            }
+        }
+    });
+}
+
+/// Is a test collecting observations on this thread?
+pub fn observing() -> bool {
+    SINK.with(|s| s.try_borrow().map(|o| o.is_some()).unwrap_or(false))
+}
+
+/// Collect the observations of the programs this thread runs (and the
+/// threads `Carry` reaches) until the guard goes.
+pub fn observe_into(sink: Sink) -> SinkGuard {
+    let before = SINK.with(|s| {
+        s.try_borrow_mut()
+            .map(|mut o| o.replace(sink))
+            .ok()
+            .flatten()
+    });
+    SinkGuard(before)
+}
+
+/// Restores the thread's earlier sink.
+pub struct SinkGuard(Option<Sink>);
+
+impl Drop for SinkGuard {
+    fn drop(&mut self) {
+        let before = self.0.take();
+        SINK.with(|s| {
+            if let Ok(mut o) = s.try_borrow_mut() {
+                *o = before;
+            }
+        });
+    }
+}
+
+/// How many generated routines this build has.
+pub fn generated_routines() -> usize {
+    rpgnative::count()
+}
+
+/// The engine for programs run by this thread: a test's choice, else
+/// the variable (read once per process).
+pub fn engine() -> Result<Engine, String> {
+    if let Some(e) = OVERRIDE.with(Cell::get) {
+        return Ok(e);
+    }
+    static FROM_ENV: OnceLock<Result<Engine, String>> = OnceLock::new();
+    FROM_ENV
+        .get_or_init(|| {
+            let v = std::env::var(ENGINE_VAR).ok();
+            Engine::parse(v.as_deref())
+        })
+        .clone()
+}
+
+/// Run `f` with programs on this thread (and the threads RPG calls run
+/// on, see `Carry`) using `engine`. For tests that compare engines in one
+/// process (docs/native/adr/0005).
+pub fn with_engine<R>(engine: Engine, f: impl FnOnce() -> R) -> R {
+    let _g = scope(engine);
+    f()
+}
+
+/// Programs on this thread use `engine` until the guard goes (for async
+/// tests: the guard lasts across `.await` on a single-threaded runtime,
+/// and `rpg::call_any` carries it to the program's thread).
+pub fn scope(engine: Engine) -> CarryGuard {
+    Carry(Some(engine), None).enter()
+}
+
+/// A thread's engine choice and observation sink, carried to the thread
+/// a program runs on (`rpg::call_any` and `call_procedure` run programs
+/// with `spawn_blocking`).
+#[derive(Clone, Debug)]
+pub struct Carry(Option<Engine>, Option<Sink>);
+
+/// This thread's engine choice and sink.
+pub fn carry() -> Carry {
+    Carry(
+        OVERRIDE.with(Cell::get),
+        SINK.with(|s| s.try_borrow().ok().and_then(|o| o.clone())),
+    )
+}
+
+impl Carry {
+    /// Make the choice (and the sink) this thread's until the guard goes.
+    pub fn enter(self) -> CarryGuard {
+        let before = OVERRIDE.with(|o| o.replace(self.0));
+        CarryGuard {
+            before,
+            _sink: self.1.map(observe_into),
+        }
+    }
+}
+
+/// Restores the thread's earlier choice (and, as it drops, its sink).
+pub struct CarryGuard {
+    before: Option<Engine>,
+    _sink: Option<SinkGuard>,
+}
+
+impl Drop for CarryGuard {
+    fn drop(&mut self) {
+        OVERRIDE.with(|o| o.set(self.before));
+    }
+}
+
+/// A routine's place in its program: what identifies it in every copy of
+/// the compiled program.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Place {
+    /// The main detail calculations.
+    Detail,
+    /// The total calculations (L1-L9, LR).
+    Total,
+    /// A subroutine of the main calculations.
+    Sub(String),
+    /// A part of a procedure.
+    Proc(String, Part),
+}
+
+/// A part of a procedure.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Part {
+    Detail,
+    Total,
+    Sub(String),
+    /// The ON-EXIT section's calculations.
+    OnExit,
+    /// A total or a subroutine of the ON-EXIT section.
+    OnExitOther(Box<Part>),
+}
+
+impl std::fmt::Display for Place {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Place::Detail => write!(f, "the detail calculations"),
+            Place::Total => write!(f, "the total calculations"),
+            Place::Sub(s) => write!(f, "subroutine {s}"),
+            Place::Proc(p, part) => match part {
+                Part::Detail => write!(f, "procedure {p}"),
+                Part::Total => write!(f, "procedure {p}, total calculations"),
+                Part::Sub(s) => write!(f, "procedure {p}, subroutine {s}"),
+                Part::OnExit => write!(f, "procedure {p}, ON-EXIT"),
+                Part::OnExitOther(_) => write!(f, "procedure {p}, ON-EXIT section"),
+            },
+        }
+    }
+}
+
+/// Every routine of a program with its place, in a fixed order (names
+/// sorted), so tables and emitted files never depend on hash order.
+pub fn routines(prog: &Program) -> Vec<(Place, &Code)> {
+    let mut out = Vec::new();
+    push_routines(&mut out, &prog.routines, &|p| p);
+    let mut procs: Vec<_> = prog.procs.iter().collect();
+    procs.sort_by(|a, b| a.0.cmp(b.0));
+    for (name, pi) in procs {
+        let n = name.clone();
+        push_proc(&mut out, &pi.routines, &n, false);
+        if let Some((_, exit)) = &pi.on_exit {
+            push_proc(&mut out, exit, &n, true);
+        }
+    }
+    out
+}
+
+fn push_routines<'p>(
+    out: &mut Vec<(Place, &'p Code)>,
+    r: &'p Routines,
+    wrap: &dyn Fn(Place) -> Place,
+) {
+    out.push((wrap(Place::Detail), &r.detail));
+    out.push((wrap(Place::Total), &r.total));
+    let mut subs: Vec<_> = r.subroutines.iter().collect();
+    subs.sort_by(|a, b| a.0.cmp(b.0));
+    for (s, c) in subs {
+        out.push((wrap(Place::Sub(s.clone())), c));
+    }
+}
+
+fn push_proc<'p>(out: &mut Vec<(Place, &'p Code)>, r: &'p Routines, name: &str, on_exit: bool) {
+    let part = |p: Part| {
+        if on_exit {
+            match p {
+                Part::Detail => Part::OnExit,
+                other => Part::OnExitOther(Box::new(other)),
+            }
+        } else {
+            p
+        }
+    };
+    out.push((Place::Proc(name.to_string(), part(Part::Detail)), &r.detail));
+    out.push((Place::Proc(name.to_string(), part(Part::Total)), &r.total));
+    let mut subs: Vec<_> = r.subroutines.iter().collect();
+    subs.sort_by(|a, b| a.0.cmp(b.0));
+    for (s, c) in subs {
+        out.push((Place::Proc(name.to_string(), part(Part::Sub(s.clone()))), c));
+    }
+}
+
+/// What a routine's fingerprint covers besides its code: the scheme, the
+/// generator and runtime interface, and the compiler (ADR 0002).
+pub fn fingerprint_header() -> String {
+    format!(
+        "as4tainr-native routine v1\nrpgcg {}\nrpgrt {}\nrustc {}\n",
+        rpgcg::VERSION,
+        rpgrt::VERSION,
+        rpgnative::RUSTC_VERSION
+    )
+}
+
+/// The fingerprint of a compiled routine: SHA-256 over the header and
+/// each instruction's Debug text (ADR 0002), in lower-case hexadecimal.
+pub fn fingerprint(code: &Code) -> String {
+    let mut ctx = ring::digest::Context::new(&ring::digest::SHA256);
+    ctx.update(fingerprint_header().as_bytes());
+    let mut line = String::new();
+    for i in code {
+        line.clear();
+        // Writing to a String does not fail.
+        let _ = writeln!(line, "{i:?}");
+        ctx.update(line.as_bytes());
+    }
+    let mut hex = String::with_capacity(64);
+    for b in ctx.finish().as_ref() {
+        let _ = write!(hex, "{b:02x}");
+    }
+    hex
+}
+
+/// One routine of a program in its native table.
+#[derive(Clone, Debug)]
+pub struct Entry {
+    pub place: Place,
+    pub fingerprint: String,
+    /// The first instruction's source line (0: the routine is empty).
+    pub line: usize,
+    pub run: Option<RoutineFn>,
+}
+
+/// A program's generated routines: built once per compiled program and
+/// shared by its copies (ADR 0002).
+#[derive(Debug)]
+pub struct NativeTable {
+    pub program: String,
+    pub entries: Vec<Entry>,
+    by_place: HashMap<Place, usize>,
+}
+
+impl NativeTable {
+    pub fn build(prog: &Program) -> NativeTable {
+        let mut entries = Vec::new();
+        let mut by_place = HashMap::new();
+        for (place, code) in routines(prog) {
+            let fingerprint = fingerprint(code);
+            let run = rpgnative::lookup(&fingerprint);
+            by_place.insert(place.clone(), entries.len());
+            entries.push(Entry {
+                place,
+                line: code.first().map(|i| i.line).unwrap_or(0),
+                fingerprint,
+                run,
+            });
+        }
+        NativeTable {
+            program: prog.name.clone(),
+            entries,
+            by_place,
+        }
+    }
+
+    /// The first routine with no generated code, if any.
+    pub fn missing(&self) -> Option<&Entry> {
+        self.entries.iter().find(|e| e.run.is_none())
+    }
+
+    pub fn get(&self, place: &Place) -> Option<&Entry> {
+        self.by_place.get(place).and_then(|&i| self.entries.get(i))
+    }
+}
+
+/// The native table of a compiled program, made when first needed and
+/// shared by every copy of it (`Program` is cloned at each activation).
+#[derive(Clone, Default)]
+pub struct Slot(Arc<OnceLock<NativeTable>>);
+
+impl Slot {
+    pub fn table(&self, prog: &Program) -> &NativeTable {
+        self.0.get_or_init(|| NativeTable::build(prog))
+    }
+}
+
+impl std::fmt::Debug for Slot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Slot")
+    }
+}
+
+/// The variable naming the directory generated routines are written to.
+pub const EMIT_VAR: &str = "AS4TAINR_NATIVE_EMIT";
+
+/// Generate the routines of a program just compiled into
+/// `AS4TAINR_NATIVE_EMIT` (when it is set): `<fingerprint>.rs` and
+/// `<fingerprint>.map.json` for each routine not there yet
+/// (docs/native/adr/0004). A routine the generator refuses, or a file
+/// that cannot be written, is reported on standard error; the program
+/// then has no native code for it.
+pub fn emit(prog: &Program) {
+    let Some(dir) = std::env::var_os(EMIT_VAR).filter(|d| !d.is_empty()) else {
+        return;
+    };
+    let dir = std::path::PathBuf::from(dir);
+    for (place, code) in routines(prog) {
+        let fp = fingerprint(code);
+        let file = dir.join(format!("{fp}.rs"));
+        if file.exists() {
+            continue;
+        }
+        let r = rpgcg::generate(&lower::lower(code, fp.clone()))
+            .map_err(|e| e.to_string())
+            .and_then(|g| {
+                write_new(&dir, &format!("{fp}.map.json"), &g.map)?;
+                write_new(&dir, &format!("{fp}.rs"), &g.source)
+            });
+        if let Err(e) = r {
+            use std::io::Write as _;
+            // Standard error may be closed; there is nowhere else to say it.
+            let _ = writeln!(
+                std::io::stderr(),
+                "as4tainr: {EMIT_VAR}: program {}, {place}: {e}",
+                prog.name
+            );
+        }
+    }
+}
+
+/// Write a file under a temporary name, then rename it into place, so a
+/// build never sees half a file.
+fn write_new(dir: &std::path::Path, name: &str, text: &str) -> Result<(), String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let tmp = dir.join(format!(
+        ".{name}.{}.{}.tmp",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::write(&tmp, text).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, dir.join(name)).map_err(|e| format!("{}: {e}", tmp.display()))
+}
+
+/// The variable naming a file where each program that does not run on
+/// generated code is noted (scripts/native-diff.sh measures coverage
+/// with it): engine, program, fingerprint, reason; one line each.
+pub const REFUSALS_VAR: &str = "AS4TAINR_NATIVE_REFUSALS";
+
+/// The most lines a process adds to the refusals file.
+const MAX_REFUSALS: usize = 10_000;
+
+/// Note a program that does not run on generated code, when
+/// `AS4TAINR_NATIVE_REFUSALS` names a file.
+pub fn note_refusal(engine: Engine, program: &str, fingerprint: &str, reason: &str) {
+    use std::io::Write as _;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static WRITTEN: AtomicUsize = AtomicUsize::new(0);
+    let Some(path) = std::env::var_os(REFUSALS_VAR).filter(|p| !p.is_empty()) else {
+        return;
+    };
+    // Once per program and fingerprint in a process.
+    static SEEN: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+    {
+        let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+        let set = seen.get_or_insert_with(HashSet::new);
+        if !set.insert(format!("{program}\t{fingerprint}")) || set.len() > MAX_REFUSALS {
+            return;
+        }
+    }
+    if WRITTEN.fetch_add(1, Ordering::Relaxed) >= MAX_REFUSALS {
+        return;
+    }
+    let line = format!(
+        "{engine:?}\t{program}\t{fingerprint}\t{}\n",
+        reason.replace(['\t', '\n'], " ")
+    );
+    // One write per line, appended: lines from parallel tests stay whole.
+    // A file that cannot be written leaves the measure short, nothing more.
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = f.write_all(line.as_bytes());
+    }
+}
+
+/// The most programs `auto` mode names on standard error in a process.
+const MAX_NOTED: usize = 4096;
+
+/// `auto`: say once per program and process why it runs in the
+/// interpreter.
+pub fn note_fallback(program: &str, reason: &str) {
+    static NOTED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+    let mut noted = NOTED.lock().unwrap_or_else(|e| e.into_inner());
+    let set = noted.get_or_insert_with(HashSet::new);
+    if set.contains(program) {
+        return;
+    }
+    if set.len() >= MAX_NOTED {
+        set.clear();
+    }
+    set.insert(program.to_string());
+    use std::io::Write as _;
+    // Standard error may be closed; there is nowhere else to say it.
+    let _ = writeln!(
+        std::io::stderr(),
+        "as4tainr: {ENGINE_VAR}=auto: {program} runs in the interpreter: {reason}"
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn engine_values() {
+        // The values CLAUDE.native.md section 3 defines; unset is interp.
+        assert_eq!(Engine::parse(None), Ok(Engine::Interp));
+        assert_eq!(Engine::parse(Some("interp")), Ok(Engine::Interp));
+        assert_eq!(Engine::parse(Some("rust")), Ok(Engine::Rust));
+        assert_eq!(Engine::parse(Some("auto")), Ok(Engine::Auto));
+        for bad in ["native", "RUST", "x"] {
+            let e = Engine::parse(Some(bad)).err().unwrap_or_default();
+            assert!(e.contains(ENGINE_VAR), "{e}");
+        }
+    }
+
+    #[test]
+    fn override_is_scoped_and_carried() {
+        let outside = carry();
+        let inside = with_engine(Engine::Rust, || {
+            let c = carry();
+            let on_other_thread = std::thread::spawn(move || {
+                let _g = c.enter();
+                engine()
+            })
+            .join();
+            (engine(), on_other_thread.ok())
+        });
+        assert_eq!(inside.0, Ok(Engine::Rust));
+        assert_eq!(inside.1, Some(Ok(Engine::Rust)));
+        assert_eq!(carry().0, outside.0);
+        assert!(!observing());
+    }
+
+    #[test]
+    fn fingerprint_is_hex_and_depends_on_code() {
+        use super::super::code::{Ins, I};
+        let a: Code = vec![I {
+            ins: Ins::Nop,
+            line: 1,
+            cond: Default::default(),
+        }];
+        let mut b = a.clone();
+        let fa = fingerprint(&a);
+        assert_eq!(fa.len(), 64);
+        assert!(fa.bytes().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(fa, fingerprint(&a.clone()));
+        if let Some(i) = b.first_mut() {
+            i.line = 2;
+        }
+        assert_ne!(fa, fingerprint(&b));
+    }
+}

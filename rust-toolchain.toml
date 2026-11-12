@@ -1,0 +1,6 @@
+# The toolchain upstream's CI builds with today (rustc 1.99.1, 2026-10-13).
+# Native routines are keyed by their compiled code's Debug text and the
+# rustc version (docs/native/adr/0002), so the toolchain is pinned.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]

@@ -15,6 +15,8 @@ path = "src/lib.rs"
 
 [dependencies]
 rpgrt = { path = "../rpgrt" }
+rpgnative = { path = "../rpgnative" }
+rpgcg = { path = "../rpgcg" }
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }

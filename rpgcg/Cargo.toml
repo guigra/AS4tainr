@@ -1,0 +1,16 @@
+[package]
+name = "rpgcg"
+description = "as4tainr: the RPG code generator (compiled RPG routines in, Rust source and a source map out)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]
+rpgrt = { path = "../rpgrt" }
+anyhow = "1"

@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "rpgrt"]
+members = ["core", "rpgrt", "rpgnative", "rpgcg"]
 resolver = "2"
 
 [workspace.package]
@@ -7,3 +7,9 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/kyleturley-cyber/AS4tainr"
+
+# The generated RPG code: integer overflow is an error, never a wrap
+# (CLAUDE.native.md section 3, docs/native/adr/0004). Only that crate:
+# upstream's release behavior stays as it is.
+[profile.release.package.rpgnative]
+overflow-checks = true

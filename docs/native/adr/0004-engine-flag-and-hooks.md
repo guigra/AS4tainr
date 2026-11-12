@@ -8,7 +8,7 @@ Status: accepted by the user (2026-11-11), after an independent review
 
 | Value | Behavior |
 | --- | --- |
-| unset or `interp` | Upstream behavior. The dispatcher returns at once and nothing else runs, apart from filling `Program.native` (ADR 0002), which happens only when an engine other than `interp` or emission is asked for |
+| unset or `interp` | Upstream behavior. The dispatcher returns at once, and nothing else runs: the native table is never built |
 | `rust` | Every routine of the program must have native code. The check is made at the program's first `run_code_at` entry, before any calculation runs. Otherwise the error names the variable, the program, the routine and its first source line |
 | `auto` | Native code when every routine of the program has it. Otherwise the whole program runs in the interpreter, and the reason goes to standard error once per program and process (a bounded set) |
 | anything else | An error at the first `run_code_at` entry that names the variable and its valid values |
@@ -20,7 +20,7 @@ Status: accepted by the user (2026-11-11), after an independent review
 
 ## Generation
 
-`AS4TAINR_NATIVE_EMIT=<dir>`. When `compile_ovr` fills `Program.native` on a cache miss, it also lowers each routine to `rpgcg::ir` and generates `<dir>/<fingerprint>.rs`, with `<fingerprint>.map.json` beside it: the program, the routine, and each instruction's source line. Section 3 asks for "member and sequence number", but `I.line` holds only the line; that limit is recorded in `fidelity.md`.
+`AS4TAINR_NATIVE_EMIT=<dir>`. After `compile_parts` (on a cache miss or when nothing is cached), `compile_ovr` calls `native::emit`, which lowers each routine to `rpgcg::ir` and generates `<dir>/<fingerprint>.rs`, with `<fingerprint>.map.json` beside it: the program, the routine, and each instruction's source line. Section 3 asks for "member and sequence number", but `I.line` holds only the line; that limit is recorded in `fidelity.md`.
 
 - Files are written to a temporary name and renamed into place. A file that already exists is skipped. This happens once per compile, so not on every CALL.
 - Emission works under any engine.
@@ -33,7 +33,7 @@ Status: accepted by the user (2026-11-11), after an independent review
 | `core/src/rpg/interp.rs` | `#[path = "native_rt.rs"] pub(crate) mod native_rt;`. The new file implements `rpgrt::native::Runtime` for `Machine`, the dispatcher and `observe`. As a child of `interp` it reaches `Machine`'s private items (`bufs`, `inds`, `frames`, the PSDS), `Flow`, and errors.rs's `pub(super)` functions | authorized |
 | `core/src/rpg/interp.rs` | First statement of `run_code_at`: `if let Some(r) = native_rt::dispatch(self, code, start) { return r; }` | **needs approval** |
 | `core/src/rpg/program.rs` | Field `pub native: native::Slot` on `Program` and `native: Default::default()` in `bind` (ADR 0002) | **needs approval** |
-| `core/src/rpg/mod.rs` | `compile_ovr` miss path: `native::annotate(&mut p)` before the cache insert. `call_any` / `call_procedure`: carry the engine override into `spawn_blocking`. `call_any` after the run: `native_rt::observe(&m)` when `AS4TAINR_NATIVE_OBSERVE` is set. `pub mod native;` | touch point (section 3) |
+| `core/src/rpg/mod.rs` | `compile_ovr` after `compile_parts`: `native::emit(p)`. `call_any` / `call_procedure`: carry the engine override into `spawn_blocking`. `call_any` after the run: `native_rt::observe(&m)` when `AS4TAINR_NATIVE_OBSERVE` is set. `pub mod native;` | touch point (section 3) |
 | `Cargo.toml` | Members `rpgcg`, `rpgnative`, `native-tools`; `[profile.release.package.rpgnative] overflow-checks = true` | touch point |
 | `core/Cargo.toml` | Dependencies `rpgcg`, `rpgnative` | as for `rpgrt` |
 

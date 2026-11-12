@@ -35,8 +35,9 @@ fingerprint = SHA-256(
 
 **Lookup: a native table carried by the `Program`.**
 
-- `Program` gets one field, `native: native::Slot` (an `Option<Arc<NativeTable>>` with `Default`, `Clone`, and a short `Debug`). That is one line for the field and one for its initial value in `bind`, both in program.rs. **This needs the user's approval: it is outside section 3's touch points.**
-- `compile_ovr` fills the field on a cache miss, before the `Program` is stored in `COMPILED`. Every later clone shares the same `Arc`, so the fingerprints are computed once per compile, not once per CALL.
+- `Program` gets one field, `native: native::Slot`, set to `Default::default()` in `bind`. That is two lines in program.rs, authorized by the user. A `Slot` is an `Arc<OnceLock<NativeTable>>` with `Clone` and a short `Debug`, and it is created when the program is compiled.
+- The table is built the first time the dispatcher needs it, under an engine other than `interp`. Every later clone of the same compiled program (a `compile_ovr` cache hit, every CALL) shares the same `Arc`, so the fingerprints are computed once per compile, not once per CALL. With the engine `interp`, nothing is computed at all.
+- *As implemented, 2026-11-11:* the first version of this ADR had `compile_ovr` fill the field. That is not needed with the lazy `OnceLock`, and `compile_ovr` is touched only for emission (ADR 0004).
 - `NativeTable` maps a routine's **position** in the program to its generated function, or to the reason it has none. The position is: main detail or total; subroutine `name`; procedure `name` and its detail, a subroutine `name`, or ON-EXIT. Positions are the same in every clone.
 - The dispatcher finds the position of the `&Code` it was given by comparing pointers with the routines of the `Program` the `Machine` is running (`self.prog`), then reads the table.
   - Pointer equality within the live `Program` is exact, so no address reuse can select the wrong code.

@@ -61,6 +61,11 @@ A program whose globals depend on the clock (`%DATE()`, `%TIME()`, `%TIMESTAMP()
 
 Every test's result must be the same in both runs. Under `rust`, a program without native code fails, so coverage is checked too. The upstream tests have their own expected values, from IBM documentation and captures, so this level checks truth as well as parity.
 
+*As implemented, after the first run (2026-11-11).* 21 tests of `rla_test` and one of `system_cli` put their random library name (`T<pid><n>`) into the RPG source they compile: in SQL, in qualified names, in DSPLY text. Their compiled code, and so their fingerprints, change from one process to the next, so code generated in the first run never matches the second. Under `rust` those programs are refused, and every refusal was of this kind; no program with generated code behaved differently. Level 2 is therefore two runs:
+
+- **`auto`, for parity.** Programs with generated code run on it, the others in the interpreter. Every test's result must equal the generation run's.
+- **`rust`, for coverage.** Each refused program is noted in `AS4TAINR_NATIVE_REFUSALS`. The script requires every refusal to be "no native code" for a fingerprint that was never generated. Anything else fails.
+
 **3. The scripts.** Under both engines:
 
 - `scripts/demo.sh`, on a new database each time;
