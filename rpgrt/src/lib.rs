@@ -27,5 +27,10 @@
     clippy::arithmetic_side_effects
 )]
 
+/// This crate's version: part of every native routine's fingerprint
+/// (docs/native/adr/0002).
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+pub mod native;
 pub mod rpg;
 pub mod tn5250;

@@ -330,6 +330,8 @@ pub struct Program {
     /// Global pointers with INZ(%ADDR(x)) or INZ(%PADDR(x)): set as the
     /// program starts.
     pub ptr_inz: Vec<(String, Expr)>,
+    /// Its routines compiled to Rust (docs/native/adr/0002).
+    pub native: super::native::Slot,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3082,5 +3084,6 @@ pub fn bind(
         procs,
         main,
         cursors,
+        native: Default::default(),
     })
 }

@@ -1,0 +1,15 @@
+[package]
+name = "rpgnative"
+description = "as4tainr: the registry of RPG routines compiled to Rust (generated modules included at build time from AS4TAINR_NATIVE_DIR)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+build = "build.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+rpgrt = { path = "../rpgrt" }
+anyhow = "1"

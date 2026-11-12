@@ -34,6 +34,8 @@ pub(crate) mod exec_sql;
 pub use exec_sql::take_result_sets;
 #[path = "cli.rs"]
 pub mod cli;
+#[path = "native_rt.rs"]
+pub(crate) mod native_rt;
 #[path = "ops.rs"]
 mod ops;
 #[path = "pase.rs"]
@@ -4041,6 +4043,9 @@ impl<'a> Machine<'a> {
     /// Run code from an instruction on (after a GOTO from an error
     /// subroutine).
     fn run_code_at(&mut self, code: &Code, start: usize) -> Result<Flow> {
+        if let Some(r) = native_rt::dispatch(self, code, start) {
+            return r;
+        }
         let mut pc = start;
         // Active MONITOR groups: (handlers, end of body, end).
         let mut monitors: Vec<MonitorGroup> = Vec::new();

@@ -10,11 +10,11 @@ The plan is in `PLAN.md` and the decisions in `adr/0001`-`0005`, all accepted by
 | --- | --- | --- |
 | Runtime extraction | Workspace crate `rpgrt` with the run-time modules moved unchanged from `as4tainr-core`, re-exported from their old paths | Implemented. Validated locally on x86_64 and aarch64, except clippy, which upstream `main` fails too (see "Checks" below). No behavior change, so nothing to contrast with IBM i |
 | N0 Plan | `PLAN.md`, ADRs 0001-0005, CLAUDE.native.md brought in line | Done (user approval 2026-11-11) |
-| N1 Flag and hooks | `AS4TAINR_RPG_ENGINE`, the hooks, `rpgrt::native`, the empty `rpgnative` registry | Not started |
-| N2 Generator | `rpgcg`, lowering, fingerprints, emission | Not started |
-| N3 Runtime adapter | `native_rt`: `Runtime` for `Machine`, `settle`, the dispatcher | Not started |
-| N4 Differential harness | `core/tests/native_diff.rs`, `scripts/native-diff.sh` | Not started |
-| N5 Build tooling and baseline | `native-tools`, production builds, performance baseline | Not started |
+| N1 Flag and hooks | `AS4TAINR_RPG_ENGINE`, the hooks, `rpgrt::native`, the `rpgnative` registry | Implemented. Validation: the evidence manifest of this stage (below) |
+| N2 Generator | `rpgcg`, lowering, fingerprints, emission | Implemented |
+| N3 Runtime adapter | `native_rt`: `Runtime` for `Machine`, `settle`, the dispatcher | Implemented |
+| N4 Differential harness | `core/tests/native_diff.rs`, `scripts/native-diff.sh` | Implemented |
+| N5 Build tooling and baseline | `native-tools`, production builds, performance baseline | `scripts/native-bench.sh` written, not run yet; `native-tools` not started |
 | N6… Stage 2 | Lowering, one construct per step | Not started |
 | Final | Retiring the interpreter (the user's goal; prerequisites in PLAN.md) | Not started |
 
@@ -77,7 +77,26 @@ Notes:
 - **`save_changed_objects`.** It failed once out of six runs (x86_64 run 2) and then passed alone and in the full suite. This is an intermittent upstream failure in `save.rs`. The likely cause, which is not proven: SAVLIB's reference point is the server-wide `pg_snapshot_xmin`, and a concurrent test's open transaction holds it back.
 - **`demo.sh`** keeps the sample data a previous run left in the same database and then differs. Upstream CI runs it on a new database, and so do these runs.
 
+## Stage 1 (N1-N4)
+
+- **Engine flag.** `AS4TAINR_RPG_ENGINE` is read once per process. Tests choose an engine per thread with `native::scope`/`with_engine`, carried into `spawn_blocking`.
+  - With the flag unset or `interp`, the dispatcher returns at once.
+  - Under `rust`, a program without generated code for every routine ends before its first calculation. The error names the variable, the program, the routine and its fingerprint. Its *PSSR does not run.
+  - Under `auto`, such a program runs in the interpreter and is named once on standard error.
+- **Generation.** `AS4TAINR_NATIVE_EMIT=<dir>` writes `<fingerprint>.rs` and `.map.json` for every routine of every program compiled (`compile_ovr`). `rpgcg` makes a `loop { match pc }` per routine; its comments give the RPG line of each instruction.
+- **Registry.** Building with `AS4TAINR_NATIVE_DIR=<dir>` includes the generated modules in `rpgnative`, under section 5's forbidden lints. `Cargo.lock` does not change.
+- **Runtime.** `core/src/rpg/native_rt.rs` is `Machine` as `rpgrt::native::Runtime`: each method is the matching arm of `run_code_at`, and `settle` is its error routing. `core/tests/native_tripwire.rs` fails if upstream changes `run_code_at` or the error functions it copies.
+- **Tests:**
+  - `core/tests/native_engine.rs`: the flag;
+  - `core/tests/native_units.rs`: 9 RPG programs with expected values from IBM Docs, run on whichever engine the process uses;
+  - `core/tests/native_diff.rs`: the level-1 corpus;
+  - the unit tests of `rpgcg`, `rpgnative` and `rpgrt::native`.
+- **Harness.** `scripts/native-diff.sh` runs the three levels of ADR 0005. With `auto`, every test's result must be the same as under the interpreter. With `rust`, coverage is measured: every refusal must be a program whose generated code never existed (sources that put the test's random library name in the RPG text).
+- **Upstream changes.** 5 lines in interp.rs, 3 in program.rs, a few in rpg/mod.rs (emission, the engine carried into `spawn_blocking`, observation), and the workspace and core manifests. All are authorized (CLAUDE.native.md section 3).
+- **Interpreter defects found**, upstream and not fixed here: nested MONITOR, writes to CONST parameters, `OVERLAY(:*NEXT)`. They are in `fidelity.md`.
+
 ## Evidence
 
 - `docs/native/evidence/2026-11-11-runtime-extraction.json`: first run (aarch64, plus x86_64 stopped for lack of memory)
 - `docs/native/evidence/2026-11-11-runtime-extraction-run2.json`: second and third runs (x86_64 and aarch64)
+- Stage 1 (N1-N4): the manifest recorded with the run of `scripts/native-diff.sh` and the section 7 checks on this commit (the next commit)

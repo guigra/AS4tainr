@@ -16,6 +16,7 @@ pub mod expr;
 pub mod interp;
 pub mod listing;
 pub use rpgrt::rpg::mem;
+pub mod native;
 pub mod parse;
 pub mod program;
 pub mod rpg3;
@@ -477,6 +478,9 @@ pub async fn compile_ovr(
         }
     }
     let (_, prog) = compile_parts(client, libl, name, source, options, ovr).await;
+    if let Ok(p) = &prog {
+        native::emit(p);
+    }
     if let (Some(stamp), Ok(p)) = (stamp, &prog) {
         let mut cache = COMPILED.lock().unwrap_or_else(|e| e.into_inner());
         if cache.len() >= 256 {
@@ -804,9 +808,11 @@ async fn call_any(
     // The job's QTEMP, for the thread the program runs on.
     let qtemp = crate::qtemp::current();
     let dir = crate::ifs::job_dir();
+    let engine = native::carry();
     tokio::task::spawn_blocking(move || -> Result<(CallResult, Vec<Vec<u8>>)> {
         let _q = crate::qtemp::ThreadScope::new(qtemp);
         let _d = crate::ifs::DirScope::new(dir);
+        let _e = engine.enter();
         let client = rt.block_on(crate::runtime::connect_db(&url))?;
         rt.block_on(crate::runtime::job_session(
             &client,
@@ -877,6 +883,7 @@ async fn call_any(
                 (r, parms)
             }
         };
+        interp::native_rt::observe(&m);
         Ok((
             CallResult {
                 logged: crate::pgmmsg::job_log(&m.io_job_key())
@@ -926,9 +933,11 @@ pub async fn call_procedure(
     let url = database_url.to_string();
     let qtemp = crate::qtemp::current();
     let dir = crate::ifs::job_dir();
+    let engine = native::carry();
     tokio::task::spawn_blocking(move || {
         let _q = crate::qtemp::ThreadScope::new(qtemp);
         let _d = crate::ifs::DirScope::new(dir);
+        let _e = engine.enter();
         let client = rt.block_on(crate::runtime::connect_db(&url))?;
         let target = binding.imports.get(&sym).cloned().ok_or_else(|| {
             anyhow!("CPD5D02: Procedure {sym} is not bound to program {program}.")
