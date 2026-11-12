@@ -1,0 +1,6 @@
+# Captures for stage 2 of the native backend, S2.7: fixed-form DIV and
+# MVR (quotient's decimal places, half adjust, remainder, sign, divide by
+# zero).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native5.txt -f tools/golden/native5
+n5_crt_div|!system "CRTSQLRPGI OBJ(@LIB@/GN5DIV) SRCSTMF('@HOME@/gld/gn5div.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n5_div|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN5DIV)"; cat gn1.out; rm -f gn1.out

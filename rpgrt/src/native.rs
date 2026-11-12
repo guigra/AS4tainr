@@ -144,6 +144,11 @@ pub trait Runtime {
     /// arithmetic operation at `pc` for the value its result field now
     /// holds, as the interpreter sets them.
     fn num_inds(&mut self, pc: usize, stored: &Dec);
+    /// Stage 2 (S2.7): the remainder of the last fixed-form DIV, which MVR
+    /// moves.
+    fn remainder(&self) -> Dec;
+    /// Stage 2 (S2.7): DIV keeps its remainder.
+    fn set_remainder(&mut self, d: Dec);
 }
 
 /// A sum, difference or product with the decimal places the precision
