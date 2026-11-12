@@ -358,15 +358,23 @@ pub struct NativeTable {
     pub program: String,
     pub entries: Vec<Entry>,
     by_place: HashMap<Place, usize>,
+    /// The main program's subroutines by name (found with no allocation).
+    main_subs: HashMap<String, usize>,
+    /// The first routine with no generated code (worked out once).
+    first_missing: Option<usize>,
 }
 
 impl NativeTable {
     pub fn build(prog: &Program) -> NativeTable {
         let mut entries = Vec::new();
         let mut by_place = HashMap::new();
+        let mut main_subs = HashMap::new();
         for (place, code) in routines(prog) {
             let fingerprint = routine(prog, &place, code).fingerprint;
             let run = rpgnative::lookup(&fingerprint);
+            if let Place::Sub(n) = &place {
+                main_subs.insert(n.clone(), entries.len());
+            }
             by_place.insert(place.clone(), entries.len());
             entries.push(Entry {
                 place,
@@ -375,20 +383,71 @@ impl NativeTable {
                 run,
             });
         }
+        let first_missing = entries.iter().position(|e| e.run.is_none());
         NativeTable {
             program: prog.name.clone(),
             entries,
+            first_missing,
             by_place,
+            main_subs,
         }
     }
 
     /// The first routine with no generated code, if any.
     pub fn missing(&self) -> Option<&Entry> {
-        self.entries.iter().find(|e| e.run.is_none())
+        self.first_missing.and_then(|i| self.entries.get(i))
     }
 
     pub fn get(&self, place: &Place) -> Option<&Entry> {
         self.by_place.get(place).and_then(|&i| self.entries.get(i))
+    }
+
+    /// The entry of the routine `code` is in `prog`, the program this
+    /// table was built for (any copy of it): found by comparing addresses
+    /// with the program's own routines, with no allocation (the
+    /// dispatcher calls this at every routine entry).
+    pub fn find(&self, prog: &Program, code: &Code) -> Option<&Entry> {
+        let main = |r: &Routines| -> Option<Part> {
+            if std::ptr::eq(&r.detail, code) {
+                return Some(Part::Detail);
+            }
+            if std::ptr::eq(&r.total, code) {
+                return Some(Part::Total);
+            }
+            r.subroutines
+                .iter()
+                .find(|(_, c)| std::ptr::eq(*c, code))
+                .map(|(n, _)| Part::Sub(n.clone()))
+        };
+        // The main program's routines first (the common case).
+        let r = &prog.routines;
+        if std::ptr::eq(&r.detail, code) {
+            return self.get(&Place::Detail);
+        }
+        if std::ptr::eq(&r.total, code) {
+            return self.get(&Place::Total);
+        }
+        if let Some((n, _)) = r.subroutines.iter().find(|(_, c)| std::ptr::eq(*c, code)) {
+            return self
+                .main_subs
+                .get(n.as_str())
+                .and_then(|&i| self.entries.get(i));
+        }
+        for (name, pi) in &prog.procs {
+            if let Some(part) = main(&pi.routines) {
+                return self.get(&Place::Proc(name.clone(), part));
+            }
+            if let Some((_, exit)) = &pi.on_exit {
+                if let Some(part) = main(exit) {
+                    let part = match part {
+                        Part::Detail => Part::OnExit,
+                        other => Part::OnExitOther(Box::new(other)),
+                    };
+                    return self.get(&Place::Proc(name.clone(), part));
+                }
+            }
+        }
+        None
     }
 }
 
