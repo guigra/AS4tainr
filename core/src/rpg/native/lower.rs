@@ -78,7 +78,23 @@ fn lowered(prog: &Program, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowe
                 Arith::Add => ir::FixOp::Add,
                 Arith::Sub => ir::FixOp::Sub,
                 Arith::Mult => ir::FixOp::Mult,
-                Arith::Div | Arith::Mvr => return None,
+                // DIV's quotient gets the result field's decimal places
+                // (`type_of(result).precision()`, as the interpreter).
+                Arith::Div => {
+                    let Expr::Name { parts, args: None } = result else {
+                        return None;
+                    };
+                    let [name] = parts.as_slice() else {
+                        return None;
+                    };
+                    let Some(Sym::Var(v)) = prog.syms.get(name) else {
+                        return None;
+                    };
+                    ir::FixOp::Div {
+                        decs: u8::try_from(v.dtype.precision().1).ok()?,
+                    }
+                }
+                Arith::Mvr => ir::FixOp::Mvr,
             };
             ir::Lowered::Arith {
                 op,
@@ -86,7 +102,12 @@ fn lowered(prog: &Program, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowe
                     Some(x) => Some(operand(prog, x, &mut used)?),
                     None => None,
                 },
-                f2: operand(prog, f2, &mut used)?,
+                // MVR has no factor 2 (the generated code does not read it).
+                f2: if op == ir::FixOp::Mvr {
+                    ir::Operand::Num { m: 0, s: 0 }
+                } else {
+                    operand(prog, f2, &mut used)?
+                },
                 result: num_variable(prog, result, &mut used)?,
                 half_adjust: ext.half_adjust,
                 inds: !ind.is_empty(),

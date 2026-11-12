@@ -314,3 +314,25 @@ async fn native_unit_lowered_characters() {
     )
     .await;
 }
+
+// Stage 2, S2.7: fixed-form DIV and MVR, lowered to Rust: the quotient's
+// decimal places, DIV(H), the remainder and its sign, indicators, and
+// status 00102.
+// Source: golden capture tools/golden/native5.txt n5_div (PUB400, IBM i 7.5, 2026-11-12)
+#[tokio::test]
+async fn native_unit_lowered_div_mvr() {
+    let _ = require_db!();
+    expect(
+        "NDIV",
+        include_str!("native/NDIV.rpgle"),
+        &[
+            "DIV 3 MVR 2",
+            "DIV2 3.40 MVR2 .00",
+            "DIVNEG -3 MVR -2",
+            "DIVH 3",
+            "DIVRES 8 100",
+            "DIV0 00102",
+        ],
+    )
+    .await;
+}

@@ -357,6 +357,14 @@ impl Runtime for Rt<'_, '_> {
         }
     }
 
+    fn remainder(&self) -> Dec {
+        self.m.remainder
+    }
+
+    fn set_remainder(&mut self, d: Dec) {
+        self.m.remainder = d;
+    }
+
     fn precision(&mut self, pc: usize, path: &[u8]) -> Option<(u32, u32)> {
         let Some(Ins::Stmt(super::super::ast::Stmt::Eval { value, .. })) =
             self.code.get(pc).map(|i| &i.ins)

@@ -86,3 +86,14 @@ The generated code does the same steps, with the same rpgrt functions. Steps 1 t
 
 - **S2.5a** (no behavior change): the dispatcher finds a routine's native code by comparing addresses, with no allocation, and keeps the program's first missing routine. Verified with native-diff. NBENCH1 then runs 20.8% faster than the interpreter on aarch64.
 - **S2.6:** file fields become eligible. Upstream's `bind` turned file fields that are not defined otherwise into standalone fields in the iteration order of a `HashMap`, so their buffer numbers changed from one compile to the next. With the user's approval (2026-11-12), program.rs sorts them by name first, one line. Each field has a buffer of its own, so only the numbering changes, and it is now the same in every compile. Level 1 of the harness compiles each corpus program again before each engine's run; with file fields lowered, a numbering that still changed would show up there as refused native code.
+
+## S2.7: fixed-form DIV and MVR (rpgcg 0.1.0+stage2.7)
+
+**What the interpreter does, and the generated code does the same:**
+
+- **DIV** computes `q = a1.div_scale(a2, decs + H)`. `decs` is the result field's decimal places (`type_of(result).precision()`), worked out at lowering from the same type. Then `qt = q.rescale(decs, false)`, and the remainder `a1 - qt * a2` is kept before the assignment.
+- **MVR** assigns that remainder.
+
+The remainder is the machine's (`Machine::remainder`), reached through `Runtime::remainder` and `set_remainder`, so an MVR finds it whichever engine ran the DIV. Division by zero is `div_scale`'s own error (status 00102).
+
+**Expected values.** The quotient's decimals, DIV(H), the remainder and its sign, the indicators, and status 00102 come from PUB400: tools/golden/native5.txt n5_div (IBM i 7.5, 2026-11-12). as4tainr gives the same six lines.

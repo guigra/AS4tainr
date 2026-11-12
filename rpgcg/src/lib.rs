@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.4");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.7");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -151,8 +151,7 @@ pub mod ir {
         },
     }
 
-    /// The fixed-form arithmetic operations lowered (DIV and MVR use the
-    /// machine's remainder, so they are not).
+    /// The fixed-form arithmetic operations lowered.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum FixOp {
         ZAdd,
@@ -160,6 +159,13 @@ pub mod ir {
         Add,
         Sub,
         Mult,
+        /// DIV (S2.7): the quotient gets the result field's decimal places
+        /// (`decs`, one more with H); the remainder is kept for MVR.
+        Div {
+            decs: u8,
+        },
+        /// MVR (S2.7): the remainder of the last DIV.
+        Mvr,
     }
 
     /// A character expression of lowered code: operands and their
@@ -653,6 +659,21 @@ fn lowered_step(
             let value = match op {
                 ir::FixOp::ZAdd => number(f2),
                 ir::FixOp::ZSub => format!("{}.neg()", number(f2)),
+                ir::FixOp::Mvr => "rt.remainder()".to_string(),
+                ir::FixOp::Div { decs } => {
+                    let a1 = number(f1.as_ref().unwrap_or(result));
+                    let _ = writeln!(helpers, "    let a1 = {a1};");
+                    let _ = writeln!(helpers, "    let a2 = {};", number(f2));
+                    let with_h = if *half_adjust {
+                        decs.saturating_add(1)
+                    } else {
+                        *decs
+                    };
+                    let _ = writeln!(helpers, "    let q = a1.div_scale(&a2, {with_h})?;");
+                    let _ = writeln!(helpers, "    let qt = q.rescale({decs}, false)?;");
+                    let _ = writeln!(helpers, "    rt.set_remainder(a1.sub(&qt.mul(&a2)?)?);");
+                    "q".to_string()
+                }
                 ir::FixOp::Add | ir::FixOp::Sub | ir::FixOp::Mult => {
                     let a1 = number(f1.as_ref().unwrap_or(result));
                     let _ = writeln!(helpers, "    let a1 = {a1};");
