@@ -1,0 +1,6 @@
+# Captures for stage 2 of the native backend (docs/native/adr/0006):
+# what EVAL with and without H gives, and the decimals of +, - and *.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native2.txt -f tools/golden/native2
+# Results: target/ibmi/golden/<name>.txt (never committed).
+n2_crt_eval|!system "CRTSQLRPGI OBJ(@LIB@/GN2EVAL) SRCSTMF('@HOME@/gld/gn2eval.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n2_eval|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN2EVAL)"; cat gn1.out; rm -f gn1.out
