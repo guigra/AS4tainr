@@ -81,3 +81,8 @@ The generated code does the same steps, with the same rpgrt functions. Steps 1 t
 - The assignment is `data::store` with `Fit::Strict` and `right` (EVALR), which pads and truncates as the interpreter does.
 
 **Expected values.** Concatenation keeping trailing blanks, truncation and padding with EVAL and EVALR, blank-padded comparison, and EBCDIC order (lower case before upper case before digits) come from PUB400: tools/golden/native4.txt n4_char (IBM i 7.5, 2026-11-12). as4tainr gives the same nine lines.
+
+## S2.5a and S2.6
+
+- **S2.5a** (no behavior change): the dispatcher finds a routine's native code by comparing addresses, with no allocation, and keeps the program's first missing routine. Verified with native-diff. NBENCH1 then runs 20.8% faster than the interpreter on aarch64.
+- **S2.6:** file fields become eligible. Upstream's `bind` turned file fields that are not defined otherwise into standalone fields in the iteration order of a `HashMap`, so their buffer numbers changed from one compile to the next. With the user's approval (2026-11-12), program.rs sorts them by name first, one line. Each field has a buffer of its own, so only the numbering changes, and it is now the same in every compile. Level 1 of the harness compiles each corpus program again before each engine's run; with file fields lowered, a numbering that still changed would show up there as refused native code.

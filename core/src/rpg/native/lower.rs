@@ -239,10 +239,11 @@ fn num_variable(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::
     (!is_char(&o)).then_some(o)
 }
 
-/// An eligible field (ADR 0006): a global numeric scalar of the main
-/// program that is not an array, not based, not in a multiple-occurrence
-/// data structure, not varying, not imported or exported, not a field of
-/// one of the program's files.
+/// An eligible field (ADR 0006): a global scalar of the main program,
+/// numeric or fixed-length character, that is not an array, not based,
+/// not in a multiple-occurrence data structure, not varying, not imported
+/// or exported. File fields are eligible since program.rs gives them
+/// buffer numbers in name order (S2.6).
 fn variable(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
     let Expr::Name { parts, args: None } = e else {
         return None;
@@ -268,11 +269,7 @@ fn variable(prog: &Program, e: &Expr, used: &mut Vec<String>) -> Option<ir::Oper
         || prog.occurs.iter().any(|o| o.buf == v.buf)
         || prog.varying.contains_key(name)
         || prog.data_imports.iter().any(|(n, _)| n == name)
-        || prog.data_exports.iter().any(|(n, _)| n == name)
-        || prog
-            .files
-            .iter()
-            .any(|f| f.fields.iter().any(|f| f == name));
+        || prog.data_exports.iter().any(|(n, _)| n == name);
     if excluded {
         return None;
     }

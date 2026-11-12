@@ -2679,7 +2679,9 @@ pub fn bind(
     let mut protos = HashMap::new();
     let global_pi = b.defs(defs, &mut protos)?;
     // File fields not defined otherwise become standalone fields.
-    let names: Vec<(String, DType)> = b.file_fields.iter().map(|(k, v)| (k.clone(), *v)).collect();
+    let mut names: Vec<(String, DType)> =
+        b.file_fields.iter().map(|(k, v)| (k.clone(), *v)).collect();
+    names.sort_by(|x, y| x.0.cmp(&y.0));
     for (n, t) in names {
         if !b.syms.contains_key(&n) {
             b.add_var(&n, t, 0);
