@@ -25,7 +25,7 @@ use super::super::ast::{BinOp, Expr};
 use super::super::code::{Code, Ins, I};
 use super::super::data::{self, a, Fit, Value};
 use super::super::dec::Dec;
-use super::super::native::{self, Engine, Place};
+use super::super::native::{self, Engine};
 use super::errors;
 use super::{Flow, GotoSignal, LeaveSrSignal, Machine, ReturnPointSignal, ReturnSignal};
 use anyhow::{anyhow, Result};
@@ -78,11 +78,8 @@ pub(super) fn dispatch(m: &mut Machine<'_>, code: &Code, start: usize) -> Option
             ),
         );
     }
-    let Some(place) = place_of(m, code) else {
+    let Some(run) = table.find(prog, code).and_then(|e| e.run) else {
         return refuse(m, "a routine not found in the program".to_string());
-    };
-    let Some(run) = table.get(&place).and_then(|e| e.run) else {
-        return refuse(m, format!("no native code for {place}"));
     };
     let mut rt = Rt { m, code };
     Some(run(&mut rt, start).map(|f| match f {
@@ -90,17 +87,6 @@ pub(super) fn dispatch(m: &mut Machine<'_>, code: &Code, start: usize) -> Option
         rpgrt::native::Flow::Return(v) => Flow::Return(v),
         rpgrt::native::Flow::LeaveSr => Flow::LeaveSr,
     }))
-}
-
-/// The routine `code` is, in the program this machine runs: compared by
-/// address with the program's own routines, so only this program's copy
-/// matches.
-fn place_of(m: &Machine<'_>, code: &Code) -> Option<Place> {
-    let prog = m.prog;
-    native::routines(prog)
-        .into_iter()
-        .find(|(_, c)| std::ptr::eq(*c, code))
-        .map(|(p, _)| p)
 }
 
 /// An error that ends the program before any of its calculations run:
