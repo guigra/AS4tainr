@@ -1,0 +1,6 @@
+# Captures for stage 2 of the native backend, S2.14: %CHAR of numbers (with and without DECEDIT), %INT, %INTH, %DEC, %DECH.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native12.txt -f tools/golden/native12
+n12_crt_fun|!system "CRTSQLRPGI OBJ(@LIB@/GN12FUN) SRCSTMF('@HOME@/gld/gn12fun.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n12_fun|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN12FUN)"; cat gn1.out; rm -f gn1.out
+n12_crt_decedit|!system "CRTSQLRPGI OBJ(@LIB@/GN12DCE) SRCSTMF('@HOME@/gld/gn12dce.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n12_decedit|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN12DCE)"; cat gn1.out; rm -f gn1.out

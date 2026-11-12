@@ -210,6 +210,24 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                 path,
             })
         }
+        // %CHAR of a numeric expression (S2.14). The program's DECEDIT is
+        // part of the code, so it goes into the fingerprint's layout.
+        Expr::Bif(b, args) if b == "CHAR" => {
+            let [inner] = args.as_slice() else {
+                return None;
+            };
+            let mut ip = path.clone();
+            ip.push(0);
+            let inner = num_expr(cx, inner, used, ip)?;
+            let (point, zero) = cx.prog.decedit();
+            used.push(format!("decedit {point} {zero}"));
+            Some(ir::CharExpr::CharOfNum {
+                inner,
+                point,
+                zero,
+                path,
+            })
+        }
         // %XLATE of character expressions, with a start that is a numeric
         // literal or field (S2.12).
         Expr::Bif(b, args) if b == "XLATE" => {
@@ -275,6 +293,41 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 path,
             })
         }
+        // %INT, %INTH of a numeric expression (S2.14).
+        Expr::Bif(b, args) if matches!(b.as_str(), "INT" | "INTH") => {
+            let [inner] = args.as_slice() else {
+                return None;
+            };
+            let mut ip = path.clone();
+            ip.push(0);
+            Some(ir::NumExpr::Int {
+                inner: Box::new(num_expr(cx, inner, used, ip)?),
+                half: b == "INTH",
+                path,
+            })
+        }
+        // %DEC, %DECH of a numeric expression, with digits and decimal
+        // places that are literals, or none (S2.14).
+        Expr::Bif(b, args) if matches!(b.as_str(), "DEC" | "DECH") => {
+            let (inner, to) = match args.as_slice() {
+                [i] => (i, None),
+                [i, Expr::Num(p), Expr::Num(s)] => {
+                    let p = u32::try_from(p.to_i128().ok()?).ok()?;
+                    let s = u32::try_from(s.to_i128().ok()?).ok()?;
+                    u8::try_from(s).ok()?;
+                    (i, Some((p, s)))
+                }
+                _ => return None,
+            };
+            let mut ip = path.clone();
+            ip.push(0);
+            Some(ir::NumExpr::Dec {
+                inner: Box::new(num_expr(cx, inner, used, ip)?),
+                to,
+                half: b == "DECH",
+                path,
+            })
+        }
         // %SCAN of character expressions, with a start that is a numeric
         // literal or field (S2.12).
         Expr::Bif(b, args) if b == "SCAN" => {
@@ -302,12 +355,26 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
 }
 
 fn cond(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Cond> {
+    cond_at(cx, e, used, Vec::new())
+}
+
+/// A condition at its place in the instruction's expression (0 left, 1
+/// right from the root), which names the helpers of its sides.
+fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::Cond> {
     let Expr::Bin(op, l, r) = e else {
         return None;
     };
+    let child = |k: u8| {
+        let mut c = path.clone();
+        c.push(k);
+        c
+    };
     let cmp = match op {
         BinOp::And | BinOp::Or => {
-            let (a, b) = (cond(cx, l, used)?, cond(cx, r, used)?);
+            let (a, b) = (
+                cond_at(cx, l, used, child(0))?,
+                cond_at(cx, r, used, child(1))?,
+            );
             return Some(if *op == BinOp::And {
                 ir::Cond::And(Box::new(a), Box::new(b))
             } else {
@@ -322,8 +389,36 @@ fn cond(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Cond> {
         BinOp::Ge => ir::CmpOp::Ge,
         _ => return None,
     };
-    let (a, b) = (any_operand(cx, l, used)?, any_operand(cx, r, used)?);
-    (is_char(&a) == is_char(&b)).then_some(ir::Cond::Cmp(cmp, a, b))
+    if operand_only(l) && operand_only(r) {
+        let (a, b) = (any_operand(cx, l, used)?, any_operand(cx, r, used)?);
+        return (is_char(&a) == is_char(&b)).then_some(ir::Cond::Cmp(cmp, a, b));
+    }
+    // An expression on either side (S2.13).
+    let (a, b) = (side(cx, l, used, child(0))?, side(cx, r, used, child(1))?);
+    let same = matches!(
+        (&a, &b),
+        (ir::CmpSide::Num(_), ir::CmpSide::Num(_)) | (ir::CmpSide::Char(_), ir::CmpSide::Char(_))
+    );
+    same.then(|| ir::Cond::CmpExpr(cmp, Box::new(a), Box::new(b)))
+}
+
+/// Whether an expression is a literal or a name (an operand, as S2.1
+/// compares them), not a built-in function or an operation.
+fn operand_only(e: &Expr) -> bool {
+    matches!(e, Expr::Num(_) | Expr::Str(_) | Expr::Name { .. })
+}
+
+/// A side of a comparison: a character expression, or a numeric one with
+/// no arithmetic (`+`, `-`, `*` take their precision from an EVAL's
+/// expression, which a condition has not).
+fn side(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::CmpSide> {
+    if let Some(c) = char_expr(cx, e, used, path.clone()) {
+        return Some(ir::CmpSide::Char(c));
+    }
+    match num_expr(cx, e, used, path)? {
+        ir::NumExpr::Bin { .. } => None,
+        n => Some(ir::CmpSide::Num(n)),
+    }
 }
 
 /// A literal or an eligible field, of either class.
