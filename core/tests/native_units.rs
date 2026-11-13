@@ -571,3 +571,75 @@ async fn native_unit_lowered_qualified_subfields() {
     )
     .await;
 }
+
+// Stage 2, S2.17: / in expressions lowered to Rust: the quotient's
+// decimal places by the precision rules (literals, packed and integer
+// operands), EVAL and EVAL(H), a nested expression, status 00102.
+// Source: golden capture tools/golden/native18.txt n18_div (PUB400, IBM i 7.5, 2026-11-13)
+#[tokio::test]
+async fn native_unit_lowered_division() {
+    let _ = require_db!();
+    expect(
+        "NDIVE",
+        include_str!("native/NDIVE.rpgle"),
+        &[
+            "DIV LIT [3.3333333333333333333333333333          ]",
+            "DIV LIT100 [33.333333333333333333333333333          ]",
+            "DIV PACKED [3.3333333333333333333333333             ]",
+            "DIV INT [3.33333333333333333333                  ]",
+            "DIV ASSIGN 3.33",
+            "DIV HALF .67",
+            "DIV EXPR 7.50",
+            "DIV ZERO 00102",
+        ],
+    )
+    .await;
+}
+
+// Stage 2, S2.18: %REM and %DIV lowered to Rust: signs, in arithmetic and
+// in a condition, and status 00102 for a zero divisor.
+// Source: golden capture tools/golden/native19.txt n19_rem (PUB400, IBM i 7.5, 2026-11-13)
+#[tokio::test]
+async fn native_unit_lowered_rem_div() {
+    let _ = require_db!();
+    expect(
+        "NREM",
+        include_str!("native/NREM.rpgle"),
+        &[
+            "REM 2",
+            "REM NEG -2",
+            "DIVF 3",
+            "DIVF NEG -3",
+            "REM DIV BACK 123",
+            "REM COND ODD",
+            "REM ZERO ERR 102",
+            "DIVF ZERO ERR 102",
+        ],
+    )
+    .await;
+}
+
+// Stage 2, S2.19: varying-length character fields lowered to Rust:
+// assignment, concatenation, truncation at the maximum, %TRIM, to and from
+// fixed-length fields, a padded comparison, %SUBST and %SCAN.
+// Source: golden capture tools/golden/native20.txt n20_var (PUB400, IBM i 7.5, 2026-11-13)
+#[tokio::test]
+async fn native_unit_lowered_varying_fields() {
+    let _ = require_db!();
+    expect(
+        "NVAR",
+        include_str!("native/NVAR.rpgle"),
+        &[
+            "VAR [HELLO] 5",
+            "VAR CAT [HELLO W] 7",
+            "VAR TRUNC [TOOLO] 5",
+            "VAR TRIM [X] 1",
+            "VAR TO CHAR [TOOLO ]",
+            "VAR FROM CHAR [TOOLO ] 6",
+            "VAR CMP PADDED EQ",
+            "VAR SUBST [TOO] 3",
+            "VAR SCAN 2",
+        ],
+    )
+    .await;
+}

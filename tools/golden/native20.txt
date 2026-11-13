@@ -1,0 +1,4 @@
+# Captures for stage 2 of the native backend, S2.19: varying-length character fields.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native20.txt -f tools/golden/native20
+n20_crt_var|!system "CRTSQLRPGI OBJ(@LIB@/GN20VAR) SRCSTMF('@HOME@/gld/gn20var.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n20_var|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN20VAR)"; cat gn1.out; rm -f gn1.out

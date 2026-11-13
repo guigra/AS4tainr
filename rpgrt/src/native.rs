@@ -469,6 +469,32 @@ pub fn dec_to(d: &Dec, digits: u32, decimals: u32, half: bool) -> NResult<Dec> {
     Ok(r)
 }
 
+/// `/` in an expression (S2.17): the interpreter's `divide`. The
+/// quotient gets the decimal places of the ILE RPG precision rules,
+/// Dr = M - ((L1 - D1) + D2), with M = 30, or 63 when an operand has
+/// more than 30 digits, and at most 37. The operands' precision comes
+/// from their nodes, or else from their own digits. When the quotient
+/// does not fit, it gets fewer places. A zero divisor is MCH1211.
+pub fn divide(a: &Dec, b: &Dec, pl: Option<(u32, u32)>, pr: Option<(u32, u32)>) -> NResult<Dec> {
+    let own = |d: &Dec| {
+        let s = u32::from(d.scale());
+        (d.int_digits().saturating_add(s).max(1), s)
+    };
+    let (l1, d1) = pl.unwrap_or_else(|| own(a));
+    let (l2, d2) = pr.unwrap_or_else(|| own(b));
+    let m: u32 = if l1.max(l2) > 30 { 63 } else { 30 };
+    let mut dr = m
+        .saturating_sub(l1.saturating_sub(d1).saturating_add(d2))
+        .min(37);
+    loop {
+        match a.div_scale(b, u8::try_from(dr)?) {
+            Ok(q) => return Ok(q),
+            Err(e) if dr == 0 || e.to_string().starts_with("MCH1211") => return Err(e),
+            Err(_) => dr = dr.saturating_sub(1),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
