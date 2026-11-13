@@ -243,3 +243,9 @@ Each operand's precision is that of its own node, `Runtime::precision(pc, path +
 **What changes.** A VARCHAR field is eligible (`Ty::Varchar`), and it is a character operand. It is loaded and stored with `data::load` and `data::store` over its whole storage, the length prefix included, as the interpreter's `load_var` and `store_var`. So its current length, truncation at the maximum and comparisons behave as there. Varying-dimension arrays (`Program::varying`) stay excluded. %LEN of a varying field depends on its current length, so it stays with the interpreter, as does %LEN(v) as a target.
 
 **Expected values.** `core/tests/native/NVAR.rpgle`, captured on PUB400: tools/golden/native20.txt n20_var (IBM i 7.5, 2026-11-13).
+
+## S2.20: %LEN of varying-length fields (rpgcg 0.1.0+stage2.20)
+
+**What changes.** %LEN of an eligible VARCHAR field is a numeric expression of lowered code: the length of its current value, as the interpreter's `"LEN"` arm gives it for a varying field. %LEN with *MAX, and %LEN as a target, stay with the interpreter.
+
+**Expected values.** `core/tests/native/NVLEN.rpgle`, captured on PUB400: tools/golden/native21.txt n21_vlen (IBM i 7.5, 2026-11-13).

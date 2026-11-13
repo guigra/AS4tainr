@@ -643,3 +643,24 @@ async fn native_unit_lowered_varying_fields() {
     )
     .await;
 }
+
+// Stage 2, S2.20: %LEN of varying-length fields lowered to Rust: their
+// current length, in arithmetic and conditions, of an empty field and
+// after %TRIMR.
+// Source: golden capture tools/golden/native21.txt n21_vlen (PUB400, IBM i 7.5, 2026-11-13)
+#[tokio::test]
+async fn native_unit_lowered_varying_length() {
+    let _ = require_db!();
+    expect(
+        "NVLEN",
+        include_str!("native/NVLEN.rpgle"),
+        &[
+            "VLEN 3",
+            "VLEN EXPR 10",
+            "VLEN EMPTY 0",
+            "VLEN COND GT",
+            "VLEN TRIMR 3",
+        ],
+    )
+    .await;
+}

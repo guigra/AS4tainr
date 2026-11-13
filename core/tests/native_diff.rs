@@ -180,6 +180,11 @@ const CORPUS: &[Case] = &[
         args: &[],
     },
     Case {
+        name: "NVLEN",
+        source: include_str!("native/NVLEN.rpgle"),
+        args: &[],
+    },
+    Case {
         name: "NDIV",
         source: include_str!("native/NDIV.rpgle"),
         args: &[],
