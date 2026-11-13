@@ -310,6 +310,19 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 path,
             })
         }
+        // %LEN of a varying-length field (S2.20): its current length, as
+        // the interpreter's `(Some(DType::Varchar(_)), Value::Char(c))`
+        // arm gives it.
+        Expr::Bif(b, args) if b == "LEN" && args.len() == 1 => {
+            let v = variable(cx, args.first()?, used)?;
+            match v {
+                ir::Operand::Var {
+                    ty: ir::Ty::Varchar(_),
+                    ..
+                } => Some(ir::NumExpr::VarLen { var: v }),
+                _ => operand(cx, e, used).map(ir::NumExpr::Leaf),
+            }
+        }
         // %INT, %INTH of a numeric expression (S2.14).
         Expr::Bif(b, args) if matches!(b.as_str(), "INT" | "INTH") => {
             let [inner] = args.as_slice() else {

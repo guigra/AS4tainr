@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.19");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.20");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -272,6 +272,10 @@ pub mod ir {
             right: Box<NumExpr>,
             rem: bool,
             path: Vec<u8>,
+        },
+        /// %LEN of a varying-length field (S2.20): its current length.
+        VarLen {
+            var: Operand,
         },
         /// %INT or %INTH (`half`) of a numeric expression (S2.14).
         Int {
@@ -1129,6 +1133,10 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             );
             format!("{name}(rt)?")
         }
+        ir::NumExpr::VarLen { var } => format!(
+            "rpgrt::rpg::dec::Dec::from_i64(i64::try_from({}.chars()?.len())?)",
+            value(var)
+        ),
         ir::NumExpr::Int { inner, half, path } => {
             let name = format!("i{pc}_{}", path_id(path));
             let x = num_expr(pc, inner, helpers);
