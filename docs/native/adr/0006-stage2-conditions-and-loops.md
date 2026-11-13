@@ -217,3 +217,29 @@ Both sides must be of the same class. Comparisons of two literals or names stay 
 **What changes.** A qualified name (`ds.field`, a QUALIFIED or LIKEDS data structure's subfield) is looked up under its parts joined with periods, as the interpreter's `sym(&joined(parts))` does. An eligible one is lowered as any field. Names with an index on a part before the last (`list(3).name`, `Expr::Path`) are not lowered.
 
 **Expected values.** `core/tests/native/NDSQ.rpgle`, captured on PUB400: tools/golden/native17.txt n17_dsq (IBM i 7.5, 2026-11-13).
+
+## S2.17: / in expressions (rpgcg 0.1.0+stage2.17)
+
+**What changes.** `/` is an operation of lowered numeric expressions. `rpgrt::native::divide` is the interpreter's `divide`, written again under section 5's lints:
+
+- the quotient's decimal places are `M - ((L1 - D1) + D2)`, with M = 30, or 63 when an operand has more than 30 digits, and at most 37;
+- fewer places are used when the quotient does not fit;
+- a zero divisor is MCH1211, which is status 00102.
+
+Each operand's precision is that of its own node, `Runtime::precision(pc, path + [0])` and `[1]`, kept in a `OnceLock` per helper. When it is not known, the operand's own digits are used, as in the interpreter. The quotient is not rescaled further (no `rule_scale`), which also matches the interpreter.
+
+**Not lowered.** `/` at the top of a comparison's side (as for `+`, `-`, `*`), and `**`.
+
+**Expected values.** `core/tests/native/NDIVE.rpgle`, captured on PUB400: tools/golden/native18.txt n18_div (IBM i 7.5, 2026-11-13). It agrees with upstream's own capture tools/golden/rpg-prec.txt: 28, 27, 25 and 20 decimal places.
+
+## S2.18: %REM and %DIV (rpgcg 0.1.0+stage2.18)
+
+**What changes.** %DIV and %REM of two numeric expressions are numeric expressions of lowered code. They compute `x.div_scale(&y, 0)` and `x.rem(&y)`, as the interpreter's `"DIV"` and `"REM"` arms, and a zero divisor gives the same MCH1211 (status 00102).
+
+**Expected values.** `core/tests/native/NREM.rpgle`, captured on PUB400: tools/golden/native19.txt n19_rem (IBM i 7.5, 2026-11-13).
+
+## S2.19: varying-length character fields (rpgcg 0.1.0+stage2.19)
+
+**What changes.** A VARCHAR field is eligible (`Ty::Varchar`), and it is a character operand. It is loaded and stored with `data::load` and `data::store` over its whole storage, the length prefix included, as the interpreter's `load_var` and `store_var`. So its current length, truncation at the maximum and comparisons behave as there. Varying-dimension arrays (`Program::varying`) stay excluded. %LEN of a varying field depends on its current length, so it stays with the interpreter, as does %LEN(v) as a target.
+
+**Expected values.** `core/tests/native/NVAR.rpgle`, captured on PUB400: tools/golden/native20.txt n20_var (IBM i 7.5, 2026-11-13).

@@ -277,7 +277,7 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
 /// (S2.2), each operation with its place in the statement's expression.
 fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::NumExpr> {
     match e {
-        Expr::Bin(op @ (BinOp::Add | BinOp::Sub | BinOp::Mul), l, r) => {
+        Expr::Bin(op @ (BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div), l, r) => {
             let mut lp = path.clone();
             lp.push(0);
             let mut rp = path.clone();
@@ -286,10 +286,27 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 op: match op {
                     BinOp::Add => ir::ArOp::Add,
                     BinOp::Sub => ir::ArOp::Sub,
+                    BinOp::Div => ir::ArOp::Div,
                     _ => ir::ArOp::Mul,
                 },
                 left: Box::new(num_expr(cx, l, used, lp)?),
                 right: Box::new(num_expr(cx, r, used, rp)?),
+                path,
+            })
+        }
+        // %DIV and %REM of two numeric expressions (S2.18).
+        Expr::Bif(b, args) if matches!(b.as_str(), "DIV" | "REM") => {
+            let [x, y] = args.as_slice() else {
+                return None;
+            };
+            let mut lp = path.clone();
+            lp.push(0);
+            let mut rp = path.clone();
+            rp.push(1);
+            Some(ir::NumExpr::DivRem {
+                left: Box::new(num_expr(cx, x, used, lp)?),
+                right: Box::new(num_expr(cx, y, used, rp)?),
+                rem: b == "REM",
                 path,
             })
         }
@@ -457,7 +474,7 @@ fn is_char(o: &ir::Operand) -> bool {
         o,
         ir::Operand::Str(_)
             | ir::Operand::Var {
-                ty: ir::Ty::Char(_),
+                ty: ir::Ty::Char(_) | ir::Ty::Varchar(_),
                 ..
             }
     )
@@ -523,6 +540,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         DType::Int(n) => ir::Ty::Int(n),
         DType::Uns(n) => ir::Ty::Uns(n),
         DType::Char(n) => ir::Ty::Char(n),
+        DType::Varchar(n) => ir::Ty::Varchar(n),
         _ => return None,
     };
     let excluded = if v.local {

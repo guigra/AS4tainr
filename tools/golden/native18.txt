@@ -1,0 +1,4 @@
+# Captures for stage 2 of the native backend, S2.17: / in expressions.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native18.txt -f tools/golden/native18
+n18_crt_div|!system "CRTSQLRPGI OBJ(@LIB@/GN18DIV) SRCSTMF('@HOME@/gld/gn18div.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n18_div|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN18DIV)"; cat gn1.out; rm -f gn1.out

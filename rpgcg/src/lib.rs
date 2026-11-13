@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.16");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.19");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -71,6 +71,9 @@ pub mod ir {
         Uns(u32),
         /// Fixed-length character (S2.4).
         Char(u32),
+        /// A varying-length character field of this many characters at
+        /// most (S2.19); its bytes start with the current length.
+        Varchar(u32),
     }
 
     /// An operand of lowered code.
@@ -244,6 +247,9 @@ pub mod ir {
         Add,
         Sub,
         Mul,
+        /// `/` (S2.17): the quotient's decimal places come from the
+        /// operands' precision.
+        Div,
     }
 
     /// A numeric expression of lowered code.
@@ -257,6 +263,14 @@ pub mod ir {
             op: ArOp,
             left: Box<NumExpr>,
             right: Box<NumExpr>,
+            path: Vec<u8>,
+        },
+        /// %DIV (`rem` false) or %REM of two numeric expressions
+        /// (S2.18): the integer quotient, or the remainder.
+        DivRem {
+            left: Box<NumExpr>,
+            right: Box<NumExpr>,
+            rem: bool,
             path: Vec<u8>,
         },
         /// %INT or %INTH (`half`) of a numeric expression (S2.14).
@@ -489,6 +503,7 @@ fn ty(t: &ir::Ty) -> String {
         Int(n) => format!("{p}::Int({n})"),
         Uns(n) => format!("{p}::Uns({n})"),
         Char(n) => format!("{p}::Char({n})"),
+        Varchar(n) => format!("{p}::Varchar({n})"),
     }
 }
 
@@ -1073,9 +1088,45 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
                 ir::ArOp::Add => "add",
                 ir::ArOp::Sub => "sub",
                 ir::ArOp::Mul => "mul",
+                ir::ArOp::Div => "",
             };
-            let _ = writeln!(body, "    Ok(rpgrt::native::rule_scale(p, a.{f}(&b)?))\n}}");
+            if *op == ir::ArOp::Div {
+                // The interpreter's `divide`: each operand's precision (its
+                // node's), not the quotient's.
+                let mut l = path_lit.clone();
+                l.push("0".to_string());
+                let mut r = path_lit.clone();
+                r.push("1".to_string());
+                let _ = writeln!(
+                    body,
+                    "    static PL: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let pl = *PL.get_or_init(|| rt.precision({pc}, &[{}]));\n    static PR: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let pr = *PR.get_or_init(|| rt.precision({pc}, &[{}]));\n    let _ = p;\n    rpgrt::native::divide(&a, &b, pl, pr)\n}}",
+                    l.join(", "),
+                    r.join(", ")
+                );
+            } else {
+                let _ = writeln!(body, "    Ok(rpgrt::native::rule_scale(p, a.{f}(&b)?))\n}}");
+            }
             helpers.push_str(&body);
+            format!("{name}(rt)?")
+        }
+        ir::NumExpr::DivRem {
+            left,
+            right,
+            rem,
+            path,
+        } => {
+            let name = format!("q{pc}_{}", path_id(path));
+            let x = num_expr(pc, left, helpers);
+            let y = num_expr(pc, right, helpers);
+            let op = if *rem {
+                "x.rem(&y)"
+            } else {
+                "x.div_scale(&y, 0)"
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::dec::Dec> {{\n    let x = {x};\n    let y = {y};\n    {op}\n}}"
+            );
             format!("{name}(rt)?")
         }
         ir::NumExpr::Int { inner, half, path } => {
