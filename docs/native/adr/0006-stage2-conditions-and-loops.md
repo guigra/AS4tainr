@@ -203,3 +203,17 @@ Both sides must be of the same class. Comparisons of two literals or names stay 
 **Not lowered.** %CHAR of dates, times, indicators and character values, %CHAR with a format, %DEC of character values, and %DEC with digits that are not literals.
 
 **Expected values.** `core/tests/native/NFUN.rpgle` and `NFUN2.rpgle` (DECEDIT('0,')), captured on PUB400: tools/golden/native12.txt n12_fun and n12_decedit (IBM i 7.5, 2026-11-12).
+
+## S2.15: array elements with literal indexes (rpgcg 0.1.0+stage2.15)
+
+**What changes.** `ARR(k)` with a literal integer `k` from 1 to the array's DIM is an eligible field. It applies to global arrays that are not based, varying (`DIM(*AUTO)`), in a multiple-occurrence data structure, imported, exported, or a table (`TAB...`). The element is a field at a fixed place, `off + (k - 1) * stride`: that is the interpreter's `elem_off`, whose index check cannot fail for such a `k`. Its layout line names the element (`layout ARR(3) ...`), so the fingerprint covers the offset. Scalar fields keep the layout line they had.
+
+**Not lowered.** An index out of range (the interpreter's RNQ0121 path stays the interpreter's), a variable or computed index, local arrays, and whole arrays.
+
+**Expected values.** `core/tests/native/NARR.rpgle`, captured on PUB400: tools/golden/native16.txt n16_arr (IBM i 7.5, 2026-11-13).
+
+## S2.16: qualified subfields (rpgcg 0.1.0+stage2.16)
+
+**What changes.** A qualified name (`ds.field`, a QUALIFIED or LIKEDS data structure's subfield) is looked up under its parts joined with periods, as the interpreter's `sym(&joined(parts))` does. An eligible one is lowered as any field. Names with an index on a part before the last (`list(3).name`, `Expr::Path`) are not lowered.
+
+**Expected values.** `core/tests/native/NDSQ.rpgle`, captured on PUB400: tools/golden/native17.txt n17_dsq (IBM i 7.5, 2026-11-13).
