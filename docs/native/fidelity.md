@@ -20,13 +20,19 @@ Each was observed on the interpreter and confirmed on a real IBM i: PUB400, IBM 
 
 | Defect | IBM i | as4tainr | Source |
 | --- | --- | --- | --- |
-| Nested MONITOR: an error the inner group has no ON-ERROR for | The enclosing group takes it: `MON OUTER` then `MON AFTER` | The routine ends with the error (`MCH1211`), and the outer `ON-ERROR 00102` never runs. `run_code_at` stops at the first group whose body holds the instruction, even when none of its handlers takes the error | Golden capture tools/golden/native1.txt n1_mon (PUB400, IBM i 7.5, 2026-11-12). IBM Docs, "MONITOR (Begin a Monitor Group)", IBM i 7.5, https://www.ibm.com/docs/en/ssw_ibm_i_75/rzasd/zzmonit.htm, read 2026-11-11 |
 | Assigning to a CONST parameter inside the procedure | Does not compile: RNF5346, severity 30 | Compiles and runs; the assignment takes effect | Golden capture tools/golden/native1.txt n1_crt_cst (PUB400, IBM i 7.5, 2026-11-12). IBM Docs, "CONST{(constant)}", IBM i 7.5, https://www.ibm.com/docs/en/ssw_ibm_i_75/rzasd/dconst.htm, read 2026-11-11 |
 | Passing a CONST parameter on to a procedure that changes its parameter | Does not compile: RNF7542, severity 30 | Compiles and runs | Golden capture tools/golden/native1.txt n1_crt_fwd (PUB400, IBM i 7.5, 2026-11-12) |
 | `OVERLAY(field : *NEXT)` | Family 1-3, Sequence 4-9, Language 10; the data structure is 10 bytes | Sequence and Language go after the whole of PartNumber; the data structure is 17 bytes | Golden capture tools/golden/native1.txt n1_ovl (PUB400, IBM i 7.5, 2026-11-12). IBM Docs, "OVERLAY(name{:start_pos \| *NEXT})", IBM i 7.5, https://www.ibm.com/docs/en/ssw_ibm_i_75/rzasd/doverly.htm, read 2026-11-11 |
-| `%SUBST(s : start : 0)` with `start` one past the end (a 10-character field, start 11 in a variable) | Status 00100 | Accepted: a string of length 0. `interp.rs`'s `"SUBST"` arm allows a start up to the length plus 1 | Golden capture tools/golden/native7.txt n7_subst, case SUBST END ZERO (PUB400, IBM i 7.5, 2026-11-12); the interpreter by reading its code |
 | %SUBST with constant arguments out of range (start 11 or 12 of a 10-character field, or a length past the end) | Does not compile: RNF0364 and RNF0365, severity 20 | No such check (no RNF0364 or RNF0365 in core/src); the statement compiles and is checked when it runs | Golden capture tools/golden/native7.txt n7_crt_const, source gn7const.rpgle (PUB400, IBM i 7.5, 2026-11-12) |
-| `%SCAN(pat : s : start)` with `start` outside 1 to the length of `s` (0, or 11 for a 10-character field, in a variable) | Status 00100 | 0, no error: `interp.rs`'s `"SCAN"` arm gives 0 for any start outside the string | Golden capture tools/golden/native9.txt n9_scan, cases SCAN PAST and SCAN ZERO (PUB400, IBM i 7.5, 2026-11-12); the interpreter by reading its code |
+| `%SCAN(pat : v : 0)` of an empty varying field | 0: an empty string gives 0 whatever the start (start 0, -5, 2 and 99) | Status 00100 for a start below 1 since upstream #9; the follow-up pull request is open | Golden capture tools/golden/native22.txt n22_scan (PUB400, IBM i 7.5, 2026-11-13) |
+
+## Interpreter defects fixed upstream
+
+The backend follows each fix since the rebase on upstream dd47e28 (2026-11-13). The native unit tests check the captured values again.
+
+- **Nested MONITOR** (upstream #3, fixed by #10): an error the inner group does not take goes to the enclosing group. `native_rt.rs` `settle` follows the new routing of `run_code_at`.
+- **%SUBST and %SCAN starts outside the string** (upstream #6, fixed by #9): status 00100. `rpgrt::native::subst_start` and `scan` follow the interpreter. `NSUB.rpgle` and `NSCAN.rpgle` have their cases again.
+- **MOVE with a float field** (upstream #8, fixed by #13): the compiler now rejects it (RNF7547). Generated code is not involved.
 
 ## Settled by capture
 
