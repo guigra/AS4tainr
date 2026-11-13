@@ -7,6 +7,7 @@
 # round trips are not measured yet (NOT_DEMONSTRATED).
 #
 # Env: AS4TAINR_DATABASE_URL (required), RUNS (default 20),
+#      NATIVE_BENCH_PGM (a program of samples/native, default NBENCH1),
 #      NATIVE_BENCH_OUT (default target/evidence/<date>-native-bench-<arch>).
 set -uo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"; cd "$here"
@@ -16,7 +17,7 @@ out="${NATIVE_BENCH_OUT:-target/evidence/$(date -u +%F)-native-bench-$arch}"
 emit="$here/target/rpg-native/bench-$arch"
 mkdir -p "$out"; rm -rf "$emit"
 export AS4TAINR_PGM_PATH="$here/samples/native"
-pgm=NBENCH1
+pgm="${NATIVE_BENCH_PGM:-NBENCH1}"
 # Generate the program's code with the interpreter, then build release with it.
 cargo build --locked --release > "$out/build-interp.log" 2>&1 || { echo "build failed"; exit 1; }
 target/release/as4tainr --database-url "$db" init > "$out/init.log" 2>&1 || { echo "init failed"; exit 1; }
