@@ -1,0 +1,3 @@
+# Captures for the review of upstream PR #12: more constant %SUBST arguments.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native25.txt -f tools/golden/native25
+n25_crt_subk|!system "CRTBNDRPG PGM(@LIB@/GN25SUBK) SRCSTMF('@HOME@/gld/gn25subk.rpgle')"

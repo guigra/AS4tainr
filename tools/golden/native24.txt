@@ -1,0 +1,3 @@
+# Captures for the review of upstream PR #11: CONST parameters changed by CLEAR, %SUBST, a LIKEDS subfield, an array element.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native24.txt -f tools/golden/native24
+n24_crt_cst|!system "CRTBNDRPG PGM(@LIB@/GN24CST) SRCSTMF('@HOME@/gld/gn24cst.rpgle')"
