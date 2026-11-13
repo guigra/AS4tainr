@@ -481,14 +481,39 @@ fn num_variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Ope
 /// or exported. File fields are eligible since program.rs gives them
 /// buffer numbers in name order (S2.6).
 fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
-    let Expr::Name { parts, args: None } = e else {
+    let Expr::Name { parts, args } = e else {
         return None;
     };
-    let [name] = parts.as_slice() else {
+    // A qualified subfield (`ds.field`, S2.16) is found under its parts
+    // joined with periods, as the interpreter's `sym(&joined(parts))`.
+    let joined = parts.join(".");
+    let name = &joined;
+    if parts.is_empty() {
         return None;
-    };
+    }
     let Some(Sym::Var(v)) = cx.syms.get(name) else {
         return None;
+    };
+    // An element of a global array with a literal index in range
+    // (S2.15): a field at a fixed place, as the interpreter's `elem_off`
+    // finds it (off + (index - 1) * stride). Not a table (TAB...), whose
+    // name without an index is its current element.
+    let elem = match args.as_deref() {
+        None if v.dim == 0 => None,
+        Some([Expr::Num(k)]) if v.dim > 0 && !v.local && !name.starts_with("TAB") => {
+            let k = k.to_i128().ok()?;
+            if k < 1 || k > i128::from(v.dim) {
+                return None;
+            }
+            Some(usize::try_from(k).ok()?)
+        }
+        _ => return None,
+    };
+    let off = match elem {
+        Some(k) => v
+            .off
+            .checked_add(k.checked_sub(1)?.checked_mul(v.stride)?)?,
+        None => v.off,
     };
     let prog = cx.prog;
     let ty = match v.dtype {
@@ -504,7 +529,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         // A procedure local (S2.8): not based, and only in a procedure.
         v.dim != 0 || cx.based.is_none_or(|b| b.contains_key(&v.buf))
     } else {
-        v.dim != 0
+        (v.dim != 0) != elem.is_some()
             || prog.based.contains_key(&v.buf)
             || prog.occurs.iter().any(|o| o.buf == v.buf)
             || prog.varying.contains_key(name)
@@ -514,17 +539,20 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
     if excluded {
         return None;
     }
+    let shown = match elem {
+        Some(k) => format!("{name}({k})"),
+        None => name.clone(),
+    };
     used.push(format!(
-        "layout {name} {} {} {:?} {}",
+        "layout {shown} {} {off} {:?} {}",
         v.buf,
-        v.off,
         v.dtype,
         if v.local { "local" } else { "global" }
     ));
     Some(ir::Operand::Var {
-        name: name.clone(),
+        name: shown,
         buf: v.buf,
-        off: v.off,
+        off,
         ty,
         local: v.local,
     })

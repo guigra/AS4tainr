@@ -529,3 +529,45 @@ async fn native_unit_lowered_char_decedit() {
     )
     .await;
 }
+
+// Stage 2, S2.15: array elements with literal indexes lowered to Rust, in
+// EVAL, expressions, conditions, %TRIM, and an array subfield of a data
+// structure (the FOR loop with a variable index stays with the
+// interpreter).
+// Source: golden capture tools/golden/native16.txt n16_arr (PUB400, IBM i 7.5, 2026-11-13)
+#[tokio::test]
+async fn native_unit_lowered_array_elements() {
+    let _ = require_db!();
+    expect(
+        "NARR",
+        include_str!("native/NARR.rpgle"),
+        &[
+            "ARR FIRST LAST 1.25 2.50",
+            "ARR CHAR [    |AB  |ABC ]",
+            "ARR COND GT",
+            "ARR SUM 5.00",
+            "ARR DS [XYXY  ]",
+        ],
+    )
+    .await;
+}
+
+// Stage 2, S2.16: qualified subfields (QUALIFIED, and LIKEDS of a
+// template) lowered to Rust, in EVAL, arithmetic, %TRIM, %SUBST and
+// conditions.
+// Source: golden capture tools/golden/native17.txt n17_dsq (PUB400, IBM i 7.5, 2026-11-13)
+#[tokio::test]
+async fn native_unit_lowered_qualified_subfields() {
+    let _ = require_db!();
+    expect(
+        "NDSQ",
+        include_str!("native/NDSQ.rpgle"),
+        &[
+            "DSQ CUST 43 [ACME      ]",
+            "DSQ LIKEDS 86 [ACM]",
+            "DSQ COND YES",
+            "DSQ BYTES [ACM]",
+        ],
+    )
+    .await;
+}
