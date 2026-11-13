@@ -81,12 +81,41 @@ fn native_runtime_matches_the_interpreter_it_copies() {
         // S2.8: where a procedure local is (Runtime::local copies sym's
         // place rule).
         function(INTERP, "    fn sym(&self, name: &str) -> Option<Sym> {", "    "),
+        // S2.10-S2.20: what rpgrt/src/native.rs writes again (%CHAR's
+        // DECEDIT, array elements, division, MOVE and MOVEL).
+        function(
+            INTERP,
+            "pub fn char_of_num_edit(d: &Dec, point: char, zero: bool) -> String {",
+            "",
+        ),
+        function(
+            INTERP,
+            "    fn table_index(&self, name: &str, v: &VarInfo, i: Option<i128>) -> Option<i128> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn elem_off(&self, v: &VarInfo, index: Option<i128>) -> Result<usize> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn divide(&self, l: &Expr, r: &Expr, a: &Dec, b: &Dec) -> Result<Dec> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn move_image(&mut self, ex: &Expr) -> Result<Vec<u8>> {",
+            "    ",
+        ),
+        function(INTERP, "    fn do_move(\n", "    "),
     ];
     let hash = sha256(&watched.concat());
-    // Reviewed on 2026-11-12 against native_rt.rs and the stage 2
-    // helpers of rpgrt/src/native.rs (upstream 29f23f6 plus the native
-    // hook at the start of run_code_at).
-    let reviewed = "0447377ed9cbc97e6020efe45fe5162b0a38a1d8580162d6392139ecd48f2960";
+    // Reviewed on 2026-11-13 against native_rt.rs and the stage 2
+    // helpers of rpgrt/src/native.rs (upstream dd47e28, with #9's %SUBST
+    // and %SCAN starts and #10's MONITOR routing, plus the native hook at
+    // the start of run_code_at).
+    let reviewed = "7a0d8613d09c9b8fe6c616751c265c5c8a9f591b96c85a980933f444e6cc4262";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

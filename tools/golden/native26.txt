@@ -1,0 +1,4 @@
+# Captures for an upstream fix: %CHECK, %CHECKR and %SCANR with a start.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native26.txt -f tools/golden/native26
+n26_crt_chk|!system "CRTSQLRPGI OBJ(@LIB@/GN26CHK) SRCSTMF('@HOME@/gld/gn26chk.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n26_chk|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN26CHK)"; cat gn1.out; rm -f gn1.out

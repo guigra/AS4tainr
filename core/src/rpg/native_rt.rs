@@ -485,7 +485,12 @@ impl Runtime for Rt<'_, '_> {
                         .map(|h| h.1),
                     _ => None,
                 };
-                break;
+                // A group none of whose handlers takes the error is left,
+                // and the enclosing group gets it (run_code_at, upstream
+                // #10).
+                if handled.is_some() {
+                    break;
+                }
             }
             monitors.pop();
         }

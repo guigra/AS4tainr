@@ -282,13 +282,13 @@ pub fn trim(v: &Value, left: bool, right: bool) -> NResult<Value> {
 }
 
 /// %SUBST's start (S2.10): the index of its first character, or the
-/// interpreter's error when it is outside the string (start 1 to length
-/// plus 1).
+/// interpreter's error when it is outside the string (start 1 to its
+/// length; upstream #9).
 pub fn subst_start(s: &[u8], start: &Value) -> NResult<usize> {
     let start = start.num()?.to_i128()?;
     let from = usize::try_from(start)
         .ok()
-        .filter(|&n| n >= 1 && n <= s.len().saturating_add(1))
+        .filter(|&n| n >= 1 && n <= s.len())
         .and_then(|n| n.checked_sub(1));
     from.ok_or_else(|| {
         anyhow::anyhow!(
@@ -393,14 +393,24 @@ pub fn move_into(left: bool, pad: bool, src: &[u8], mut dst: Vec<u8>, tt: DType)
 /// (1 when not given) on, or 0, as the interpreter computes it.
 pub fn scan(pat: &[u8], s: &[u8], start: Option<&Value>) -> NResult<Dec> {
     let start = match start {
-        Some(x) => usize::try_from(x.num()?.to_i128()?).unwrap_or(0),
+        Some(x) => x.num()?.to_i128()?,
         None => 1,
     };
-    let found = match (start.checked_sub(1), pat.is_empty()) {
-        (Some(from), false) if start <= s.len() => s
-            .get(from..)
+    // The interpreter's check (upstream #9): a start from 1 to the
+    // string's length; an empty string allows any start of 1 or more.
+    let len = i128::try_from(s.len())?;
+    if start < 1 || !s.is_empty() && start > len {
+        anyhow::bail!(
+            "RNQ0100: %SCAN start {start} is outside the string (length {}).",
+            s.len()
+        );
+    }
+    let found = match usize::try_from(start) {
+        Ok(st) if !pat.is_empty() && st <= s.len() => st
+            .checked_sub(1)
+            .and_then(|from| s.get(from..))
             .and_then(|rest| rest.windows(pat.len()).position(|w| w == pat))
-            .and_then(|p| p.checked_add(start))
+            .and_then(|p| p.checked_add(st))
             .unwrap_or(0),
         _ => 0,
     };
