@@ -1,0 +1,4 @@
+# Captures for the review of upstream PR #14: OVERLAY(field : *NEXT) after a group subfield.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native23.txt -f tools/golden/native23
+n23_crt_grp|!system "CRTSQLRPGI OBJ(@LIB@/GN23GRP) SRCSTMF('@HOME@/gld/gn23grp.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n23_grp|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN23GRP)"; cat gn1.out; rm -f gn1.out
