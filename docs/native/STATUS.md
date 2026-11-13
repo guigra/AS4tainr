@@ -115,6 +115,13 @@ Notes:
   | aarch64 | 2.08 s | 1.66 s | -19.8% | S2.12, development run |
   | aarch64 | 2.07 s | 1.64 s | -20.8% | S2.13, development run |
   | aarch64 | 1.99 s | 1.63 s | -18.3% | S2.14, development run |
+  | aarch64 | 2.00 s | 1.63 s | -18.2% | S2.15, development run |
+
+  NBENCH2 (`samples/native/NBENCH2.rpgle`) is written with what stage 2 lowers: packed arithmetic, array elements, qualified subfields, %SUBST, %SCAN, %TRIM, %CHAR and conditions. Release build, p50 over 20 calls, same output on both engines:
+
+  | Platform | Interpreter | Native | Change | Commit |
+  | --- | --- | --- | --- | --- |
+  | x86_64 | 4.97 s | 2.67 s | -46.3% | fac4084 + NBENCH2, development run |
 
   Allocations and database round trips are not measured yet.
 - **IBM i contrast.** Expected values of the native unit programs come from IBM Docs and from PUB400 captures (`tools/golden/native1-5.txt`, IBM i 7.5, 2026-11-12). Those captures confirmed four interpreter defects (fidelity.md), to be reported upstream when this work is finished.
