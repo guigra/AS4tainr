@@ -257,3 +257,14 @@ Each operand's precision is that of its own node, `Runtime::precision(pc, path +
 **Not lowered.** Computed indexes (`arr(i - 1)`), local arrays, tables, varying-dimension arrays.
 
 **Expected values.** `core/tests/native/NARRV.rpgle`, captured on PUB400: tools/golden/native27.txt n27_arrv (IBM i 7.5, 2026-11-14).
+
+## S2.22: figurative constants (rpgcg 0.1.0+stage2.22)
+
+**What changes.**
+
+- `*BLANKS`, `*ZEROS`, `*HIVAL`, `*LOVAL` and `*ALL'x'` are operands of comparisons (`Operand::Fig`). They compare with an operand of either class, through `data::compare`, as in the interpreter.
+- EVAL of one into an eligible field is `Lowered::EvalFig`. It stores `Value::Fig` with `data::store`, which fills the field by its type, as the interpreter's `assign` does.
+
+A figurative constant is never a numeric operand of lowered arithmetic, nor factor 2 of a lowered MOVE: there the interpreter fills it to the result's length.
+
+**Expected values.** `core/tests/native/NFIG.rpgle`, captured on PUB400: tools/golden/native28.txt n28_fig (IBM i 7.5, 2026-11-14). The capture found two interpreter defects (fidelity.md): a numeric field compared with *HIVAL, and *BLANKS into a varying field. Both are left out of the test.

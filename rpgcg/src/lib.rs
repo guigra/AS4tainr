@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.21");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.22");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -96,6 +96,19 @@ pub mod ir {
         Num { m: i128, s: u8 },
         /// A character literal, its EBCDIC bytes (S2.4).
         Str(Vec<u8>),
+        /// A figurative constant (S2.22), in comparisons only.
+        Fig(FigOp),
+    }
+
+    /// The figurative constants lowered code takes (S2.22).
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum FigOp {
+        Blanks,
+        Zeros,
+        HiVal,
+        LoVal,
+        /// *ALL'x...': the pattern's EBCDIC bytes.
+        All(Vec<u8>),
     }
 
     /// The index of an array element (S2.21): the operand it is, and the
@@ -176,6 +189,14 @@ pub mod ir {
         Eval {
             target: Operand,
             value: NumExpr,
+            half_adjust: bool,
+            right: bool,
+        },
+        /// EVAL of a figurative constant into a field (S2.22): stored as
+        /// the interpreter stores `Value::Fig`.
+        EvalFig {
+            target: Operand,
+            fig: FigOp,
             half_adjust: bool,
             right: bool,
         },
@@ -604,6 +625,19 @@ fn value(o: &ir::Operand) -> String {
             format!("rpgrt::rpg::data::Value::Num(rpgrt::rpg::dec::Dec::new({m}, {s}))")
         }
         ir::Operand::Str(b) => format!("rpgrt::rpg::data::Value::Char(vec!{b:?})"),
+        ir::Operand::Fig(f) => fig(f),
+    }
+}
+
+/// A figurative constant as a `Value` expression.
+fn fig(f: &ir::FigOp) -> String {
+    let p = "rpgrt::rpg::data";
+    match f {
+        ir::FigOp::Blanks => format!("{p}::Value::Fig({p}::Fig::Blanks)"),
+        ir::FigOp::Zeros => format!("{p}::Value::Fig({p}::Fig::Zeros)"),
+        ir::FigOp::HiVal => format!("{p}::Value::Fig({p}::Fig::HiVal)"),
+        ir::FigOp::LoVal => format!("{p}::Value::Fig({p}::Fig::LoVal)"),
+        ir::FigOp::All(b) => format!("{p}::Value::Fig({p}::Fig::All(vec!{b:?}))"),
     }
 }
 
@@ -644,6 +678,9 @@ fn number(o: &ir::Operand) -> String {
         // Never in a numeric place (the lowering checks); as in the
         // interpreter, a character value's number is an error.
         ir::Operand::Str(b) => format!("rpgrt::rpg::data::Value::Char(vec!{b:?}).num()?"),
+        // Never in a numeric place either (the lowering checks); as in the
+        // interpreter, its number is `Value::num`'s.
+        ir::Operand::Fig(f) => format!("{}.num()?", fig(f)),
     }
 }
 
@@ -652,6 +689,7 @@ fn name_of(o: &ir::Operand) -> String {
         ir::Operand::Var { name, .. } => comment(name),
         ir::Operand::Num { m, s } => format!("{m}e-{s}"),
         ir::Operand::Str(b) => format!("a character literal of {} bytes", b.len()),
+        ir::Operand::Fig(f) => format!("{f:?}"),
     }
 }
 
@@ -860,6 +898,34 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("ec{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::EvalFig {
+                target,
+                fig: f,
+                half_adjust,
+                right,
+            },
+        ) => {
+            let ir::Operand::Var { ty: t, .. } = target else {
+                return Err(bad());
+            };
+            let (prelude, sb, so) = place_of(target).ok_or_else(bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn ef{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let v = {};",
+                fig(f)
+            );
+            let _ = writeln!(
+                helpers,
+                "{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        {},\n        &v,\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: {half_adjust} }},\n        {right},\n    )\n}}",
+                ty(t)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("ef{pc}(rt).map(|()| {next})"),
             )
         }
         (
