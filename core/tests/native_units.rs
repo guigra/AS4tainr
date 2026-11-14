@@ -783,3 +783,52 @@ async fn native_unit_lowered_size_elem() {
     )
     .await;
 }
+
+// Stage 2, S2.26: %EDITC lowered to Rust: every edit code of a negative
+// value and of zero, Y of a date, a literal (its own digits), an
+// expression (its precision) and an integer.
+// Source: golden capture tools/golden/native34.txt n34_editc (PUB400, IBM i 7.5, 2026-11-14)
+#[tokio::test]
+async fn native_unit_lowered_editc() {
+    let _ = require_db!();
+    expect(
+        "NEDITC",
+        include_str!("native/NEDITC.rpgle"),
+        &[
+            "EDITC 1 NEG [    1,234.56]",
+            "EDITC 2 NEG [    1,234.56]",
+            "EDITC 3 NEG [   1234.56]",
+            "EDITC 4 NEG [   1234.56]",
+            "EDITC A NEG [    1,234.56CR]",
+            "EDITC B NEG [    1,234.56CR]",
+            "EDITC C NEG [   1234.56CR]",
+            "EDITC D NEG [   1234.56CR]",
+            "EDITC J NEG [    1,234.56-]",
+            "EDITC K NEG [    1,234.56-]",
+            "EDITC L NEG [   1234.56-]",
+            "EDITC M NEG [   1234.56-]",
+            "EDITC N NEG [    -1,234.56]",
+            "EDITC O NEG [    -1,234.56]",
+            "EDITC P NEG [   -1234.56]",
+            "EDITC Q NEG [   -1234.56]",
+            "EDITC X NEG [00012345O]",
+            "EDITC Z NEG [   123456]",
+            "EDITC 1 ZERO [         .00]",
+            "EDITC 2 ZERO [            ]",
+            "EDITC 3 ZERO [       .00]",
+            "EDITC 4 ZERO [          ]",
+            "EDITC A ZERO [         .00  ]",
+            "EDITC B ZERO [              ]",
+            "EDITC J ZERO [         .00 ]",
+            "EDITC K ZERO [             ]",
+            "EDITC N ZERO [          .00]",
+            "EDITC O ZERO [             ]",
+            "EDITC Z ZERO [         ]",
+            "EDITC Y DATE [ 3/12/26]",
+            "EDITC LIT [12345]",
+            "EDITC EXPR [     2,469.12-]",
+            "EDITC INT [    1,234,567]",
+        ],
+    )
+    .await;
+}

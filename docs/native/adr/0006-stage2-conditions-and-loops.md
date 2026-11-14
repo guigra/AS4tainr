@@ -286,3 +286,15 @@ A figurative constant is never a numeric operand of lowered arithmetic, nor fact
 **What changes.** %SIZE of a field, an array element (and of the whole array with a second argument), a data structure or a named constant, and %ELEM of an array that is not of varying dimension or of a data structure array, are numeric literals of lowered code. Their values are the interpreter's `"SIZE"` and `"ELEM"` arms, worked out from the same definitions. The value goes into the fingerprint's layout lines.
 
 **Expected values.** `core/tests/native/NSIZE.rpgle`, captured on PUB400: tools/golden/native32.txt n32_size (IBM i 7.5, 2026-11-14). The capture found an interpreter defect (fidelity.md): %SIZE of a numeric named constant is its digits as written, not its size as packed decimal. It is left out of the test.
+
+## S2.26: %EDITC (rpgcg 0.1.0+stage2.26)
+
+**What changes.** %EDITC of a numeric expression with a literal edit code is a character expression of lowered code. Its helper is `k<pc>_<path>`. `rpgrt::native::edit_code_with` is the interpreter's `edit_code_with`, written again under section 5's lints. `editc` chooses the digits and decimal places as the interpreter's `"EDITC"` arm does:
+- for a field or an expression, its node's precision (`Runtime::precision`);
+- for a literal, its own digits.
+
+The program's DECEDIT is resolved when the code is generated, and is in the fingerprint's layout. The tripwire watches `edit_code_with`.
+
+**Not lowered.** The third argument (*ASTFILL, *CURSYM, a currency symbol), an edit code that is not a literal, and %EDITW.
+
+**Expected values.** `core/tests/native/NEDITC.rpgle`, captured on PUB400: tools/golden/native34.txt n34_editc (IBM i 7.5, 2026-11-14), 33 cases. The interpreter gives the same 33 values.
