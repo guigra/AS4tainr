@@ -120,3 +120,7 @@ Tasks from jsr-test's mac-tareas-2026-11-14.md, run at 8e212bd (S2.29 %EDITW, S2
 save_changed_objects failed under interp and auto in native-diff (the known intermittent upstream failure) and passed in the release run. Evidence: docs/native/evidence/2026-11-14-s230-aarch64-mac.json; logs in the podman volume as4tainr-target, target/evidence/2026-11-14-s230-aarch64-mac.
 
 Item 6 of the task file (an upstream PR for #18 from the x86 machine, then closing this fork's PR #1) was not done here: this session works only against guigra/AS4tainr (the user's decision), and PR #1 stays open until the user says otherwise.
+
+## To look at (2026-11-14, x86_64)
+
+- %STATUS after a call: on PUB400, %STATUS was 0 again after a call to a procedure that runs EXEC SQL (the first version of tools/golden/native40, saved in target/ibmi/golden as n40_stat before it was captured again). It is not known yet what sets it to 0 (the call, or the SQL statement) or whether the interpreter does the same. Capture both cases before changing anything.

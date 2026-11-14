@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.30");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.31");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -350,6 +350,8 @@ pub mod ir {
         VarLen {
             var: Operand,
         },
+        /// %STATUS with no file (S2.31): the most recent status code.
+        Status,
         /// %LOOKUP and %LOOKUPxx (S2.27): `x` searched in a global
         /// array (`buf`, `off`, `stride`, `dim`, element type), from
         /// `start` for `n` elements; `how` is "", LT, LE, GE or GT.
@@ -1379,6 +1381,7 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             );
             format!("{name}(rt)?")
         }
+        ir::NumExpr::Status => "rpgrt::rpg::dec::Dec::from_i64(i64::from(rt.status()))".to_string(),
         ir::NumExpr::VarLen { var } => format!(
             "rpgrt::rpg::dec::Dec::from_i64(i64::try_from({}.chars()?.len())?)",
             value(var)

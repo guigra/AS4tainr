@@ -887,6 +887,30 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.31: %STATUS with no file lowered to Rust: it keeps the last
+// program error's code through statements that end normally.
+// Source: golden capture tools/golden/native40.txt n40_stat (PUB400, IBM i 7.5, 2026-11-14)
+#[tokio::test]
+async fn native_unit_lowered_status() {
+    let _ = require_db!();
+    expect(
+        "NSTAT",
+        include_str!("native/NSTAT.rpgle"),
+        &[
+            "ST START 0",
+            "ST DIV 102",
+            "ST AFTER DIV 102",
+            "ST AFTER EVAL 102",
+            "ST INDEX PLUS 1 122",
+            "ST SUBST IS 100",
+            "ST SUBST TIMES 2 200",
+            "ST AFTER MONITOR 100",
+            "ST AFTER TWO EVALS 102",
+        ],
+    )
+    .await;
+}
+
 // Stage 2, S2.29: %EDITW lowered to Rust: thousands separators, CR, minus,
 // asterisk fill, ampersands, zero, a positive value with CR, an integer
 // and an expression (its own digits).
