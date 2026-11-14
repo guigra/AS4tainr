@@ -832,3 +832,32 @@ async fn native_unit_lowered_editc() {
     )
     .await;
 }
+
+// Stage 2, S2.27: %LOOKUP and %LOOKUPLT/LE/GE/GT lowered to Rust: character
+// and ascending numeric arrays, with a start and a number of elements, a
+// field as the argument, and in a condition.
+// Source: golden capture tools/golden/native35.txt n35_look (PUB400, IBM i 7.5, 2026-11-14)
+#[tokio::test]
+async fn native_unit_lowered_lookup() {
+    let _ = require_db!();
+    expect(
+        "NLOOK",
+        include_str!("native/NLOOK.rpgle"),
+        &[
+            "LOOK EQ 2",
+            "LOOK START 4",
+            "LOOK NONE 0",
+            "LOOK RANGE 0",
+            "LOOK VAR 5",
+            "LOOK LT 2",
+            "LOOK LE 3",
+            "LOOK GE 4",
+            "LOOK GT NONE 0",
+            "LOOK GT FIRST 1",
+            "LOOK NUM EQ 4",
+            "LOOK START VAR 4",
+            "LOOK COND YES",
+        ],
+    )
+    .await;
+}

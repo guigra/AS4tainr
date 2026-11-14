@@ -689,6 +689,89 @@ pub fn editc(
     )?))
 }
 
+/// %LOOKUP's array (S2.27): the DIM elements of a global array, loaded as
+/// the interpreter's `list_of` loads them.
+pub fn lookup_list(
+    mem: &Mem,
+    (buf, off, stride, dim): (usize, usize, usize, u32),
+    t: DType,
+) -> NResult<Vec<Value>> {
+    let mut all = Vec::new();
+    for k in 0..usize::try_from(dim)? {
+        let at = k
+            .checked_mul(stride)
+            .and_then(|d| off.checked_add(d))
+            .ok_or_else(|| anyhow::anyhow!("%LOOKUP: element {k} is outside storage"))?;
+        all.push(load(mem, buf, at, t)?);
+    }
+    Ok(all)
+}
+
+/// %LOOKUP, %LOOKUPLT, LE, GE and GT (S2.27): the index of the element of
+/// `all` found for `x`, 0 when none, as the interpreter's `search`, from
+/// `start` (1) for `n` elements (to the end). `how` is "", LT, LE, GE or
+/// GT.
+pub fn search(
+    x: &Value,
+    all: &[Value],
+    start: Option<&Value>,
+    n: Option<&Value>,
+    how: &str,
+) -> NResult<Dec> {
+    use std::cmp::Ordering;
+    // The interpreter converts with `as usize`: a negative value becomes a
+    // very large one.
+    let size = |v: &Value| -> NResult<usize> {
+        Ok(usize::try_from(v.num()?.to_i128()?).unwrap_or(usize::MAX))
+    };
+    let start = match start {
+        Some(v) => size(v)?,
+        None => 1,
+    };
+    let n = match n {
+        Some(v) => size(v)?,
+        None => all.len().saturating_add(1).saturating_sub(start.max(1)),
+    };
+    if start < 1 {
+        anyhow::bail!("RNQ0121: the start index {start} is not valid");
+    }
+    let mut best: Option<(usize, &Value)> = None;
+    for (k, v) in all.iter().enumerate().skip(start.saturating_sub(1)).take(n) {
+        let o = data::compare(v, x)?;
+        let ok = match how {
+            "" => o == Ordering::Equal,
+            "LT" => o == Ordering::Less,
+            "LE" => o != Ordering::Greater,
+            "GE" => o != Ordering::Less,
+            _ => o == Ordering::Greater,
+        };
+        if !ok {
+            continue;
+        }
+        let pos = k.saturating_add(1);
+        if how.is_empty() || o == Ordering::Equal && (how == "LE" || how == "GE") {
+            return Ok(Dec::from_i64(i64::try_from(pos)?));
+        }
+        let closer = match best {
+            None => true,
+            Some((_, bv)) => {
+                let c = data::compare(v, bv)?;
+                if matches!(how, "LT" | "LE") {
+                    c == Ordering::Greater
+                } else {
+                    c == Ordering::Less
+                }
+            }
+        };
+        if closer {
+            best = Some((pos, v));
+        }
+    }
+    Ok(Dec::from_i64(i64::try_from(
+        best.map(|b| b.0).unwrap_or(0),
+    )?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -10,6 +10,7 @@
 
 const INTERP: &str = include_str!("../src/rpg/interp.rs");
 const ERRORS: &str = include_str!("../src/rpg/errors.rs");
+const BIFS: &str = include_str!("../src/rpg/bifs.rs");
 
 /// The text of a function, from its signature to its closing brace at
 /// the same indentation.
@@ -111,13 +112,19 @@ fn native_runtime_matches_the_interpreter_it_copies() {
         function(INTERP, "    fn do_move(\n", "    "),
         // S2.26: %EDITC.
         function(INTERP, "pub fn edit_code_with(\n", ""),
+        // S2.27: %LOOKUP's search.
+        function(
+            BIFS,
+            "    fn search(&self, x: &Value, all: &[Value], start: usize, n: usize, how: &str) -> Result<usize> {",
+            "    ",
+        ),
     ];
     let hash = sha256(&watched.concat());
     // Reviewed on 2026-11-13 against native_rt.rs and the stage 2
     // helpers of rpgrt/src/native.rs (upstream dd47e28, with #9's %SUBST
     // and %SCAN starts and #10's MONITOR routing, plus the native hook at
     // the start of run_code_at).
-    let reviewed = "9ea77c1db6dad8f45a59301aacad17a5c7366aec7eaaa0aa6c76ffd403ae4160";
+    let reviewed = "f3f502d0f4883b9fec22daadc3e44b66c3a681be9479e0dfb11db349dc164560";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"
