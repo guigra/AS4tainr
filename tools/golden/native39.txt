@@ -1,0 +1,8 @@
+# %EDITW with a floating currency symbol (interpreter fix, edit_word).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native39.txt -f tools/golden/native39
+n39_crt_a|!system "CRTSQLRPGI OBJ(@LIB@/GN39A) SRCSTMF('@HOME@/gld/gn39a.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n39_a|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN39A)"; cat gn1.out; rm -f gn1.out
+n39_crt_b|!system "CRTSQLRPGI OBJ(@LIB@/GN39B) SRCSTMF('@HOME@/gld/gn39b.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n39_b|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN39B)"; cat gn1.out; rm -f gn1.out
+n39_crt_c|!system "CRTSQLRPGI OBJ(@LIB@/GN39C) SRCSTMF('@HOME@/gld/gn39c.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n39_c|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN39C)"; cat gn1.out; rm -f gn1.out
