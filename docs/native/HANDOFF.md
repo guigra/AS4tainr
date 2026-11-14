@@ -103,3 +103,20 @@ The user can go on with the most blocking parts on a Mac M1, which has more memo
 - **Issue #18 reproduced here** on the first native-diff that ran tests (53 min hung). native-diff was run with `fix/init-lock-timeout` (79d5c03) applied without a commit, the user's decision; `native/engine` does not carry it. The fix was checked here: its test passes with it (3.2 s) and fails without it on main (34.6 s, the test's 30 s limit). It is proposed to this fork's main as https://github.com/guigra/AS4tainr/pull/1.
 - **Not run here:** the full suite and release outside native-diff, the release build, native-e2e (no Playwright yet), golden (PUB400 not set up yet), anything on x86_64.
 - **Next:** once PR #1 is merged, decide how `native/engine` picks it up (it touches core/src/catalog.rs, outside section 3's touch points). Then stage 2 block A, as listed above.
+
+## Mac M1, S2.30 validation (2026-11-14)
+
+Tasks from jsr-test's mac-tareas-2026-11-14.md, run at 8e212bd (S2.29 %EDITW, S2.30 subfields of data structure arrays) with the catalog::init lock fix (`git diff origin/main origin/fix/init-lock-timeout -- core/src/catalog.rs`) applied without a commit and removed before committing. There is no `upstream` remote here: origin/main is the same base (dd47e28).
+
+| Step | Status |
+| --- | --- |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --locked --all-targets -- -D warnings` | FAIL: upstream `chunks_exact_to_as_chunks` only (hostcmd.rs, hostdb.rs, hostifs.rs); PASS with that lint allowed |
+| native_tripwire, native_units, native_engine | PASS: 1, 39, 2 |
+| `AS4TAINR_RPG_ENGINE=rust scripts/native-diff.sh` | PASS: reference 658 results, 390 routines, level 1 identical, 658 the same under auto, 636 of 658 under rust (23 programs refused, none generated), demo the same; golden NOT_RUN (no PUB400 here) |
+| `cargo test --locked --release` | PASS: 657 passed, 0 failed, 1 ignored (CARGO_BUILD_JOBS=2) |
+| `cargo build --locked --release` | PASS: target/release/as4tainr SHA-256 83e217bb…694e |
+
+save_changed_objects failed under interp and auto in native-diff (the known intermittent upstream failure) and passed in the release run. Evidence: docs/native/evidence/2026-11-14-s230-aarch64-mac.json; logs in the podman volume as4tainr-target, target/evidence/2026-11-14-s230-aarch64-mac.
+
+Item 6 of the task file (an upstream PR for #18 from the x86 machine, then closing this fork's PR #1) was not done here: this session works only against guigra/AS4tainr (the user's decision), and PR #1 stays open until the user says otherwise.
