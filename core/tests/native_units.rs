@@ -689,3 +689,25 @@ async fn native_unit_lowered_array_elements_with_field_indexes() {
     )
     .await;
 }
+
+// Stage 2, S2.22: figurative constants in EVAL (*BLANKS, *ZEROS, *HIVAL,
+// *LOVAL, *ALL'x') and in comparisons, lowered to Rust.
+// Source: golden capture tools/golden/native28.txt n28_fig (PUB400, IBM i 7.5, 2026-11-14)
+#[tokio::test]
+async fn native_unit_lowered_figurative_constants() {
+    let _ = require_db!();
+    expect(
+        "NFIG",
+        include_str!("native/NFIG.rpgle"),
+        &[
+            "FIG BLANKS [     ]",
+            "FIG CMP BLANKS EQ",
+            "FIG ZEROS .00",
+            "FIG HIVAL 999",
+            "FIG LOVAL -999.99",
+            "FIG ALL [ABABA]",
+            "FIG CMP RANGE YES",
+        ],
+    )
+    .await;
+}

@@ -1,0 +1,4 @@
+# Captures for stage 2 of the native backend, S2.22: figurative constants in EVAL and comparisons.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native28.txt -f tools/golden/native28
+n28_crt_fig|!system "CRTSQLRPGI OBJ(@LIB@/GN28FIG) SRCSTMF('@HOME@/gld/gn28fig.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n28_fig|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN28FIG)"; cat gn1.out; rm -f gn1.out

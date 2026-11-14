@@ -5,7 +5,7 @@
 
 use super::super::ast::{Arith, BinOp, Expr, FileOp, Stmt};
 use super::super::code::{Code, Ins};
-use super::super::data::DType;
+use super::super::data::{DType, Fig};
 use super::super::program::{Program, Sym};
 use super::Place;
 use rpgcg::ir;
@@ -139,12 +139,27 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             from,
             to,
             ind,
-        }) if ind.is_empty() => ir::Lowered::Move {
+        }) if ind.is_empty() && !matches!(from, Expr::Fig(_)) => ir::Lowered::Move {
             left: *left,
             pad: *pad,
             from: any_operand(cx, from, &mut used)?,
             to: variable(cx, to, &mut used)?,
         },
+        // EVAL of a figurative constant (S2.22): stored as the interpreter
+        // stores Value::Fig (data::store fills the field by its type).
+        Ins::Stmt(Stmt::Eval {
+            target,
+            value: Expr::Fig(f),
+            ext,
+            right,
+        }) if !ext.error && !ext.no_lock && ext.other.chars().all(|c| c == 'H') => {
+            ir::Lowered::EvalFig {
+                target: variable(cx, target, &mut used)?,
+                fig: fig_op(f)?,
+                half_adjust: ext.half_adjust,
+                right: *right,
+            }
+        }
         // EVAL with no E extender (H is fine): stmt_e is then plain stmt.
         Ins::Stmt(Stmt::Eval {
             target,
@@ -421,7 +436,11 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
     };
     if operand_only(l) && operand_only(r) {
         let (a, b) = (any_operand(cx, l, used)?, any_operand(cx, r, used)?);
-        return (is_char(&a) == is_char(&b)).then_some(ir::Cond::Cmp(cmp, a, b));
+        // A figurative constant compares with either class (data::compare).
+        let fig = |o: &ir::Operand| matches!(o, ir::Operand::Fig(_));
+        let both_figs = fig(&a) && fig(&b);
+        let ok = !both_figs && (fig(&a) || fig(&b) || is_char(&a) == is_char(&b));
+        return ok.then_some(ir::Cond::Cmp(cmp, a, b));
     }
     // An expression on either side (S2.13).
     let (a, b) = (side(cx, l, used, child(0))?, side(cx, r, used, child(1))?);
@@ -435,7 +454,22 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
 /// Whether an expression is a literal or a name (an operand, as S2.1
 /// compares them), not a built-in function or an operation.
 fn operand_only(e: &Expr) -> bool {
-    matches!(e, Expr::Num(_) | Expr::Str(_) | Expr::Name { .. })
+    matches!(
+        e,
+        Expr::Num(_) | Expr::Str(_) | Expr::Name { .. } | Expr::Fig(_)
+    )
+}
+
+/// The figurative constants lowered code takes (S2.22).
+fn fig_op(f: &Fig) -> Option<ir::FigOp> {
+    Some(match f {
+        Fig::Blanks => ir::FigOp::Blanks,
+        Fig::Zeros => ir::FigOp::Zeros,
+        Fig::HiVal => ir::FigOp::HiVal,
+        Fig::LoVal => ir::FigOp::LoVal,
+        Fig::All(b) => ir::FigOp::All(b.clone()),
+        Fig::On | Fig::Off | Fig::Null => return None,
+    })
 }
 
 /// A side of a comparison: a character expression, or a numeric one with
@@ -459,6 +493,9 @@ fn any_operand(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Oper
             Some(ir::Operand::Num { m, s: d.scale() })
         }
         Expr::Str(b) => Some(ir::Operand::Str(b.clone())),
+        // A figurative constant (S2.22); `operand` keeps it out of
+        // numeric places, and only comparisons take it.
+        Expr::Fig(f) => fig_op(f).map(ir::Operand::Fig),
         // %LEN of a fixed-length character field (S2.9): its length, a
         // constant (the interpreter's `type_of(arg).len()`; varying
         // fields are not eligible).
@@ -496,7 +533,7 @@ fn is_char(o: &ir::Operand) -> bool {
 /// A numeric literal or an eligible numeric field.
 fn operand(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
     let o = any_operand(cx, e, used)?;
-    (!is_char(&o)).then_some(o)
+    (!is_char(&o) && !matches!(o, ir::Operand::Fig(_))).then_some(o)
 }
 
 /// An eligible numeric field.
