@@ -1,0 +1,276 @@
+{
+  "topic": "native engine S2.1-S2.20 rebased on upstream dd47e28, x86_64 and aarch64",
+  "date": "2026-11-12",
+  "branch": "native/engine",
+  "commit": "0b9d585",
+  "tree": "c863fe270a4fdad16f49b29b52f85c14281e1402",
+  "runs": [
+    {
+      "id": "aarch64",
+      "platform": "aarch64 (jsr-test-arm)",
+      "logs_dir": "target/evidence/2026-11-14-rebased2-aarch64",
+      "steps": {
+        "1-fmt": {
+          "exit": 0,
+          "start": "2026-11-14T00:28:17Z",
+          "end": "2026-11-14T00:28:20Z",
+          "command": "cargo fmt --all -- --check",
+          "status": "PASS"
+        },
+        "2-clippy": {
+          "exit": 101,
+          "start": "2026-11-14T00:28:20Z",
+          "end": "2026-11-14T00:29:51Z",
+          "command": "cargo clippy --locked --all-targets -- -D warnings",
+          "status": "FAIL",
+          "cause": "upstream code only: clippy::chunks_exact_to_as_chunks in the host servers (core/src/hostcmd.rs, hostdb.rs, hostifs.rs), with rustc 1.99.1; no other finding"
+        },
+        "3-test": {
+          "exit": 0,
+          "start": "2026-11-14T00:29:51Z",
+          "end": "2026-11-14T00:38:27Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_suite_20261114002816 cargo test --locked",
+          "status": "PASS"
+        },
+        "4-test-release": {
+          "exit": 101,
+          "start": "2026-11-14T00:38:27Z",
+          "end": "2026-11-14T01:01:34Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_suite_20261114002816 cargo test --locked --release",
+          "status": "FAIL",
+          "cause": "environment: rustc was killed (SIGKILL, out of memory) compiling as4tainr-core in release with CARGO_BUILD_JOBS=2; no test ran. Run again with CARGO_BUILD_JOBS=1: PASS, 647 passed, 0 failed (run aarch64-release-rerun)"
+        },
+        "5-build-release": {
+          "exit": 0,
+          "start": "2026-11-14T01:01:34Z",
+          "end": "2026-11-14T01:08:21Z",
+          "command": "cargo build --locked --release",
+          "status": "PASS"
+        },
+        "6-demo": {
+          "exit": 0,
+          "start": "2026-11-14T01:08:23Z",
+          "end": "2026-11-14T01:08:33Z",
+          "command": "env AS4TAINR_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_demo AS4TAINR_BIN=target/debug/as4tainr scripts/demo.sh",
+          "status": "PASS"
+        },
+        "7-native-diff": {
+          "exit": 0,
+          "start": "2026-11-14T01:08:33Z",
+          "end": "2026-11-14T01:27:49Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_suite_20261114002816 NATIVE_DIFF_OUT=/home/ctl/data/as4tainr-native/evidence/2026-11-14-rebased2-aarch64/native-diff scripts/native-diff.sh",
+          "status": "PASS"
+        },
+        "8-bench": {
+          "exit": 0,
+          "start": "2026-11-14T01:27:49Z",
+          "end": "2026-11-14T01:35:56Z",
+          "command": "env AS4TAINR_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_bench NATIVE_BENCH_OUT=/home/ctl/data/as4tainr-native/evidence/2026-11-14-rebased2-aarch64/bench scripts/native-bench.sh",
+          "status": "PASS"
+        }
+      },
+      "logs_sha256": {
+        "0-platform.log": "fd2b7cf8d5402579d5526261604ab902001f74668bc4684ae69bf6c04aa26f26",
+        "1-fmt.log": "e95ad7a0281da57156d74f9ca39da40fb76d96f2a945a8916259f217d768b0fc",
+        "2-clippy.log": "7e658e5693e50bfa5e458f01390698302b5850b672ed70e1aaff085867bcb7f0",
+        "3-test.log": "0dc757dc2b083e348c8beacfcf6ded0f33578a09e697a152a25fe3164eac8d2f",
+        "4-test-release.log": "5fbd52335d05e5994c10eb9b0f5c787525077e7c03c20efb5d961b68a3acfcc2",
+        "5-build-release.log": "be07f21c2b16c4bf3fcd9bfe149dd17314c24fb9932dcc7bbd640ff88c08cade",
+        "6-demo.log": "81998a31d41019228d5b7de0c81a8c90a76f6818941b72fccbd6c49e37e29ca4",
+        "7-native-diff.log": "27454feb5563eed57f1cf76909667e9ece7ff64149ef93bf6ca2ff717327a8c4",
+        "8-bench.log": "88698d081db5d97de8a144fb2a42cf6da701855bcd74dd9cb72b56daa60be297",
+        "artifacts.sha256": "bc63787e3daef892c1128176fd321ebf8a73a96feea60da4a46ef7dc0c5937a6",
+        "bench/binary.sha256": "9559162fd7d4d8e51c9d9be1d67d11fbe24bd4ba19374af96fe6de9c695f16ae",
+        "bench/build-interp.log": "7ad127ac731c4ba62cead7a8d4306abe207718ed5901bbca3e6535cffcfee8d9",
+        "bench/build-native.log": "5cf7c8061a0ac2482257e97d3212d0ef3200ced692a8ab37e86b7f0c60199ed8",
+        "bench/emit.log": "d452dbaba79354eb6884835b8d45ec249a91e84b2106840126e9b4a045a47d7d",
+        "bench/init.log": "ca275796f25742e5725d3456f490fe15c47eddceda010ad02116373bf31f522e",
+        "bench/interp.output": "d452dbaba79354eb6884835b8d45ec249a91e84b2106840126e9b4a045a47d7d",
+        "bench/rust.output": "d452dbaba79354eb6884835b8d45ec249a91e84b2106840126e9b4a045a47d7d",
+        "bench/summary.json": "acd4e1b12b2f9ae03cf1f21442172e47b5f7aac6721a58841a488951f53641df",
+        "native-diff/1-demo-interp.log": "685b14b074f66d75c65be3facd7b7a6d25a7d844e4f9f06f7f70c2c7c3794b45",
+        "native-diff/1-interp.log": "37dff9b5d28e75e43846f11b1a91e3b66ac6f2224417012bc55b9784b5726463",
+        "native-diff/1-interp.res": "04e220ffd7e135ddb24bd9426da8e5e06ce8399f112f9ac1020921c254c16f05",
+        "native-diff/2-build.log": "34832e2849374aa1e41d585a9b3ac57d00af8b214a14467ca18e8bf409310173",
+        "native-diff/3-level1.log": "2d46c211d03590b931c47ddb6e94b7282070921c86a11b43f90f082f69bbb70b",
+        "native-diff/4-auto.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-diff/4-auto.log": "5857f6ef17dde619d210e7ffcaa9fe45431b231a742be1c028918603ab96cb0c",
+        "native-diff/4-auto.refusals": "15d68cd9221e91f822273bd6ddf50bf2c5edca7c468823f8e492df76af0cadae",
+        "native-diff/4-auto.res": "04e220ffd7e135ddb24bd9426da8e5e06ce8399f112f9ac1020921c254c16f05",
+        "native-diff/4-rust.log": "c0c515714c7dbf8f13cb9311d0f1663703ba0365291ad78e5ddf2c4f30c6f2c8",
+        "native-diff/4-rust.refusals": "105e9bab9b1d9e6456503728475bf006211f37b11d938aa3daada236276f158f",
+        "native-diff/4-rust.res": "8f656c6c1ab33e79a90ed13bf1b9ddf36a75e4921c98fe3673437baa5c6771ce",
+        "native-diff/5-demo-rust.log": "685b14b074f66d75c65be3facd7b7a6d25a7d844e4f9f06f7f70c2c7c3794b45",
+        "native-diff/5-demo.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-diff/logs.sha256": "12583d37c9f1ef50e6f8f940b882526d83fc780f6b3f55be284496afa56e41b5",
+        "native-diff/status.tsv": "5642c783a4373ddd880a1ba66d5848f4181502db5271405c764ce15f5c711601",
+        "status.tsv": "a02d4a2b1043c0ecc9cf0c3b5efa463691ddba984030c120dfa11c5063426d84"
+      }
+    },
+    {
+      "id": "aarch64-release-rerun",
+      "platform": "aarch64 (jsr-test-arm), CARGO_BUILD_JOBS=1, new database",
+      "logs_dir": "target/evidence/2026-11-14-rebased2-aarch64-release-rerun",
+      "steps": {
+        "4-test-release": {
+          "exit": 0,
+          "start": "2026-11-14T01:36:24Z",
+          "end": "2026-11-14T02:04:43Z",
+          "command": "CARGO_BUILD_JOBS=1 cargo test --locked --release (database ev_rel_20261114013624)",
+          "status": "PASS"
+        }
+      },
+      "logs_sha256": {
+        "4-test-release.log": "0c144f389c81073882fbf075bceb27792a48b4241fa99e5ef14d60d8899295c1",
+        "status.tsv": "e3433499a2d94716c849f47c6e66860f35d2ff32ea096023e78dc76ed58243c3"
+      }
+    },
+    {
+      "id": "x86_64",
+      "platform": "x86_64 (this host)",
+      "logs_dir": "target/evidence/2026-11-14-rebased2-x86_64",
+      "steps": {
+        "1-fmt": {
+          "exit": 0,
+          "start": "2026-11-14T00:28:18Z",
+          "end": "2026-11-14T00:28:23Z",
+          "command": "cargo fmt --all -- --check",
+          "status": "PASS"
+        },
+        "2-clippy": {
+          "exit": 101,
+          "start": "2026-11-14T00:28:23Z",
+          "end": "2026-11-14T00:32:25Z",
+          "command": "cargo clippy --locked --all-targets -- -D warnings",
+          "status": "FAIL",
+          "cause": "upstream code only: clippy::chunks_exact_to_as_chunks in the host servers (core/src/hostcmd.rs, hostdb.rs, hostifs.rs), with rustc 1.99.1; no other finding"
+        },
+        "3-test": {
+          "exit": 101,
+          "start": "2026-11-14T00:32:25Z",
+          "end": "2026-11-14T00:46:35Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_suite_20261114002816 cargo test --locked",
+          "status": "FAIL",
+          "cause": "251 passed, 1 failed: rla_test save_changed_objects, the upstream test known to be intermittent under parallel runs (seen under every engine). Run alone on the same build: PASS (run x86_64-reruns)"
+        },
+        "4-test-release": {
+          "exit": 101,
+          "start": "2026-11-14T00:46:35Z",
+          "end": "2026-11-14T03:27:58Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_suite_20261114002816 cargo test --locked --release",
+          "status": "FAIL",
+          "cause": "hung: rla_test host_servers_sign_on_and_database_attributes and ifs_statistics_json_defaults_and_new_activation_groups made no progress from 01:13 to 03:28 UTC under the full parallel run; the test process was stopped. Run alone on the same release build: both PASS in 5 s and 2 s (run x86_64-reruns)"
+        },
+        "5-build-release": {
+          "exit": 0,
+          "start": "2026-11-14T03:27:58Z",
+          "end": "2026-11-14T03:28:24Z",
+          "command": "cargo build --locked --release",
+          "status": "PASS"
+        },
+        "6-demo": {
+          "exit": 0,
+          "start": "2026-11-14T03:28:25Z",
+          "end": "2026-11-14T03:28:44Z",
+          "command": "env AS4TAINR_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_demo AS4TAINR_BIN=target/debug/as4tainr scripts/demo.sh",
+          "status": "PASS"
+        },
+        "7-native-diff": {
+          "exit": 0,
+          "start": "2026-11-14T03:28:44Z",
+          "end": "2026-11-14T04:03:45Z",
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_suite_20261114002816 NATIVE_DIFF_OUT=/home/ctl/data/Projects/PERSONAL/IBMi/AS4tainr/target/evidence/2026-11-14-rebased2-x86_64/native-diff scripts/native-diff.sh",
+          "status": "PASS"
+        },
+        "8-bench": {
+          "exit": 0,
+          "start": "2026-11-14T04:03:46Z",
+          "end": "2026-11-14T04:17:04Z",
+          "command": "env AS4TAINR_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/ev_bench NATIVE_BENCH_OUT=/home/ctl/data/Projects/PERSONAL/IBMi/AS4tainr/target/evidence/2026-11-14-rebased2-x86_64/bench scripts/native-bench.sh",
+          "status": "PASS",
+          "note": "NBENCH1 p50 3.58 s interp, 2.50 s native (-30.1%)"
+        }
+      },
+      "logs_sha256": {
+        "0-platform.log": "018b61a161b2b6a2e3f4be08a89808dedb1f606a5004313fcccc8ed256392a81",
+        "1-fmt.log": "e95ad7a0281da57156d74f9ca39da40fb76d96f2a945a8916259f217d768b0fc",
+        "2-clippy.log": "6a01d5b00b055718de06f7ffde19d609c819bd4e817cd8a361a04a30a9ddc46f",
+        "3-test.log": "8c7434632382f0bae8128126b885dd13062b96bae90679817bfc572d31be2699",
+        "4-test-release.log": "0a2f34b28b8bb35221c587b9b4314f915020975684217fe878d44b9e7397c8ea",
+        "5-build-release.log": "85e0940965478a850c7324484bf38ba0a2ffb7f0bdf1ba2c1a111e4705c15b2f",
+        "6-demo.log": "81998a31d41019228d5b7de0c81a8c90a76f6818941b72fccbd6c49e37e29ca4",
+        "7-native-diff.log": "37bd5913048d2f687e82d045e6d877c581c2258233a2ccfee166f9fe59b08359",
+        "8-bench.log": "2c37e7fafb2cb7afb1aebeb3151a5cb0229dbb7709a0e8e76b5406cc401aaea0",
+        "artifacts.sha256": "bbdb1bb685b600da23d0f220b239845478cb55bfc2c07d2dda54cd77e12c98e3",
+        "bench/binary.sha256": "d1da1f21393508db7b47c2c7e10d3c2d72fb7d78e0b99dad809742712c054cd8",
+        "bench/build-interp.log": "20eba563e1a9f727d697b9ff419cfa55a01869fa2350a7fb8a12981d633dfaa6",
+        "bench/build-native.log": "53cfc717371452a26638ccd4f5a982332c791e0ea735dc00b529142a7ce85eca",
+        "bench/emit.log": "d452dbaba79354eb6884835b8d45ec249a91e84b2106840126e9b4a045a47d7d",
+        "bench/init.log": "ca275796f25742e5725d3456f490fe15c47eddceda010ad02116373bf31f522e",
+        "bench/interp.output": "d452dbaba79354eb6884835b8d45ec249a91e84b2106840126e9b4a045a47d7d",
+        "bench/rust.output": "d452dbaba79354eb6884835b8d45ec249a91e84b2106840126e9b4a045a47d7d",
+        "bench/summary.json": "2104943ca7920271f7a6affd68603632b58746e91804bb19cb1280c379753204",
+        "native-diff/1-demo-interp.log": "685b14b074f66d75c65be3facd7b7a6d25a7d844e4f9f06f7f70c2c7c3794b45",
+        "native-diff/1-interp.log": "810d25d462b06570bdba41b1b0e6d9e66c097cfa4bf3ea14377a2a7e0f249ad0",
+        "native-diff/1-interp.res": "04e220ffd7e135ddb24bd9426da8e5e06ce8399f112f9ac1020921c254c16f05",
+        "native-diff/2-build.log": "44d82856736d27e48988af75564e3c5329e997ea1dcc85854dba34e5668d7ad2",
+        "native-diff/3-level1.log": "21933894ad0899e713e8b015b3a9204df13f8eefa1356b0ae4c16eae989433d2",
+        "native-diff/4-auto.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-diff/4-auto.log": "a5b97193aeffe44880d105c21e65f4ab7f8a8c3e2228bcc6ac0abbc7fb40a5fe",
+        "native-diff/4-auto.refusals": "6d1d59cfa7dc14c3033f88b15df71439cb4a60b781ddb90042d43cd74ff678bf",
+        "native-diff/4-auto.res": "04e220ffd7e135ddb24bd9426da8e5e06ce8399f112f9ac1020921c254c16f05",
+        "native-diff/4-rust.log": "590225d445fbf1e6f6d796c82e08669597aa5cd75551ce0b347cbab596fb78e5",
+        "native-diff/4-rust.refusals": "6f250d059a378cc2a1891ac6a62c78fb4e606685d94ad9b0762315dcff0155ac",
+        "native-diff/4-rust.res": "8f656c6c1ab33e79a90ed13bf1b9ddf36a75e4921c98fe3673437baa5c6771ce",
+        "native-diff/5-demo-rust.log": "685b14b074f66d75c65be3facd7b7a6d25a7d844e4f9f06f7f70c2c7c3794b45",
+        "native-diff/5-demo.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native-diff/logs.sha256": "02cb3a474c812396c3059ef791e14d9da365662b52998c338816b5f05b326c0e",
+        "native-diff/status.tsv": "5642c783a4373ddd880a1ba66d5848f4181502db5271405c764ce15f5c711601",
+        "status.tsv": "6a665719e96d39e442d40162c484e1bfc935672e43fc8347000fa1470bb0381a"
+      }
+    },
+    {
+      "id": "x86_64-reruns",
+      "platform": "x86_64 (this host), the evidence build, new database",
+      "logs_dir": "target/evidence/2026-11-14-rebased2-x86_64-reruns",
+      "steps": {
+        "r-release-host_servers": {
+          "exit": 0,
+          "start": "2026-11-14T04:28:26Z",
+          "end": "2026-11-14T04:28:26Z",
+          "command": "timeout 600 rla_test (release) host_servers_sign_on_and_database_attributes --exact",
+          "status": "PASS"
+        },
+        "r-release-ifs_statistics": {
+          "exit": 0,
+          "start": "2026-11-14T04:28:26Z",
+          "end": "2026-11-14T04:28:26Z",
+          "command": "timeout 600 rla_test (release) ifs_statistics_json_defaults_and_new_activation_groups --exact",
+          "status": "PASS"
+        },
+        "r-debug-save_changed_objects": {
+          "exit": 0,
+          "start": "2026-11-14T04:28:26Z",
+          "end": "2026-11-14T04:28:26Z",
+          "command": "timeout 600 rla_test (debug) save_changed_objects --exact",
+          "status": "PASS"
+        }
+      },
+      "logs_sha256": {
+        "debug-save_changed_objects.log": "e2378cd8f259a6c848dfe8821f37d42c0a82ea5445b13a2bfd1dfc08b8470126",
+        "notes.txt": "ba0deb0abb357c573dc271801af148bf97320a46a21383b1630140d1c1ea3408",
+        "release-host_servers_sign_on_and_database_attributes.log": "05cffadaf62a04af7984c5957cf4c19b0ffdf059a599112b5743c0c89376953f",
+        "release-ifs_statistics_json_defaults_and_new_activation_groups.log": "189f3b3addc325ae9d5f583a645dc9edf05bc6f8827b7919a8c9cf8181c07311",
+        "status.tsv": "4531dd021d4c9af73f014ab8b22431a2a5b7e54334ca4bbb8ba1715ee392e5ec"
+      }
+    }
+  ],
+  "levels": {
+    "native-diff": "PASS on both platforms: 380 routines generated and built; level1 corpus identical; level2-auto 648 tests the same as the interpreter; level2-rust 626 of 648 the same, 23 programs refused (source differs by process); level3-demo 7 cases the same"
+  },
+  "not_run": {
+    "level3-golden": "NOT_RUN: no captures of tools/golden.py lists on the evidence trees"
+  },
+  "upstream_base": "dd47e28 (kyleturley-cyber/AS4tainr main with this fork's PRs #9, #10 and #13 merged)",
+  "findings": "two upstream tests hung once under the full parallel release run on x86_64, and pass alone; save_changed_objects stays intermittent"
+}
