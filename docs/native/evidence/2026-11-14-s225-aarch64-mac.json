@@ -1,0 +1,86 @@
+{
+  "topic": "native engine S2.25 (%SIZE, %ELEM) validated on aarch64 (Mac M1, podman)",
+  "date": "2026-11-14",
+  "branch": "native/engine",
+  "commit": "0321605",
+  "runs": [
+    {
+      "id": "aarch64-mac-checks",
+      "platform": "aarch64, Debian 12.15 container in podman machine (Linux 7.0.12-201.fc44.aarch64, applehv, 8 GiB, 6 CPUs) on a Mac M1; rustc 1.99.1; PostgreSQL 16.16",
+      "tree": "commit 0321605 unchanged",
+      "logs_dir": "target/evidence/2026-11-14-native-diff-aarch64-run3-fix18 (podman volume as4tainr-target)",
+      "steps": {
+        "1-fmt": {
+          "command": "cargo fmt --all -- --check",
+          "exit": 0,
+          "status": "PASS"
+        },
+        "2-clippy": {
+          "command": "cargo clippy --locked --all-targets -- -D warnings",
+          "exit": 101,
+          "status": "FAIL",
+          "cause": "upstream code only: clippy::chunks_exact_to_as_chunks in core/src/hostcmd.rs, hostdb.rs, hostifs.rs with rustc 1.99.1 (known, as in 2026-11-14-rebased2.json)"
+        },
+        "2b-clippy-without-upstream-lint": {
+          "command": "cargo clippy --locked --all-targets -- -D warnings -A clippy::chunks_exact_to_as_chunks",
+          "exit": 0,
+          "status": "PASS",
+          "note": "checks the native crates and core/src/rpg/native/, which step 2 never reaches because core fails first"
+        },
+        "3-native-units-interp": {
+          "command": "env AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked -p as4tainr-core --test native_units",
+          "exit": 0,
+          "status": "PASS",
+          "tests": "34 passed, 0 failed, 0 skipped (NSIZE included)"
+        }
+      },
+      "logs_sha256": {
+        "0-clippy.log": "4b32ab73414bac05081c1296b111700a95ed423fa661fe4e4efdc16ddebd3107",
+        "0-clippy2.log": "51413c0047cefdb2c34d9b93926e21e8f616ac29e5f67cbe103278e8faf4e04e",
+        "0-units.log": "49d03b3ab7d54183345e409126c374efdec8b76712284e0cecde45e31d8be18c"
+      }
+    },
+    {
+      "id": "aarch64-mac-native-diff",
+      "platform": "as aarch64-mac-checks",
+      "tree": "059c23cbbacd788400dd6831ce4bbb4dc6d6ae61 = commit 0321605 plus fix/init-lock-timeout 79d5c03 (catalog::init lock timeout, upstream issue #18) applied without a commit, the user's decision, 2026-11-14",
+      "why_the_fix": "run 2 on 0321605 alone hung 53 min in catalog::init (ALTER TABLE as4tainr.objects ADD COLUMN IF NOT EXISTS owner waiting behind an idle-in-transaction session), the upstream hang; run 1 was killed by the kernel (out of memory, 6 GiB VM, CARGO_BUILD_JOBS=4) before any test ran. Neither recorded a result.",
+      "logs_dir": "target/evidence/2026-11-14-native-diff-aarch64-run3-fix18 (podman volume as4tainr-target)",
+      "command": "env CARGO_BUILD_JOBS=3 NATIVE_DIFF_OUT=/work/target/evidence/2026-11-14-native-diff-aarch64-run3-fix18 AS4TAINR_RPG_ENGINE=rust AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr scripts/native-diff.sh (new database)",
+      "exit": 0,
+      "status": "PASS",
+      "steps": {
+        "demo-interp": "PASS 7 cases",
+        "generate": "PASS 385 routines",
+        "build": "PASS with 385 routines",
+        "level1": "PASS corpus identical under both engines",
+        "level2-auto": "PASS 654 tests, same results as the interpreter",
+        "level2-rust": "PASS 632 of 654 tests as under the interpreter; 23 programs refused, none generated (source differs by process); native_units 34 passed under rust",
+        "level3-demo": "PASS 7 cases, the same output as the interpreter",
+        "level3-golden": "NOT_RUN: no captures of tools/golden.py lists in target/ibmi/golden (PUB400 not set up on this machine yet)"
+      },
+      "notes": [
+        "save_changed_objects failed under interp, auto and rust alike: the known intermittent upstream failure, not an engine difference."
+      ],
+      "logs_sha256": {
+        "0-native-diff3.log": "7c38954e86b85d3160c1dc4751135336331e7a2ad2d3999e077ff072ad6c7a66",
+        "1-demo-interp.log": "685b14b074f66d75c65be3facd7b7a6d25a7d844e4f9f06f7f70c2c7c3794b45",
+        "1-interp.log": "2e600036dc5c250fd1ecd219607a16102d3c1858f994f87ec2143d08d935f82a",
+        "2-build.log": "71e03516e645c290a0fd5d23f2c66af94c4950b38ab815f19c5fe7848f51a089",
+        "3-level1.log": "0122fdd1babb1b1f82a4d649218071f7a76ae8a19e2d14c7941796e7516e64eb",
+        "4-auto.log": "00474d28e08f118f595f6e9a136c51e8e8188d73beb2b39071d227906c687f41",
+        "4-rust.log": "8104d2a78274255055c0462c7511ee5c0d1c841dcda0d00eb86e9e0d00e45bef",
+        "5-demo-rust.log": "685b14b074f66d75c65be3facd7b7a6d25a7d844e4f9f06f7f70c2c7c3794b45",
+        "1-interp.res": "4f74ced60d712e15a0925a1c2b3354bb590185b1cb01a2c1603fc73359225285",
+        "4-auto.res": "4f74ced60d712e15a0925a1c2b3354bb590185b1cb01a2c1603fc73359225285",
+        "4-rust.res": "d5fd29e6a602f1ef8295496b145a7845724c624e77fe109ac63c16ac27d4f8d1"
+      }
+    }
+  ],
+  "not_run": [
+    "cargo test --locked (full suite, debug) and --release outside native-diff: NOT_RUN on this machine",
+    "cargo build --locked --release: NOT_RUN",
+    "scripts/native-e2e.sh (5250 through Playwright): NOT_RUN, Playwright not set up here",
+    "x86_64: NOT_RUN for S2.25"
+  ]
+}

@@ -5,7 +5,7 @@ Last update: 2026-11-14, before moving part of the work to a Mac M1. Both native
 ## State
 
 - **Stage 1 is complete.** Every program runs natively under `AS4TAINR_RPG_ENGINE=rust|auto`, with the interpreter as the reference.
-- **Stage 2, S2.1 to S2.20, is committed** (ADR 0006). S2.21 (array elements with field indexes) is committed too. S2.22-S2.24 are committed and validated on x86_64. S2.25 (%SIZE, %ELEM) is committed but NOT yet validated. Lowered:
+- **Stage 2, S2.1 to S2.20, is committed** (ADR 0006). S2.21 (array elements with field indexes) is committed too. S2.22-S2.24 are committed and validated on x86_64. S2.25 (%SIZE, %ELEM) is validated on aarch64 (Mac M1, 2026-11-14: native-diff PASS, evidence/2026-11-14-s225-aarch64-mac.json), not yet on x86_64. Lowered:
   - conditions, loops, numeric and character EVAL;
   - fixed-form arithmetic, DIV/MVR, `/`, %REM, %DIV;
   - %SUBST, %SCAN, %TRIM, %XLATE, %CHAR, %INT, %DEC, %LEN;
@@ -90,3 +90,16 @@ The user can go on with the most blocking parts on a Mac M1, which has more memo
   - `fix/size-numeric-constant`.
 
   The open PRs #11, #12 and #14 to #17 were being re-validated on x86_64 with a clean build per branch. Their earlier validations ran another branch's build: see the note in native-test-environment memory. Kyle must get a short note about it.
+
+## Mac M1 session (2026-11-14)
+
+- **Policy change (the user's decision, 2026-11-14).** Work only with guigra/AS4tainr. Publish nothing to kyleturley-cyber/AS4tainr: no issues, no PRs, no comments, no `upstream` remote pushes. This replaces "Follow the upstream PRs" (next steps, item 4), the `upstream` remote of "Get the code" and the note to Kyle above. Fixes go to this fork's `main` by PRs inside the fork.
+- **Environment.** No Linux VM of its own: the podman machine (applehv, raised to 8 GiB, 6 CPUs) runs two containers:
+  - `as4tainr-test-db`: PostgreSQL 16, `--shm-size=1g`, published on the Mac at 127.0.0.1:55432 (5432 is taken by a local PostgreSQL);
+  - `as4tainr-dev`: Debian bookworm aarch64 with rustc 1.99.1, `--privileged`, `/QSYS.LIB`, the repository at /work, `target` in the volume `as4tainr-target`, on the database's network so 127.0.0.1:5432 works as in the scripts. Built from ~/.local/share/as4tainr-dev/Containerfile (outside Git).
+  - Git does not work inside the container for worktrees (their `.git` points to the Mac path); cargo and the scripts do not need it.
+  - With 6 GiB and CARGO_BUILD_JOBS=4 the kernel killed rustc building core's tests. Use 8 GiB and CARGO_BUILD_JOBS=3.
+- **S2.25 validated on aarch64.** fmt PASS; clippy FAIL only on the upstream lint, PASS without it; native units 34/34 under interp and under rust; native-diff PASS (385 routines, 654 tests the same under auto). Evidence: docs/native/evidence/2026-11-14-s225-aarch64-mac.json.
+- **Issue #18 reproduced here** on the first native-diff that ran tests (53 min hung). native-diff was run with `fix/init-lock-timeout` (79d5c03) applied without a commit, the user's decision; `native/engine` does not carry it. The fix was checked here: its test passes with it (3.2 s) and fails without it on main (34.6 s, the test's 30 s limit). It is proposed to this fork's main as https://github.com/guigra/AS4tainr/pull/1.
+- **Not run here:** the full suite and release outside native-diff, the release build, native-e2e (no Playwright yet), golden (PUB400 not set up yet), anything on x86_64.
+- **Next:** once PR #1 is merged, decide how `native/engine` picks it up (it touches core/src/catalog.rs, outside section 3's touch points). Then stage 2 block A, as listed above.
