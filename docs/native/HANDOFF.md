@@ -1,11 +1,11 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-14. The branch is `native/engine`, stacked on `native/runtime-extraction`, both rebased on upstream main dd47e28. Nothing of these branches is pushed. The previous tip is kept as `native/engine-pre-rebase2`.
+Last update: 2026-11-14, before moving part of the work to a Mac M1. Both native branches and the held upstream fix branches are pushed to origin (guigra/AS4tainr). The branch is `native/engine`, stacked on `native/runtime-extraction`, both rebased on upstream main dd47e28. Nothing of these branches is pushed. The previous tip is kept as `native/engine-pre-rebase2`.
 
 ## State
 
 - **Stage 1 is complete.** Every program runs natively under `AS4TAINR_RPG_ENGINE=rust|auto`, with the interpreter as the reference.
-- **Stage 2, S2.1 to S2.20, is committed** (ADR 0006). S2.21 (array elements with field indexes) is committed too. Lowered:
+- **Stage 2, S2.1 to S2.20, is committed** (ADR 0006). S2.21 (array elements with field indexes) is committed too. S2.22-S2.24 are committed and validated on x86_64. S2.25 (%SIZE, %ELEM) is committed but NOT yet validated. Lowered:
   - conditions, loops, numeric and character EVAL;
   - fixed-form arithmetic, DIV/MVR, `/`, %REM, %DIV;
   - %SUBST, %SCAN, %TRIM, %XLATE, %CHAR, %INT, %DEC, %LEN;
@@ -49,3 +49,44 @@ Last update: 2026-11-14. The branch is `native/engine`, stacked on `native/runti
    - OrderDesk under `rust`;
    - gate3 (three clerks at once) under `rust`.
 4. Follow the upstream PRs: answer reviews, and rebase #12 after #11.
+
+## Continuing on a Mac M1 (2026-11-14)
+
+The user can go on with the most blocking parts on a Mac M1, which has more memory than jsr-test-arm.
+
+- **Get the code.** Clone guigra/AS4tainr and check out `native/engine`. It stacks on `native/runtime-extraction` and is rebased on upstream dd47e28. Add the remote `upstream` = kyleturley-cyber/AS4tainr.
+- **Where to run it.** The scripts and tests assume Linux:
+  - podman;
+  - `/QSYS.LIB` present;
+  - mount namespaces for QSH (`qshfs.rs`);
+  - /proc in places.
+
+  The safest setup is a Debian aarch64 VM on the Mac (UTM, Lima or `podman machine`), set up like jsr-test-arm:
+  - rustup with the toolchain of `rust-toolchain.toml` (1.99.1);
+  - PostgreSQL 16 in podman: `podman run -d --name as4tainr-test-db --shm-size=1g -p 127.0.0.1:5432:5432 -e POSTGRES_USER=as4tainr -e POSTGRES_PASSWORD=as4tainr -e POSTGRES_DB=as4tainr docker.io/library/postgres:16`;
+  - `sudo mkdir /QSYS.LIB` (empty, owned by the user).
+
+  Native macOS may build, but it is not tested here.
+- **PUB400.** A new ed25519 key without a passphrase, installed in /home/GUIGRA26/.ssh/authorized_keys as `docs/native/pub400.md` says, and a `Host pub400` entry. Never copy keys or passwords through Git.
+- **Playwright** (for `scripts/native-e2e.sh`): a Python venv with `pip install playwright` and `python -m playwright install chromium`.
+- **Checks.** The commands in CLAUDE.native.md section 7. Development runs: `AS4TAINR_RPG_ENGINE=rust scripts/native-diff.sh`, `scripts/native-bench.sh` (NATIVE_BENCH_PGM=NBENCH2 too), `scripts/native-e2e.sh`.
+- **The upstream hang (issue #18).** Full suite runs, native-diff included, can hang in `catalog::init`'s lock chain. While a run hangs, `pg_stat_activity` shows an `ALTER TABLE as4tainr.objects ADD COLUMN IF NOT EXISTS ...` waiting behind an `idle in transaction` session. Stop the `rla_test` process and run again. The fix is the held branch `fix/init-lock-timeout`. Carrying it on `native/engine` needs the user's approval: it touches core/src/catalog.rs.
+- **First things to do there:**
+  1. Validate S2.25: clippy, the native units, native-diff.
+  2. Stage 2 block A, in this order:
+     - CALLP and procedure calls;
+     - %EDITC and %EDITW;
+     - %LOOKUP;
+     - %SCANRPL;
+     - data structure arrays.
+  3. Priority 3:
+     - a production image with native-tools;
+     - OrderDesk under `rust`;
+     - gate3 under `rust`.
+- **Upstream branches on origin, held** (no PRs until the work in progress is done, the user's decision):
+  - `fix/figurative-varying-hival`;
+  - `fix/replace-start`;
+  - `fix/init-lock-timeout` (fixes issue #18);
+  - `fix/size-numeric-constant`.
+
+  The open PRs #11, #12 and #14 to #17 were being re-validated on x86_64 with a clean build per branch. Their earlier validations ran another branch's build: see the note in native-test-environment memory. Kyle must get a short note about it.
