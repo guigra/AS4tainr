@@ -5,7 +5,7 @@ Last update: 2026-11-14. The branch is `native/engine`, stacked on `native/runti
 ## State
 
 - **Stage 1 is complete.** Every program runs natively under `AS4TAINR_RPG_ENGINE=rust|auto`, with the interpreter as the reference.
-- **Stage 2, S2.1 to S2.20, is committed** (ADR 0006). S2.21 (array elements with field indexes) is written and being validated. Lowered:
+- **Stage 2, S2.1 to S2.20, is committed** (ADR 0006). S2.21 (array elements with field indexes) is committed too. Lowered:
   - conditions, loops, numeric and character EVAL;
   - fixed-form arithmetic, DIV/MVR, `/`, %REM, %DIV;
   - %SUBST, %SCAN, %TRIM, %XLATE, %CHAR, %INT, %DEC, %LEN;
@@ -43,7 +43,6 @@ Last update: 2026-11-14. The branch is `native/engine`, stacked on `native/runti
 
 ## Next steps
 
-1. Validate S2.21 (aarch64 devrun21), then commit it.
 2. Block A of stage 2: %EDITC/%EDITW, %REPLACE, %CHECK, %SCANRPL, %LOOKUP, figurative constants, whole data structure assignment, CALLP. EXSR without run_code_at needs the user's approval, because it touches interp.rs.
 3. Priority 3:
    - a production image built with native-tools;

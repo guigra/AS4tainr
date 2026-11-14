@@ -505,6 +505,22 @@ pub fn divide(a: &Dec, b: &Dec, pl: Option<(u32, u32)>, pr: Option<(u32, u32)>) 
     }
 }
 
+/// Where an array element is when its index is known only at run time
+/// (S2.21): the interpreter's `elem_off`, an index from 1 to `dim`, else
+/// its RNQ0121 error with the same text.
+pub fn elem_at(off: usize, stride: usize, dim: u32, index: &Value) -> NResult<usize> {
+    let i = index.num()?.to_i128()?;
+    if i < 1 || i > i128::from(dim) {
+        anyhow::bail!("RNQ0121: An array index is out of range (index {i}, {dim} elements).");
+    }
+    let k = usize::try_from(i)?.saturating_sub(1);
+    k.checked_mul(stride)
+        .and_then(|d| off.checked_add(d))
+        .ok_or_else(|| {
+            anyhow::anyhow!("RNQ0121: An array index is out of range (index {i}, {dim} elements).")
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

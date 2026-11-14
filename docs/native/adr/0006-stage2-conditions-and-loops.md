@@ -249,3 +249,11 @@ Each operand's precision is that of its own node, `Runtime::precision(pc, path +
 **What changes.** %LEN of an eligible VARCHAR field is a numeric expression of lowered code: the length of its current value, as the interpreter's `"LEN"` arm gives it for a varying field. %LEN with *MAX, and %LEN as a target, stay with the interpreter.
 
 **Expected values.** `core/tests/native/NVLEN.rpgle`, captured on PUB400: tools/golden/native21.txt n21_vlen (IBM i 7.5, 2026-11-13).
+
+## S2.21: array elements with an index that is a field (rpgcg 0.1.0+stage2.21)
+
+**What changes.** `ARR(i)`, with `i` an eligible numeric field or literal, is an operand of lowered code. It applies to the same arrays as S2.15. The operand carries its index (`ir::Index`: the index operand, the stride and DIM). Each load computes its place at run time with `rpgrt::native::elem_at`, and so does each store, in its prelude. `elem_at` is the interpreter's `elem_off`: the index's number as an integer, from 1 to DIM, else RNQ0121 with the same text (status 00121). As in the interpreter, a target's index is evaluated after the value. The layout line names the index, the stride and DIM.
+
+**Not lowered.** Computed indexes (`arr(i - 1)`), local arrays, tables, varying-dimension arrays.
+
+**Expected values.** `core/tests/native/NARRV.rpgle`, captured on PUB400: tools/golden/native27.txt n27_arrv (IBM i 7.5, 2026-11-14).

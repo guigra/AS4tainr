@@ -528,6 +528,9 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
     // (S2.15): a field at a fixed place, as the interpreter's `elem_off`
     // finds it (off + (index - 1) * stride). Not a table (TAB...), whose
     // name without an index is its current element.
+    // An element with an index that is a field (S2.21): its place is
+    // worked out when it runs (`rpgrt::native::elem_at`), as `elem_off`.
+    let mut index = None;
     let elem = match args.as_deref() {
         None if v.dim == 0 => None,
         Some([Expr::Num(k)]) if v.dim > 0 && !v.local && !name.starts_with("TAB") => {
@@ -536,6 +539,15 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
                 return None;
             }
             Some(usize::try_from(k).ok()?)
+        }
+        Some([ix]) if v.dim > 0 && !v.local && !name.starts_with("TAB") => {
+            let of = operand(cx, ix, used)?;
+            index = Some(Box::new(ir::Index {
+                of,
+                stride: v.stride,
+                dim: v.dim,
+            }));
+            Some(1)
         }
         _ => return None,
     };
@@ -570,9 +582,18 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
     if excluded {
         return None;
     }
-    let shown = match elem {
-        Some(k) => format!("{name}({k})"),
-        None => name.clone(),
+    let shown = match (&index, elem) {
+        (Some(ix), _) => format!(
+            "{name}({}) stride {} dim {}",
+            match &ix.of {
+                ir::Operand::Var { name, .. } => name.clone(),
+                other => format!("{other:?}"),
+            },
+            ix.stride,
+            ix.dim
+        ),
+        (None, Some(k)) => format!("{name}({k})"),
+        (None, None) => name.clone(),
     };
     used.push(format!(
         "layout {shown} {} {off} {:?} {}",
@@ -586,6 +607,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         off,
         ty,
         local: v.local,
+        index,
     })
 }
 
