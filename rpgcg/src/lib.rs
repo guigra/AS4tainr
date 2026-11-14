@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.26");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.27");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -329,6 +329,20 @@ pub mod ir {
         /// %LEN of a varying-length field (S2.20): its current length.
         VarLen {
             var: Operand,
+        },
+        /// %LOOKUP and %LOOKUPxx (S2.27): `x` searched in a global
+        /// array (`buf`, `off`, `stride`, `dim`, element type), from
+        /// `start` for `n` elements; `how` is "", LT, LE, GE or GT.
+        Lookup {
+            x: Operand,
+            buf: usize,
+            off: usize,
+            stride: usize,
+            dim: u32,
+            ty: Ty,
+            start: Option<Operand>,
+            n: Option<Operand>,
+            how: String,
         },
         /// %INT or %INTH (`half`) of a numeric expression (S2.14).
         Int {
@@ -1305,6 +1319,31 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             "rpgrt::rpg::dec::Dec::from_i64(i64::try_from({}.chars()?.len())?)",
             value(var)
         ),
+        ir::NumExpr::Lookup {
+            x,
+            buf,
+            off,
+            stride,
+            dim,
+            ty: t,
+            start,
+            n,
+            how,
+        } => {
+            let opt = |o: &Option<ir::Operand>| match o {
+                Some(o) => format!("Some({})", value(o)),
+                None => "None".to_string(),
+            };
+            // As the interpreter: the argument, the array, the start, the
+            // number of elements.
+            format!(
+                "{{ let x = {}; let all = rpgrt::native::lookup_list(rt.mem(), ({buf}, {off}, {stride}, {dim}), {})?; let st = {}; let n = {}; rpgrt::native::search(&x, &all, st.as_ref(), n.as_ref(), {how:?})? }}",
+                value(x),
+                ty(t),
+                opt(start),
+                opt(n)
+            )
+        }
         ir::NumExpr::Int { inner, half, path } => {
             let name = format!("i{pc}_{}", path_id(path));
             let x = num_expr(pc, inner, helpers);

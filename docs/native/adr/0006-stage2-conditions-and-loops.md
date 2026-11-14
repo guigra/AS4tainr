@@ -298,3 +298,16 @@ The program's DECEDIT is resolved when the code is generated, and is in the fing
 **Not lowered.** The third argument (*ASTFILL, *CURSYM, a currency symbol), an edit code that is not a literal, and %EDITW.
 
 **Expected values.** `core/tests/native/NEDITC.rpgle`, captured on PUB400: tools/golden/native34.txt n34_editc (IBM i 7.5, 2026-11-14), 33 cases. The interpreter gives the same 33 values.
+
+## S2.27: %LOOKUP and %LOOKUPxx (rpgcg 0.1.0+stage2.27)
+
+**What changes.** %LOOKUP, %LOOKUPLT, %LOOKUPLE, %LOOKUPGE and %LOOKUPGT are numeric expressions of lowered code when:
+- the argument is a literal or an eligible field;
+- the array is global and not a table, of varying dimension, based, of multiple occurrences, imported or exported;
+- the start and the number of elements are literals or fields.
+
+The generated code keeps the interpreter's order of evaluation: the argument, then the array, then the start, then the number. `rpgrt::native::lookup_list` loads the DIM elements, as `list_of` does. `search` is the interpreter's `search`. The array's place and type go into the fingerprint's layout.
+
+**Not lowered.** %TLOOKUP (it moves the table's current element), arrays of data structures (`ds(*).field`), local arrays.
+
+**Expected values.** `core/tests/native/NLOOK.rpgle`, captured on PUB400: tools/golden/native35.txt n35_look (IBM i 7.5, 2026-11-14). The interpreter gives the same 13 values.

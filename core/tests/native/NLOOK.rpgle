@@ -1,0 +1,50 @@
+**FREE
+// Stage 2, S2.27: %LOOKUP and %LOOKUPxx, lowered to Rust. Expected: what
+// IBM i 7.5 gave (golden capture tools/golden/native35.txt n35_look, cited
+// in native_units.rs).
+ctl-opt dftactgrp(*no);
+dcl-s arr char(3) dim(5);
+dcl-s nums packed(5:0) dim(5) ascend;
+dcl-s x char(3) inz('EEE');
+dcl-s s3 int(10) inz(3);
+dcl-s n int(10);
+arr(1) = 'AAA';
+arr(2) = 'BBB';
+arr(3) = 'CCC';
+arr(4) = 'BBB';
+arr(5) = 'EEE';
+nums(1) = 10;
+nums(2) = 20;
+nums(3) = 30;
+nums(4) = 40;
+nums(5) = 50;
+n = %lookup('BBB':arr);
+dsply ('LOOK EQ ' + %char(n));
+n = %lookup('BBB':arr:3);
+dsply ('LOOK START ' + %char(n));
+n = %lookup('ZZZ':arr);
+dsply ('LOOK NONE ' + %char(n));
+n = %lookup('BBB':arr:1:1);
+dsply ('LOOK RANGE ' + %char(n));
+n = %lookup(x:arr);
+dsply ('LOOK VAR ' + %char(n));
+n = %lookuplt(25:nums);
+dsply ('LOOK LT ' + %char(n));
+n = %lookuple(30:nums);
+dsply ('LOOK LE ' + %char(n));
+n = %lookupge(35:nums);
+dsply ('LOOK GE ' + %char(n));
+n = %lookupgt(50:nums);
+dsply ('LOOK GT NONE ' + %char(n));
+n = %lookupgt(5:nums);
+dsply ('LOOK GT FIRST ' + %char(n));
+n = %lookup(40:nums);
+dsply ('LOOK NUM EQ ' + %char(n));
+n = %lookup('BBB':arr:s3);
+dsply ('LOOK START VAR ' + %char(n));
+if %lookup(x:arr) > 0;
+  dsply ('LOOK COND YES');
+else;
+  dsply ('LOOK COND NO');
+endif;
+*inlr = *on;

@@ -1,0 +1,4 @@
+# Captures for stage 2 of the native backend, S2.27: %LOOKUP and %LOOKUPxx.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native35.txt -f tools/golden/native35
+n35_crt_look|!system "CRTSQLRPGI OBJ(@LIB@/GN35LOOK) SRCSTMF('@HOME@/gld/gn35look.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n35_look|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN35LOOK)"; cat gn1.out; rm -f gn1.out

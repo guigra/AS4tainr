@@ -388,6 +388,76 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 _ => operand(cx, e, used).map(ir::NumExpr::Leaf),
             }
         }
+        // %LOOKUP and %LOOKUPxx of a literal or field in a global array
+        // (S2.27), with a start and a number of elements that are numeric
+        // literals or fields.
+        Expr::Bif(b, args)
+            if matches!(
+                b.as_str(),
+                "LOOKUP" | "LOOKUPLT" | "LOOKUPLE" | "LOOKUPGE" | "LOOKUPGT"
+            ) =>
+        {
+            let (x, arr, start, n) = match args.as_slice() {
+                [x, a] => (x, a, None, None),
+                [x, a, s] => (x, a, Some(s), None),
+                [x, a, s, n] => (x, a, Some(s), Some(n)),
+                _ => return None,
+            };
+            let Expr::Name { parts, args: None } = arr else {
+                return None;
+            };
+            let name = parts.join(".");
+            let Some(Sym::Var(v)) = cx.syms.get(&name) else {
+                return None;
+            };
+            let prog = cx.prog;
+            if v.dim == 0
+                || v.local
+                || name.starts_with("TAB")
+                || prog.varying.contains_key(&name)
+                || prog.based.contains_key(&v.buf)
+                || prog.occurs.iter().any(|o| o.buf == v.buf)
+                || prog.data_imports.iter().any(|(n, _)| *n == name)
+                || prog.data_exports.iter().any(|(n, _)| *n == name)
+            {
+                return None;
+            }
+            let ty = match v.dtype {
+                DType::Packed(d, s) => ir::Ty::Packed(d, s),
+                DType::Zoned(d, s) => ir::Ty::Zoned(d, s),
+                DType::Binary(d, s) => ir::Ty::Binary(d, s),
+                DType::Int(n) => ir::Ty::Int(n),
+                DType::Uns(n) => ir::Ty::Uns(n),
+                DType::Char(n) => ir::Ty::Char(n),
+                DType::Varchar(n) => ir::Ty::Varchar(n),
+                _ => return None,
+            };
+            let x = any_operand(cx, x, used)?;
+            if matches!(x, ir::Operand::Fig(_)) {
+                return None;
+            }
+            used.push(format!(
+                "lookup {name} {} {} {} {} {:?}",
+                v.buf, v.off, v.stride, v.dim, v.dtype
+            ));
+            Some(ir::NumExpr::Lookup {
+                x,
+                buf: v.buf,
+                off: v.off,
+                stride: v.stride,
+                dim: v.dim,
+                ty,
+                start: match start {
+                    Some(s) => Some(operand(cx, s, used)?),
+                    None => None,
+                },
+                n: match n {
+                    Some(s) => Some(operand(cx, s, used)?),
+                    None => None,
+                },
+                how: b.get(6..).unwrap_or_default().to_string(),
+            })
+        }
         // %INT, %INTH of a numeric expression (S2.14).
         Expr::Bif(b, args) if matches!(b.as_str(), "INT" | "INTH") => {
             let [inner] = args.as_slice() else {
