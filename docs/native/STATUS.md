@@ -117,6 +117,8 @@ Notes:
   | aarch64 | 1.99 s | 1.63 s | -18.3% | S2.14, development run |
   | aarch64 | 2.00 s | 1.63 s | -18.2% | S2.15, development run |
   | aarch64 | 1.99 s | 1.49 s | -25.0% | S2.17, development run |
+  | x86_64 | 3.58 s | 2.50 s | -30.1% | 0b9d585 (S2.20, rebased on dd47e28), evidence run |
+  | aarch64 | 2.02 s | 1.46 s | -28.0% | 0b9d585, development run |
 
   NBENCH2 (`samples/native/NBENCH2.rpgle`) is written with what stage 2 lowers: packed arithmetic, array elements, qualified subfields, %SUBST, %SCAN, %TRIM, %CHAR and conditions. Release build, p50 over 20 calls, same output on both engines:
 
@@ -136,3 +138,4 @@ Notes:
 - `docs/native/evidence/2026-11-12-stage2.json`: stages 1 and 2 (S2.1, S2.2) on 769f0d5, x86_64 and aarch64, with the first performance baseline
 - `docs/native/evidence/2026-11-12-rebased.json`: stage 1 and S2.1-S2.7 on 4f8a89c, rebased on origin/main; x86_64 and aarch64 all PASS except clippy (upstream); the map of old to new commit hashes
 - `docs/native/evidence/2026-11-12-s28.json`: S2.8 on 498cdfe, x86_64 and aarch64. Everything passes except clippy (upstream). The x86_64 tests failed on a test database with leftover catalog rows, and passed on a new database (the run x86_64-cleandb)
+- `docs/native/evidence/2026-11-14-rebased2.json`: S2.1-S2.20 on 0b9d585, rebased on upstream dd47e28, x86_64 and aarch64. native-diff PASS on both (648 tests the same under auto). Every failure has its cause recorded, with a rerun that passes: the clippy finding is upstream's; save_changed_objects is intermittent; two upstream tests hung under the parallel release run on x86_64; the aarch64 release build ran out of memory with 2 jobs
