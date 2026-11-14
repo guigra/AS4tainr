@@ -760,6 +760,9 @@ fn num_variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Ope
 /// or exported. File fields are eligible since program.rs gives them
 /// buffer numbers in name order (S2.6).
 fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    if let Expr::Path { .. } = e {
+        return ds_array_field(cx, e, used);
+    }
     let Expr::Name { parts, args } = e else {
         return None;
     };
@@ -886,6 +889,79 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         ty,
         local: v.local,
         index,
+    })
+}
+
+/// A scalar subfield of an element of a global data structure array,
+/// `ds(i).field` (S2.30): the interpreter's `path_sym` adds (i - 1) times
+/// the data structure's size to the subfield's place, after the same
+/// index check as an array element's (RNQ0121), so it is an element with
+/// the data structure's size as its stride.
+fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    let Expr::Path {
+        parts,
+        idx,
+        args: None,
+    } = e
+    else {
+        return None;
+    };
+    let ([ds, field], [Some(ix), None]) = (parts.as_slice(), idx.as_slice()) else {
+        return None;
+    };
+    let prog = cx.prog;
+    let Some(Sym::Ds(d)) = cx.syms.get(ds) else {
+        return None;
+    };
+    if d.local
+        || d.dim == 0
+        || prog.based.contains_key(&d.buf)
+        || prog.occurs.iter().any(|o| o.buf == d.buf)
+    {
+        return None;
+    }
+    let name = format!("{ds}.{field}");
+    let Some(Sym::Var(v)) = cx.syms.get(&name) else {
+        return None;
+    };
+    if v.local || v.dim != 0 || v.buf != d.buf || prog.varying.contains_key(&name) {
+        return None;
+    }
+    let ty = match v.dtype {
+        DType::Packed(d, s) => ir::Ty::Packed(d, s),
+        DType::Zoned(d, s) => ir::Ty::Zoned(d, s),
+        DType::Binary(d, s) => ir::Ty::Binary(d, s),
+        DType::Int(n) => ir::Ty::Int(n),
+        DType::Uns(n) => ir::Ty::Uns(n),
+        DType::Char(n) => ir::Ty::Char(n),
+        DType::Varchar(n) => ir::Ty::Varchar(n),
+        _ => return None,
+    };
+    let of = operand(cx, ix, used)?;
+    let shown = format!(
+        "{ds}({}).{field} stride {} dim {}",
+        match &of {
+            ir::Operand::Var { name, .. } => name.clone(),
+            other => format!("{other:?}"),
+        },
+        d.size,
+        d.dim
+    );
+    used.push(format!(
+        "layout {shown} {} {} {:?} global",
+        v.buf, v.off, v.dtype
+    ));
+    Some(ir::Operand::Var {
+        name: shown,
+        buf: v.buf,
+        off: v.off,
+        ty,
+        local: false,
+        index: Some(Box::new(ir::Index {
+            of,
+            stride: d.size,
+            dim: d.dim,
+        })),
     })
 }
 

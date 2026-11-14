@@ -912,3 +912,24 @@ async fn native_unit_lowered_editw() {
     )
     .await;
 }
+
+// Stage 2, S2.30: subfields of a data structure array, ds(i).field, lowered
+// to Rust: written and read in FOR loops, a literal index, a condition, a
+// copy between elements, and status 00121 for an index past the end.
+// Source: golden capture tools/golden/native38.txt n38_dsa (PUB400, IBM i 7.5, 2026-11-14)
+#[tokio::test]
+async fn native_unit_lowered_ds_array_subfields() {
+    let _ = require_db!();
+    expect(
+        "NDSA",
+        include_str!("native/NDSA.rpgle"),
+        &[
+            "DSA LIT [C2] 20",
+            "DSA SUM 60",
+            "DSA COND YES",
+            "DSA COPY [C3]",
+            "DSA PAST ERR 121",
+        ],
+    )
+    .await;
+}
