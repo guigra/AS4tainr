@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.28");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.29");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -263,6 +263,15 @@ pub mod ir {
             point: char,
             zero: bool,
             own: bool,
+            path: Vec<u8>,
+        },
+        /// %EDITW of a numeric expression with a literal edit word (S2.29);
+        /// `prec` is a field's digits and decimal places, None for any
+        /// other expression (its own digits, as the interpreter).
+        EditW {
+            inner: NumExpr,
+            word: String,
+            prec: Option<(u32, u32)>,
             path: Vec<u8>,
         },
         /// %SCANRPL (S2.28): `pat` replaced by `rep` in `s` from `start`
@@ -1180,6 +1189,24 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
             let _ = writeln!(
                 helpers,
                 "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let v = {x};\n    static P: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let p = {p};\n    rpgrt::native::editc(&v, p, {code:?}, {point:?}, {zero})\n}}"
+            );
+            format!("{name}(rt)?")
+        }
+        ir::CharExpr::EditW {
+            inner,
+            word,
+            prec,
+            path,
+        } => {
+            let name = format!("o{pc}_{}", path_id(path));
+            let x = num_expr(pc, inner, helpers);
+            let p = match prec {
+                Some((d, s)) => format!("Some(({d}, {s}))"),
+                None => "None".to_string(),
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let v = {x};\n    rpgrt::native::editw(&v, {p}, {word:?})\n}}"
             );
             format!("{name}(rt)?")
         }

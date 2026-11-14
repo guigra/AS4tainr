@@ -317,3 +317,9 @@ The generated code keeps the interpreter's order of evaluation: the argument, th
 **What changes.** %SCANRPL of three character expressions, with a start and a length that are literals or fields, is a character expression of lowered code. Its helper is `v<pc>_<path>`. `rpgrt::native::scanrpl` is the interpreter's `"SCANRPL"` arm, in the same order of evaluation and with the same RNQ0100 check. One difference: where the interpreter's default length underflows (a start more than one past the end) and panics in a debug build, the native code computes it with saturation and gives the RNQ0100 error, which is what a release build of the interpreter gives.
 
 **Expected values.** `core/tests/native/NSRPL.rpgle`, captured on PUB400: tools/golden/native36.txt n36_srpl (IBM i 7.5, 2026-11-14). Two cases differ in the interpreter (fidelity.md) and are left out of the test.
+
+## S2.29: %EDITW (rpgcg 0.1.0+stage2.29)
+
+**What changes.** %EDITW of a numeric expression with a literal edit word is a character expression of lowered code. Its helper is `o<pc>_<path>`. `rpgrt::native::edit_word` is the interpreter's `edit_word`, written again under section 5's lints. `editw` takes the digits and decimal places as the interpreter's `"EDITW"` arm does: a field's type, or for any other expression the value's own digits, at least one. That differs from %EDITC, which takes an expression's precision. The tripwire watches `edit_word`.
+
+**Expected values.** `core/tests/native/NEDITW.rpgle`, captured on PUB400: tools/golden/native37.txt n37_editw (IBM i 7.5, 2026-11-14). The capture found an interpreter defect (fidelity.md): with a floating currency symbol, the thousands separator lands one position off. It is left out of the test.
