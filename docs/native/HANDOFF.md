@@ -124,3 +124,11 @@ Item 6 of the task file (an upstream PR for #18 from the x86 machine, then closi
 ## To look at (2026-11-14, x86_64)
 
 - %STATUS after a call: on PUB400, %STATUS was 0 again after a call to a procedure that runs EXEC SQL (the first version of tools/golden/native40, saved in target/ibmi/golden as n40_stat before it was captured again). It is not known yet what sets it to 0 (the call, or the SQL statement) or whether the interpreter does the same. Capture both cases before changing anything.
+
+## 2026-11-14, x86_64: S2.31-S2.34 and the x86_64 validation
+
+- New steps: S2.31 %STATUS with no file, S2.32 %ABS, S2.33 %MAX/%MIN, S2.34 %CHECK/%CHECKR with no start (ADR 0006). PUB400 captures native40-43. New interpreter defect: %MAX/%MIN keep the chosen argument's scale; IBM i uses the arguments' greatest (fidelity.md).
+- x86_64 at f89d678 (evidence/2026-11-14-s234-x86_64.json): native-diff PASS; release tests 632 passed. The 3 failures were leftovers in the shared test database, and they pass on a new one. Use a new database for evidence runs.
+- aarch64 VM: S2.23-S2.28 and S2.29 development runs. native-diff PASS, 5250 end-to-end the same, OpenRPG 384/385 (test396: the interpreter's %SCANRPL panic).
+- Upstream: nothing published. Five fix branches are validated and held, and there is an issue draft for %EDITW. The user decides when to publish (as4tainr-up-logs/revision-2026-11-14.md).
+- Next: wait for the user's decisions: when to publish, the branch and worktree clean-up, and the next block (CALLP, then block B).

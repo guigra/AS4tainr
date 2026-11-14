@@ -1,0 +1,77 @@
+{
+ "topic": "native engine S2.21-S2.34 validated on x86_64, with release",
+ "date": "2026-11-14",
+ "branch": "native/engine",
+ "commit": "f89d678",
+ "tree": "commit f89d678 plus the catalog::init lock fix (git diff upstream/main origin/fix/init-lock-timeout -- core/src/catalog.rs; upstream issue #18) applied without a commit",
+ "platform": "x86_64, Linux 6.12.116+deb13-cloud-amd64 x86_64, 2 CPUs, 3.8 GB; PostgreSQL 16 in podman (shared test database; the three reruns on a new database ev_s234)",
+ "toolchain": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+ "logs_dir": "target/evidence/2026-11-14-s234-x86_64 (not committed)",
+ "steps": {
+  "1-fmt": {
+   "command": "cargo fmt --all -- --check",
+   "exit": 0,
+   "status": "PASS"
+  },
+  "2-clippy": {
+   "command": "cargo clippy --locked --all-targets -- -D warnings",
+   "exit": 101,
+   "status": "FAIL",
+   "cause": "upstream code only: 3 x clippy::chunks_exact_to_as_chunks (hostcmd.rs, hostdb.rs, hostifs.rs), as on the Mac; none in native code"
+  },
+  "3-native": {
+   "command": "cargo test --locked -p as4tainr-core --test native_tripwire --test native_units --test native_engine",
+   "exit": 0,
+   "status": "PASS"
+  },
+  "4-native-diff": {
+   "command": "AS4TAINR_RPG_ENGINE=rust scripts/native-diff.sh",
+   "exit": 0,
+   "status": "PASS",
+   "detail": "reference 662 tests; 394 routines generated and built; level 1 identical; level 2 auto 662 the same; level 2 rust 640 of 662, 23 programs refused, none generated (source differs by process); level 3 demo 7 cases the same; level 3 golden NOT_RUN (no captures in the evidence worktree)"
+  },
+  "5-release-test": {
+   "command": "cargo test --locked --release",
+   "exit": 101,
+   "status": "FAIL",
+   "cause": "632 passed, 3 failed, 1 ignored. The 3 (change_a_physical_file_with_a_logical_file_over_it, declared_temporary_table_and_default_user, dspmod_output_files_of_a_cl_module) fail with duplicate QTEMP catalog keys left in the shared test database by earlier interrupted runs; see 5b"
+  },
+  "5b-release-rerun": {
+   "command": "cargo test --locked --release --test rla_test -- <the 3 tests>, on a new database",
+   "exit": 0,
+   "status": "PASS",
+   "detail": "3 passed"
+  },
+  "6-release-build": {
+   "command": "cargo build --locked --release",
+   "exit": 0,
+   "status": "PASS"
+  }
+ },
+ "artifacts_sha256": {
+  "target/release/as4tainr": "9d2df294a39ff780248e23ceb957ee41d17df4737064910ad8c6605111865507"
+ },
+ "logs_sha256": {
+  "clippy.log": "187389565d714e6f15ec389d1101d3e452483d6661e5aef117e5ad1fc94f5544",
+  "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "native-diff.out": "e7fa35eff6484f33a3f42d42a90289fee7dca51c5ed6927a0bf912d4a1c003d1",
+  "native-diff/1-demo-interp.log": "685b14b074f66d75c65be3facd7b7a6d25a7d844e4f9f06f7f70c2c7c3794b45",
+  "native-diff/1-interp.log": "2ce738ccbf49edac65c565469cb8665148d2d7ed9887ea39a527f89d5a05610e",
+  "native-diff/2-build.log": "ee8b08c46251841317a70dab313a9792f773296b9d362ced661feba68735c69d",
+  "native-diff/3-level1.log": "9aeb74221aab6fa4e6ed60987285b4646432bcf6ed5cbe2f170f61a68075dc19",
+  "native-diff/4-auto.log": "726c77d82206a1eb0329ae5b1a5dedba9b104df710e9f9d0a379e22481d03aab",
+  "native-diff/4-rust.log": "13db1ca9b4767260ac72007aa6e36da15b107d24db6ecab767ade97d617220f0",
+  "native-diff/5-demo-rust.log": "685b14b074f66d75c65be3facd7b7a6d25a7d844e4f9f06f7f70c2c7c3794b45",
+  "native-diff/status.tsv": "f6de1ff9fca354b72efdb857abba4868c9ff0116f6dab16a0c7d328431499f42",
+  "native.log": "e5448adebfcb79ba27357d13e6f0fec8bbf6daa0ed18badf48e14ab3b43f9f81",
+  "release-build.log": "d9e58e5fec376ec202393751db124eb98952796998f31218e1d7569626c14578",
+  "release-rerun3.log": "30ba579afdbfcc34b1db5f29db3a94320d87421f2b0cd1f6112a313a46fcaefd",
+  "release-test.log": "ad30e278eda315b6e9ef388efc5a29101f7f93e73ef7db865c285387d04b4db9",
+  "run.out": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+ },
+ "not_run": [
+  "native-diff level 3 golden (captures not in the evidence worktree)",
+  "5250 end-to-end on x86_64",
+  "OpenRPG corpus on x86_64 (run on aarch64: 384/385)"
+ ]
+}
