@@ -517,6 +517,22 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 how: b.get(6..).unwrap_or_default().to_string(),
             })
         }
+        // %MAX, %MIN of numeric expressions (S2.33): the interpreter's
+        // bifs.rs "MAX" | "MIN" arm, every argument evaluated in order and
+        // the first of the greatest or smallest kept, with its own scale.
+        Expr::Bif(b, args) if matches!(b.as_str(), "MAX" | "MIN") && args.len() >= 2 => {
+            let mut out = Vec::with_capacity(args.len());
+            for (k, a) in args.iter().enumerate() {
+                let mut ap = path.clone();
+                ap.push(u8::try_from(k).ok()?);
+                out.push(num_expr(cx, a, used, ap)?);
+            }
+            Some(ir::NumExpr::MinMax {
+                args: out,
+                max: b == "MAX",
+                path,
+            })
+        }
         // %ABS of a numeric expression (S2.32): the interpreter's
         // `v.num()?.abs()` (interp.rs "ABS"; a float argument is not an
         // eligible numeric expression).

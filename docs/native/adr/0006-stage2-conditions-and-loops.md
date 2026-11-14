@@ -352,3 +352,11 @@ The interpreter's `path_sym` adds (i - 1) times the data structure's size to the
 **Not lowered.** `%ABS` of a float: float is not an eligible type.
 
 **Expected values.** `core/tests/native/NABS.rpgle`, captured on PUB400: tools/golden/native41.txt n41_abs (IBM i 7.5, 2026-11-14). These include the smallest int(10) stored back into an int(10), which is status 00103. The interpreter gives the same values.
+
+## S2.33: %MAX and %MIN (rpgcg 0.1.0+stage2.33)
+
+**What changes.** `%MAX` and `%MIN` of two or more eligible numeric expressions are eligible numeric expressions. The interpreter's `bifs.rs` "MAX" | "MIN" arm evaluates every argument in order and keeps the first of the greatest or smallest (`data::compare`, which for two numbers is `Dec::cmp`) with its own scale. Generated code does the same with `Dec::cmp`. The interpreter gives them no precision of their own (`num_precision`), and neither does the runtime. Argument `k` adds step `k` to the path.
+
+**Not lowered.** Character, date and time arguments.
+
+**Expected values.** `core/tests/native/NMINMAX.rpgle`, captured on PUB400: tools/golden/native42.txt n42_mm (IBM i 7.5, 2026-11-14). On IBM i the result has the arguments' greatest number of decimal places, which `%CHAR` shows. The interpreter keeps the chosen argument's scale (fidelity.md), so the three `%CHAR` cases where that shows are left out of the test.
