@@ -420,6 +420,24 @@ pub fn scan(pat: &[u8], s: &[u8], start: Option<&Value>) -> NResult<Dec> {
     Ok(Dec::from_i64(i64::try_from(found)?))
 }
 
+/// %CHECK (`rev` false) or %CHECKR with no start (S2.34): the position of
+/// the first, or last, character of `s` that is not in `set`, 0 when every
+/// one is; the interpreter's "CHECK" | "CHECKR" arm.
+pub fn check(set: &[u8], s: &[u8], rev: bool) -> NResult<Dec> {
+    let found = if rev {
+        s.iter().rposition(|c| !set.contains(c))
+    } else {
+        s.iter().position(|c| !set.contains(c))
+    };
+    let pos = match found {
+        Some(p) => p
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("RNQ0103: position overflow"))?,
+        None => 0,
+    };
+    Ok(Dec::from_i64(i64::try_from(pos)?))
+}
+
 /// %XLATE (S2.12): `s` with each character of `from` that has a
 /// counterpart in `to` changed to it, from position `start` (1 when not
 /// given) on; the interpreter's error for a start outside the string.

@@ -360,3 +360,11 @@ The interpreter's `path_sym` adds (i - 1) times the data structure's size to the
 **Not lowered.** Character, date and time arguments.
 
 **Expected values.** `core/tests/native/NMINMAX.rpgle`, captured on PUB400: tools/golden/native42.txt n42_mm (IBM i 7.5, 2026-11-14). On IBM i the result has the arguments' greatest number of decimal places, which `%CHAR` shows. The interpreter keeps the chosen argument's scale (fidelity.md), so the three `%CHAR` cases where that shows are left out of the test.
+
+## S2.34: %CHECK and %CHECKR with no start (rpgcg 0.1.0+stage2.34)
+
+**What changes.** `%CHECK(set : s)` and `%CHECKR(set : s)` of eligible character expressions are eligible numeric expressions. The interpreter's `interp.rs` "CHECK" | "CHECKR" arm evaluates the set, then the string, and gives the position of the first or last byte not in the set, or 0. `rpgrt::native::check` does the same.
+
+**Not lowered.** A start argument. The interpreter ignores it today, and upstream #16 changes that, so it stays with the interpreter until #16 is settled.
+
+**Expected values.** `core/tests/native/NCHECK.rpgle`, captured on PUB400: tools/golden/native43.txt n43_chk (IBM i 7.5, 2026-11-14). The interpreter gives the same values.
