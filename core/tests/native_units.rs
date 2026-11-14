@@ -887,6 +887,30 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.33: %MAX and %MIN lowered to Rust (the capture's three %CHAR
+// cases where the interpreter differs are left out, fidelity.md).
+// Source: golden capture tools/golden/native42.txt n42_mm (PUB400, IBM i 7.5, 2026-11-14)
+#[tokio::test]
+async fn native_unit_lowered_minmax() {
+    let _ = require_db!();
+    expect(
+        "NMINMAX",
+        include_str!("native/NMINMAX.rpgle"),
+        &[
+            "MAX AB 2.125",
+            "MIN AB 1.500",
+            "CHAR MAX AB 2.125",
+            "CHAR MAX AE 1.50",
+            "MAX 4 2.125",
+            "MIN 4 -7.000",
+            "MAX NEG -7",
+            "MM ARITH -2.750",
+            "MM COND TRUE",
+        ],
+    )
+    .await;
+}
+
 // Stage 2, S2.32: %ABS lowered to Rust.
 // Source: golden capture tools/golden/native41.txt n41_abs (PUB400, IBM i 7.5, 2026-11-14)
 #[tokio::test]

@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.32");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.33");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -354,6 +354,13 @@ pub mod ir {
         Status,
         /// %ABS of a numeric expression (S2.32).
         Abs(Box<NumExpr>),
+        /// %MAX (`max`) or %MIN of two or more numeric expressions
+        /// (S2.33): the first of the greatest, or of the smallest.
+        MinMax {
+            args: Vec<NumExpr>,
+            max: bool,
+            path: Vec<u8>,
+        },
         /// %LOOKUP and %LOOKUPxx (S2.27): `x` searched in a global
         /// array (`buf`, `off`, `stride`, `dim`, element type), from
         /// `start` for `n` elements; `how` is "", LT, LE, GE or GT.
@@ -1380,6 +1387,27 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             let _ = writeln!(
                 helpers,
                 "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::dec::Dec> {{\n    let x = {x};\n    let y = {y};\n    {op}\n}}"
+            );
+            format!("{name}(rt)?")
+        }
+        ir::NumExpr::MinMax { args, max, path } => {
+            let name = format!("mm{pc}_{}", path_id(path));
+            let want = if *max { "Greater" } else { "Less" };
+            let mut body = String::new();
+            for (k, a) in args.iter().enumerate() {
+                let x = num_expr(pc, a, helpers);
+                if k == 0 {
+                    let _ = writeln!(body, "    let mut best = {x};");
+                } else {
+                    let _ = write!(
+                        body,
+                        "    let v = {x};\n    if v.cmp(&best) == std::cmp::Ordering::{want} {{\n        best = v;\n    }}\n"
+                    );
+                }
+            }
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::dec::Dec> {{\n{body}    Ok(best)\n}}"
             );
             format!("{name}(rt)?")
         }
