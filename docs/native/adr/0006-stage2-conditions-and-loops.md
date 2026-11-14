@@ -323,3 +323,16 @@ The generated code keeps the interpreter's order of evaluation: the argument, th
 **What changes.** %EDITW of a numeric expression with a literal edit word is a character expression of lowered code. Its helper is `o<pc>_<path>`. `rpgrt::native::edit_word` is the interpreter's `edit_word`, written again under section 5's lints. `editw` takes the digits and decimal places as the interpreter's `"EDITW"` arm does: a field's type, or for any other expression the value's own digits, at least one. That differs from %EDITC, which takes an expression's precision. The tripwire watches `edit_word`.
 
 **Expected values.** `core/tests/native/NEDITW.rpgle`, captured on PUB400: tools/golden/native37.txt n37_editw (IBM i 7.5, 2026-11-14). The capture found an interpreter defect (fidelity.md): with a floating currency symbol, the thousands separator lands one position off. It is left out of the test.
+
+## S2.30: subfields of a data structure array (rpgcg 0.1.0+stage2.30)
+
+**What changes.** `ds(i).field` is an eligible operand when:
+- the data structure array is global, not based and not of multiple occurrences;
+- the subfield is scalar and of an eligible type;
+- the index is a literal or an eligible numeric field.
+
+The interpreter's `path_sym` adds (i - 1) times the data structure's size to the subfield's place, after the same RNQ0121 check as an array element's, with the same text. So the operand is S2.21's indexed operand, with the data structure's size as the stride and its DIM.
+
+**Not lowered.** Deeper paths (`a(i).b(j).c`), array subfields, local data structure arrays, `ds(*)`.
+
+**Expected values.** `core/tests/native/NDSA.rpgle`, captured on PUB400: tools/golden/native38.txt n38_dsa (IBM i 7.5, 2026-11-14). The interpreter gives the same values.
