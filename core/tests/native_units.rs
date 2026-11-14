@@ -711,3 +711,49 @@ async fn native_unit_lowered_figurative_constants() {
     )
     .await;
 }
+
+// Stage 2, S2.23: %REPLACE lowered to Rust: with and without a start and a
+// length, an insert, an append, a length past the end.
+// Source: golden capture tools/golden/native30.txt n30_repl (PUB400, IBM i 7.5, 2026-11-14)
+#[tokio::test]
+async fn native_unit_lowered_replace() {
+    let _ = require_db!();
+    expect(
+        "NREPL",
+        include_str!("native/NREPL.rpgle"),
+        &[
+            "REPL START LEN [ABXYEFG]",
+            "REPL START [ABXYEFG]",
+            "REPL NOSTART [XYCDEFG]",
+            "REPL INSERT [ABXYCDEFG]",
+            "REPL APPEND [ABCDEFGXY]",
+            "REPL LONGLEN [ABXY]",
+            "REPL PASTLEN [ABCDEFGXY]",
+            "REPL TRIM [ABQEFG]",
+        ],
+    )
+    .await;
+}
+
+// Stage 2, S2.24: a whole data structure as a character operand lowered to
+// Rust: assigned (padded, EVALR), read, compared, with %SUBST and %LEN,
+// sharing its bytes with its subfields.
+// Source: golden capture tools/golden/native31.txt n31_dsw (PUB400, IBM i 7.5, 2026-11-14)
+#[tokio::test]
+async fn native_unit_lowered_whole_data_structures() {
+    let _ = require_db!();
+    expect(
+        "NDSW",
+        include_str!("native/NDSW.rpgle"),
+        &[
+            "DSW SUBS [ABC|12|WXYZ]",
+            "DSW TO CHAR [ABC012WXYZ  ]",
+            "DSW PAD [XY ]",
+            "DSW CMP PADDED EQ",
+            "DSW AFTER SUB [XY 007      ]",
+            "DSW EVALR [   Q]",
+            "DSW LEN 10",
+        ],
+    )
+    .await;
+}

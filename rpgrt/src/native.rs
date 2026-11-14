@@ -521,6 +521,33 @@ pub fn elem_at(off: usize, stride: usize, dim: u32, index: &Value) -> NResult<us
         })
 }
 
+/// %REPLACE (S2.23): `rep` in place of `len` characters of `s` from
+/// `start` (1 and `rep`'s length when not given), as the interpreter
+/// computes it: the start and length are cut to the string, so a start
+/// past the end appends.
+pub fn replace(rep: &[u8], s: &[u8], start: Option<&Value>, len: Option<&Value>) -> NResult<Value> {
+    // The interpreter converts with `as usize`: a negative value becomes a
+    // very large one, which the cuts below bring back to the string.
+    let size = |v: &Value| -> NResult<usize> {
+        let i = v.num()?.to_i128()?;
+        Ok(usize::try_from(i).unwrap_or(usize::MAX))
+    };
+    let start = match start {
+        Some(v) => size(v)?,
+        None => 1,
+    };
+    let len = match len {
+        Some(v) => size(v)?,
+        None => rep.len(),
+    };
+    let from = start.saturating_sub(1).min(s.len());
+    let to = from.saturating_add(len).min(s.len());
+    let mut out = s.get(..from).unwrap_or_default().to_vec();
+    out.extend_from_slice(rep);
+    out.extend_from_slice(s.get(to..).unwrap_or_default());
+    Ok(Value::Char(out))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

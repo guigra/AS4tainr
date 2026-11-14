@@ -27,6 +27,7 @@ Each was observed on the interpreter and confirmed on a real IBM i: PUB400, IBM 
 | `%SCAN(pat : v : 0)` of an empty varying field | 0: an empty string gives 0 whatever the start (start 0, -5, 2 and 99) | Status 00100 for a start below 1 since upstream #9; the follow-up pull request is open | Golden capture tools/golden/native22.txt n22_scan (PUB400, IBM i 7.5, 2026-11-13) |
 | A numeric field compared with `*HIVAL` (or `*LOVAL`) after `z = *hival` (a 3-digit zoned field) | Equal: the field holds the highest value its type can, which is `*HIVAL` for it | Not equal: `data::compare` gives `*HIVAL` the value +infinity and `*LOVAL` -infinity, whatever the other operand's type | Golden capture tools/golden/native28.txt n28_fig, case FIG CMP HIVAL (PUB400, IBM i 7.5, 2026-11-14); as4tainr at 0b9d585 |
 | `v = *blanks` with `v` a VARCHAR(5) holding 'XY' | Five blanks: the current length becomes the maximum, 5 | An empty string, length 0 (`data::store` of `Fig::Blanks` into a varying field) | Golden capture tools/golden/native28.txt n28_fig, case FIG VAR (PUB400, IBM i 7.5, 2026-11-14); as4tainr at 0b9d585 |
+| `%REPLACE(rep : s : start)` with `start` outside 1 to the length of `s` plus 1 (0, or 9 for a 7-character string) | Status 00100 | No error: a start of 0 replaces from the first character, a start past the end appends | Golden capture tools/golden/native30.txt n30_repl, cases REPL PAST and REPL ZERO (PUB400, IBM i 7.5, 2026-11-14); `interp.rs`'s `"REPLACE"` arm by reading its code |
 
 ## Interpreter defects fixed upstream
 
