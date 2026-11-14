@@ -265,6 +265,35 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                 path,
             })
         }
+        // %SCANRPL of character expressions, with a start and a length that
+        // are numeric literals or fields (S2.28).
+        Expr::Bif(b, args) if b == "SCANRPL" => {
+            let (pat, rep, s, start, len) = match args.as_slice() {
+                [a, r, s] => (a, r, s, None, None),
+                [a, r, s, st] => (a, r, s, Some(st), None),
+                [a, r, s, st, n] => (a, r, s, Some(st), Some(n)),
+                _ => return None,
+            };
+            let child = |k: u8| {
+                let mut c = path.clone();
+                c.push(k);
+                c
+            };
+            Some(ir::CharExpr::ScanRpl {
+                pat: Box::new(char_expr(cx, pat, used, child(0))?),
+                rep: Box::new(char_expr(cx, rep, used, child(1))?),
+                s: Box::new(char_expr(cx, s, used, child(2))?),
+                start: match start {
+                    Some(x) => Some(operand(cx, x, used)?),
+                    None => None,
+                },
+                len: match len {
+                    Some(x) => Some(operand(cx, x, used)?),
+                    None => None,
+                },
+                path,
+            })
+        }
         // %REPLACE of character expressions, with a start and a length
         // that are numeric literals or fields (S2.23).
         Expr::Bif(b, args) if b == "REPLACE" => {

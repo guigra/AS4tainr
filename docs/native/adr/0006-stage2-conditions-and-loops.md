@@ -311,3 +311,9 @@ The generated code keeps the interpreter's order of evaluation: the argument, th
 **Not lowered.** %TLOOKUP (it moves the table's current element), arrays of data structures (`ds(*).field`), local arrays.
 
 **Expected values.** `core/tests/native/NLOOK.rpgle`, captured on PUB400: tools/golden/native35.txt n35_look (IBM i 7.5, 2026-11-14). The interpreter gives the same 13 values.
+
+## S2.28: %SCANRPL (rpgcg 0.1.0+stage2.28)
+
+**What changes.** %SCANRPL of three character expressions, with a start and a length that are literals or fields, is a character expression of lowered code. Its helper is `v<pc>_<path>`. `rpgrt::native::scanrpl` is the interpreter's `"SCANRPL"` arm, in the same order of evaluation and with the same RNQ0100 check. One difference: where the interpreter's default length underflows (a start more than one past the end) and panics in a debug build, the native code computes it with saturation and gives the RNQ0100 error, which is what a release build of the interpreter gives.
+
+**Expected values.** `core/tests/native/NSRPL.rpgle`, captured on PUB400: tools/golden/native36.txt n36_srpl (IBM i 7.5, 2026-11-14). Two cases differ in the interpreter (fidelity.md) and are left out of the test.

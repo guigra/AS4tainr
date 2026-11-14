@@ -861,3 +861,28 @@ async fn native_unit_lowered_lookup() {
     )
     .await;
 }
+
+// Stage 2, S2.28: %SCANRPL lowered to Rust: with and without a start and a
+// length, overlapping patterns, an empty replacement, status 00100 for
+// start 0 and a length past the end, of a trimmed field.
+// Source: golden capture tools/golden/native36.txt n36_srpl (PUB400, IBM i 7.5, 2026-11-14)
+#[tokio::test]
+async fn native_unit_lowered_scanrpl() {
+    let _ = require_db!();
+    expect(
+        "NSRPL",
+        include_str!("native/NSRPL.rpgle"),
+        &[
+            "SRPL ALL [XYbcXYbcXY]",
+            "SRPL START [abcXYbcXY]",
+            "SRPL START LEN [abcXYbca]",
+            "SRPL OVERLAP [ZZa]",
+            "SRPL DELETE [bcbc]",
+            "SRPL NONE [abcabca]",
+            "SRPL ZERO ERR 100",
+            "SRPL LONG ERR 100",
+            "SRPL TRIM [BaB]",
+        ],
+    )
+    .await;
+}

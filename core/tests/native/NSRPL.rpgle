@@ -1,0 +1,73 @@
+**FREE
+// Stage 2, S2.28: %SCANRPL, lowered to Rust. Expected: what IBM i 7.5 gave
+// (golden capture tools/golden/native36.txt n36_srpl, cited in
+// native_units.rs). The capture's
+// cases SRPL END and SRPL PAST are left out: the interpreter differs
+// there (docs/native/fidelity.md).
+ctl-opt dftactgrp(*no);
+dcl-s s varchar(10) inz('abcabca');
+dcl-s t varchar(10) inz('aaaaa');
+dcl-s u char(8) inz('  bab ');
+dcl-s r varchar(30);
+dcl-s p0 int(10) inz(0);
+dcl-s p2 int(10) inz(2);
+dcl-s p3 int(10) inz(3);
+dcl-s p8 int(10) inz(8);
+dcl-s p9 int(10) inz(9);
+dcl-s l3 int(10) inz(3);
+dcl-s l9 int(10) inz(9);
+monitor;
+  r = %scanrpl('a':'XY':s);
+  dsply ('SRPL ALL [' + r + ']');
+on-error;
+  dsply ('SRPL ALL ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('a':'XY':s:p3);
+  dsply ('SRPL START [' + r + ']');
+on-error;
+  dsply ('SRPL START ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('a':'XY':s:p2:l3);
+  dsply ('SRPL START LEN [' + r + ']');
+on-error;
+  dsply ('SRPL START LEN ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('aa':'Z':t);
+  dsply ('SRPL OVERLAP [' + r + ']');
+on-error;
+  dsply ('SRPL OVERLAP ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('a':'':s);
+  dsply ('SRPL DELETE [' + r + ']');
+on-error;
+  dsply ('SRPL DELETE ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('q':'Z':s);
+  dsply ('SRPL NONE [' + r + ']');
+on-error;
+  dsply ('SRPL NONE ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('a':'Z':s:p0);
+  dsply ('SRPL ZERO [' + r + ']');
+on-error;
+  dsply ('SRPL ZERO ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('a':'Z':s:p3:l9);
+  dsply ('SRPL LONG [' + r + ']');
+on-error;
+  dsply ('SRPL LONG ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('b':'B':%trim(u));
+  dsply ('SRPL TRIM [' + r + ']');
+on-error;
+  dsply ('SRPL TRIM ERR ' + %char(%status));
+endmon;
+*inlr = *on;

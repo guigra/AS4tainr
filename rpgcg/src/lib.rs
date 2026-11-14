@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.27");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.28");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -263,6 +263,17 @@ pub mod ir {
             point: char,
             zero: bool,
             own: bool,
+            path: Vec<u8>,
+        },
+        /// %SCANRPL (S2.28): `pat` replaced by `rep` in `s` from `start`
+        /// for `len` characters; the places of `pat`, `rep` and `s` are 0,
+        /// 1 and 2.
+        ScanRpl {
+            pat: Box<CharExpr>,
+            rep: Box<CharExpr>,
+            s: Box<CharExpr>,
+            start: Option<Operand>,
+            len: Option<Operand>,
             path: Vec<u8>,
         },
         /// %REPLACE (S2.23): `rep` in place of `len` characters of `s`
@@ -1169,6 +1180,32 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
             let _ = writeln!(
                 helpers,
                 "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let v = {x};\n    static P: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let p = {p};\n    rpgrt::native::editc(&v, p, {code:?}, {point:?}, {zero})\n}}"
+            );
+            format!("{name}(rt)?")
+        }
+        ir::CharExpr::ScanRpl {
+            pat,
+            rep,
+            s,
+            start,
+            len,
+            path,
+        } => {
+            let name = format!("v{pc}_{}", path_id(path));
+            let a = char_expr(pc, pat, helpers);
+            let r = char_expr(pc, rep, helpers);
+            let x = char_expr(pc, s, helpers);
+            let opt = |o: &Option<ir::Operand>| match o {
+                Some(o) => format!("Some({})", value(o)),
+                None => "None".to_string(),
+            };
+            // As the interpreter: the pattern, the replacement, the string,
+            // the start, the length.
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let a = {a}.chars()?;\n    let r = {r}.chars()?;\n    let s = {x}.chars()?;\n    let st = {};\n    let n = {};\n    rpgrt::native::scanrpl(&a, &r, &s, st.as_ref(), n.as_ref())\n}}",
+                opt(start),
+                opt(len)
             );
             format!("{name}(rt)?")
         }
