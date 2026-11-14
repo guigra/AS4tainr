@@ -76,6 +76,14 @@ AS4TAINR_TEST_DATABASE_URL="$db" AS4TAINR_NATIVE_EMIT="$emit" AS4TAINR_RPG_ENGIN
   cargo test --locked --no-fail-fast > "$out/1-interp.log" 2>&1
 echo "exit=$?" >> "$out/1-interp.log"
 results "$out/1-interp.log" > "$out/1-interp.res"
+# The reference must be a whole run: a test binary killed by a signal (a
+# hung run stopped by hand or by a watchdog) leaves the rest of its tests
+# out, and comparing the others would pass on a part of the suite.
+if grep -qE "\(signal: [0-9]+, SIG[A-Z]+" "$out/1-interp.log"; then
+  step reference FAIL "a test binary of the interpreter run was killed (see 1-interp.log): the reference is incomplete"
+else
+  step reference PASS "$(wc -l < "$out/1-interp.res") test results"
+fi
 url=$(newdb native_diff_demo_interp) || { step demo-interp FAIL "no database"; }
 AS4TAINR_NATIVE_EMIT="$emit" AS4TAINR_RPG_ENGINE=interp AS4TAINR_DATABASE_URL="$url" \
   AS4TAINR_BIN=target/debug/as4tainr scripts/demo.sh > "$out/1-demo-interp.log" 2>&1
