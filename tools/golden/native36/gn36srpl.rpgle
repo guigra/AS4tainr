@@ -1,0 +1,95 @@
+**FREE
+// Stage 2, S2.28: %SCANRPL with a start and a length, overlapping
+// patterns, an empty replacement, and starts at and past the end. Captured
+// on PUB400 (tools/golden/native36.txt n36_srpl) for the native unit test
+// NSRPL.
+ctl-opt dftactgrp(*no);
+dcl-s s varchar(10) inz('abcabca');
+dcl-s t varchar(10) inz('aaaaa');
+dcl-s u char(8) inz('  bab ');
+dcl-s r varchar(30);
+dcl-s p0 int(10) inz(0);
+dcl-s p2 int(10) inz(2);
+dcl-s p3 int(10) inz(3);
+dcl-s p8 int(10) inz(8);
+dcl-s p9 int(10) inz(9);
+dcl-s l3 int(10) inz(3);
+dcl-s l9 int(10) inz(9);
+monitor;
+  r = %scanrpl('a':'XY':s);
+  say('SRPL ALL [' + r + ']');
+on-error;
+  say('SRPL ALL ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('a':'XY':s:p3);
+  say('SRPL START [' + r + ']');
+on-error;
+  say('SRPL START ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('a':'XY':s:p2:l3);
+  say('SRPL START LEN [' + r + ']');
+on-error;
+  say('SRPL START LEN ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('aa':'Z':t);
+  say('SRPL OVERLAP [' + r + ']');
+on-error;
+  say('SRPL OVERLAP ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('a':'':s);
+  say('SRPL DELETE [' + r + ']');
+on-error;
+  say('SRPL DELETE ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('q':'Z':s);
+  say('SRPL NONE [' + r + ']');
+on-error;
+  say('SRPL NONE ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('a':'Z':s:p8);
+  say('SRPL END [' + r + ']');
+on-error;
+  say('SRPL END ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('a':'Z':s:p9);
+  say('SRPL PAST [' + r + ']');
+on-error;
+  say('SRPL PAST ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('a':'Z':s:p0);
+  say('SRPL ZERO [' + r + ']');
+on-error;
+  say('SRPL ZERO ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('a':'Z':s:p3:l9);
+  say('SRPL LONG [' + r + ']');
+on-error;
+  say('SRPL LONG ERR ' + %char(%status));
+endmon;
+monitor;
+  r = %scanrpl('b':'B':%trim(u));
+  say('SRPL TRIM [' + r + ']');
+on-error;
+  say('SRPL TRIM ERR ' + %char(%status));
+endmon;
+*inlr = *on;
+// Write one line to gn1.out in the job's current directory (DSPLY under
+// `system` goes to QSYSOPR, a queue PUB400 users share).
+dcl-proc say;
+  dcl-pi *n;
+    text varchar(200) const;
+  end-pi;
+  dcl-s line varchar(200);
+  line = text;
+  exec sql call qsys2.ifs_write_utf8(path_name => 'gn1.out', line => :line,
+                                     overwrite => 'APPEND', end_of_line => 'LF');
+end-proc;

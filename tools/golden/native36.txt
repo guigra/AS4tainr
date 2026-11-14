@@ -1,0 +1,4 @@
+# Captures for stage 2 of the native backend, S2.28: %SCANRPL.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native36.txt -f tools/golden/native36
+n36_crt_srpl|!system "CRTSQLRPGI OBJ(@LIB@/GN36SRPL) SRCSTMF('@HOME@/gld/gn36srpl.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n36_srpl|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN36SRPL)"; cat gn1.out; rm -f gn1.out

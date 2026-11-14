@@ -772,6 +772,54 @@ pub fn search(
     )?))
 }
 
+/// %SCANRPL (S2.28): each `pat` in `s` from `start` (1) for `len`
+/// characters (to the end) replaced by `rep`, as the interpreter computes
+/// it, with its RNQ0100 error for a start or length outside the string.
+pub fn scanrpl(
+    pat: &[u8],
+    rep: &[u8],
+    s: &[u8],
+    start: Option<&Value>,
+    len: Option<&Value>,
+) -> NResult<Value> {
+    let bad = || anyhow::anyhow!("RNQ0100: %SCANRPL start or length is outside the string.");
+    // The interpreter converts with `as usize`: a negative value becomes a
+    // very large one, which fails the check below.
+    let size = |v: &Value| -> NResult<usize> {
+        Ok(usize::try_from(v.num()?.to_i128()?).unwrap_or(usize::MAX))
+    };
+    let start = match start {
+        Some(v) => size(v)?,
+        None => 1,
+    };
+    let len = match len {
+        Some(v) => size(v)?,
+        None => s.len().saturating_add(1).saturating_sub(start.max(1)),
+    };
+    let from = start.checked_sub(1).ok_or_else(bad)?;
+    let to = from
+        .checked_add(len)
+        .filter(|&e| e <= s.len())
+        .ok_or_else(bad)?;
+    let mut out = s.get(..from).ok_or_else(bad)?.to_vec();
+    let region = s.get(from..to).ok_or_else(bad)?;
+    let mut i = 0usize;
+    while let Some(rest) = region.get(i..) {
+        if rest.is_empty() {
+            break;
+        }
+        if !pat.is_empty() && rest.starts_with(pat) {
+            out.extend_from_slice(rep);
+            i = i.saturating_add(pat.len());
+        } else {
+            out.extend(rest.first());
+            i = i.saturating_add(1);
+        }
+    }
+    out.extend_from_slice(s.get(to..).ok_or_else(bad)?);
+    Ok(Value::Char(out))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
