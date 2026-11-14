@@ -268,3 +268,15 @@ Each operand's precision is that of its own node, `Runtime::precision(pc, path +
 A figurative constant is never a numeric operand of lowered arithmetic, nor factor 2 of a lowered MOVE: there the interpreter fills it to the result's length.
 
 **Expected values.** `core/tests/native/NFIG.rpgle`, captured on PUB400: tools/golden/native28.txt n28_fig (IBM i 7.5, 2026-11-14). The capture found two interpreter defects (fidelity.md): a numeric field compared with *HIVAL, and *BLANKS into a varying field. Both are left out of the test.
+
+## S2.23: %REPLACE (rpgcg 0.1.0+stage2.23)
+
+**What changes.** %REPLACE of two character expressions, with a start and a length that are numeric literals or eligible fields, is a character expression of lowered code. Its helper is `w<pc>_<path>`. `rpgrt::native::replace` computes what the interpreter's `"REPLACE"` arm computes, the start and length cut to the string, in the same order of evaluation.
+
+**Expected values.** `core/tests/native/NREPL.rpgle`, captured on PUB400: tools/golden/native30.txt n30_repl (IBM i 7.5, 2026-11-14). The capture found an interpreter defect (fidelity.md): a start outside 1 to the length plus 1 is status 00100 on IBM i. It is left out of the test.
+
+## S2.24: a whole data structure as a character operand (rpgcg 0.1.0+stage2.24)
+
+**What changes.** The name of a data structure is an eligible operand when the data structure is global, not an array, not based, not of multiple occurrences, and not imported or exported. It is `Ty::Char(size)` at the data structure's buffer and offset, because that is how the interpreter treats it: `eval` gives its bytes as `Value::Char`, and `assign` stores with `data::store` as `DType::Char(size)`. Its subfields share the bytes, lowered or not. The layout line marks it `ds`.
+
+**Expected values.** `core/tests/native/NDSW.rpgle`, captured on PUB400: tools/golden/native31.txt n31_dsw (IBM i 7.5, 2026-11-14).

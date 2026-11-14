@@ -243,6 +243,34 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                 path,
             })
         }
+        // %REPLACE of character expressions, with a start and a length
+        // that are numeric literals or fields (S2.23).
+        Expr::Bif(b, args) if b == "REPLACE" => {
+            let (rep, s, start, len) = match args.as_slice() {
+                [r, s] => (r, s, None, None),
+                [r, s, st] => (r, s, Some(st), None),
+                [r, s, st, n] => (r, s, Some(st), Some(n)),
+                _ => return None,
+            };
+            let child = |k: u8| {
+                let mut c = path.clone();
+                c.push(k);
+                c
+            };
+            Some(ir::CharExpr::Replace {
+                rep: Box::new(char_expr(cx, rep, used, child(0))?),
+                s: Box::new(char_expr(cx, s, used, child(1))?),
+                start: match start {
+                    Some(x) => Some(operand(cx, x, used)?),
+                    None => None,
+                },
+                len: match len {
+                    Some(x) => Some(operand(cx, x, used)?),
+                    None => None,
+                },
+                path,
+            })
+        }
         // %XLATE of character expressions, with a start that is a numeric
         // literal or field (S2.12).
         Expr::Bif(b, args) if b == "XLATE" => {
@@ -558,8 +586,37 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
     if parts.is_empty() {
         return None;
     }
-    let Some(Sym::Var(v)) = cx.syms.get(name) else {
-        return None;
+    let v = match cx.syms.get(name) {
+        Some(Sym::Var(v)) => v,
+        // A whole data structure (S2.24), not an array, global, not based
+        // or of multiple occurrences: the interpreter reads its bytes and
+        // assigns it as a character field of its size (`eval`, `assign`).
+        Some(Sym::Ds(d)) if args.is_none() => {
+            let prog = cx.prog;
+            if d.local
+                || d.dim != 0
+                || prog.based.contains_key(&d.buf)
+                || prog.occurs.iter().any(|o| o.buf == d.buf)
+                || prog.data_imports.iter().any(|(n, _)| n == name)
+                || prog.data_exports.iter().any(|(n, _)| n == name)
+            {
+                return None;
+            }
+            let size = u32::try_from(d.size).ok()?;
+            used.push(format!(
+                "layout {name} {} {} ds {size} global",
+                d.buf, d.off
+            ));
+            return Some(ir::Operand::Var {
+                name: name.clone(),
+                buf: d.buf,
+                off: d.off,
+                ty: ir::Ty::Char(size),
+                local: false,
+                index: None,
+            });
+        }
+        _ => return None,
     };
     // An element of a global array with a literal index in range
     // (S2.15): a field at a fixed place, as the interpreter's `elem_off`
