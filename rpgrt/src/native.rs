@@ -156,6 +156,9 @@ pub trait Runtime {
     fn remainder(&self) -> Dec;
     /// Stage 2 (S2.7): DIV keeps its remainder.
     fn set_remainder(&mut self, d: Dec);
+    /// Stage 2 (S2.31): the most recent program or file status code, as
+    /// %STATUS with no file gives it.
+    fn status(&self) -> u32;
 }
 
 /// A sum, difference or product with the decimal places the precision

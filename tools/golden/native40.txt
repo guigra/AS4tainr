@@ -1,0 +1,4 @@
+# Captures for stage 2 of the native backend, S2.31: %STATUS.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native40.txt -f tools/golden/native40
+n40_crt_stat|!system "CRTSQLRPGI OBJ(@LIB@/GN40STAT) SRCSTMF('@HOME@/gld/gn40stat.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n40_stat|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN40STAT)"; cat gn1.out; rm -f gn1.out

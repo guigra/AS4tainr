@@ -336,3 +336,11 @@ The interpreter's `path_sym` adds (i - 1) times the data structure's size to the
 **Not lowered.** Deeper paths (`a(i).b(j).c`), array subfields, local data structure arrays, `ds(*)`.
 
 **Expected values.** `core/tests/native/NDSA.rpgle`, captured on PUB400: tools/golden/native38.txt n38_dsa (IBM i 7.5, 2026-11-14). The interpreter gives the same values.
+
+## S2.31: %STATUS with no file (rpgcg 0.1.0+stage2.31)
+
+**What changes.** `%STATUS` with no argument is a numeric expression that is eligible anywhere a numeric expression is: an EVAL's value, arithmetic, a condition. The interpreter gives `Dec::new(code, 0)` from the machine's last status (`bifs.rs` "STATUS"). Generated code asks the runtime for that same code (`Runtime::status`, S2.31), so the value comes from where the interpreter keeps it: errors are settled by the interpreter's own path (`settle`), so `last` is set the same way in both engines.
+
+**Not lowered.** `%STATUS(file)`: a file's status.
+
+**Expected values.** `core/tests/native/NSTAT.rpgle`, captured on PUB400: tools/golden/native40.txt n40_stat (IBM i 7.5, 2026-11-14). The program keeps the values and writes them at the end. A first version wrote each one as it went, through a procedure that runs SQL, and on IBM i %STATUS was 0 again after each such call. That case is not in the test; it is noted in HANDOFF.md to look at. The interpreter gives the captured values.

@@ -395,6 +395,11 @@ impl Runtime for Rt<'_, '_> {
         }
     }
 
+    fn status(&self) -> u32 {
+        // bifs.rs "STATUS" with no argument: `self.last`'s code.
+        self.m.last.code
+    }
+
     fn remainder(&self) -> Dec {
         self.m.remainder
     }

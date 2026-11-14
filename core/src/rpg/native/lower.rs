@@ -431,6 +431,9 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 path,
             })
         }
+        // %STATUS with no file (S2.31): the code the interpreter's
+        // bifs.rs "STATUS" arm gives, `Dec::new(code, 0)`.
+        Expr::Bif(b, args) if b == "STATUS" && args.is_empty() => Some(ir::NumExpr::Status),
         // %LEN of a varying-length field (S2.20): its current length, as
         // the interpreter's `(Some(DType::Varchar(_)), Value::Char(c))`
         // arm gives it.
