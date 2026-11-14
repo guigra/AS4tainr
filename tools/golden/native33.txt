@@ -1,0 +1,4 @@
+# Captures for an upstream fix: %SIZE of numeric named constants.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native33.txt -f tools/golden/native33
+n33_crt_ksize|!system "CRTSQLRPGI OBJ(@LIB@/GN33KSZ) SRCSTMF('@HOME@/gld/gn33ksize.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n33_ksize|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN33KSZ)"; cat gn1.out; rm -f gn1.out

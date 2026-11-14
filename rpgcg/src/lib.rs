@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.24");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.25");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.

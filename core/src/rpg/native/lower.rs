@@ -5,7 +5,7 @@
 
 use super::super::ast::{Arith, BinOp, Expr, FileOp, Stmt};
 use super::super::code::{Code, Ins};
-use super::super::data::{DType, Fig};
+use super::super::data::{DType, Fig, Value};
 use super::super::program::{Program, Sym};
 use super::Place;
 use rpgcg::ir;
@@ -524,6 +524,42 @@ fn any_operand(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Oper
         // A figurative constant (S2.22); `operand` keeps it out of
         // numeric places, and only comparisons take it.
         Expr::Fig(f) => fig_op(f).map(ir::Operand::Fig),
+        // %SIZE and %ELEM of a name (S2.25): constants, as the
+        // interpreter's "SIZE" and "ELEM" arms work them out from the
+        // definitions (bif_override changes %ELEM only for varying-dimension
+        // arrays, which stay with the interpreter).
+        Expr::Bif(b, args) if b == "SIZE" || b == "ELEM" => {
+            let Some(Expr::Name { parts, args: None }) = args.first() else {
+                return None;
+            };
+            let name = parts.join(".");
+            let n: i128 = match (b.as_str(), cx.syms.get(&name)?) {
+                ("SIZE", Sym::Var(v)) => {
+                    let k = if args.len() > 1 { v.dim.max(1) } else { 1 };
+                    i128::try_from(v.dtype.size())
+                        .ok()?
+                        .checked_mul(i128::from(k))?
+                }
+                ("SIZE", Sym::Ds(d)) => {
+                    let k = if args.len() > 1 { d.dim.max(1) } else { 1 };
+                    i128::try_from(d.size).ok()?.checked_mul(i128::from(k))?
+                }
+                ("SIZE", Sym::Const(Value::Num(d))) => {
+                    let digits = d.int_digits().checked_add(u32::from(d.scale()))?.max(1);
+                    i128::from(digits.checked_div(2)?.checked_add(1)?)
+                }
+                ("SIZE", Sym::Const(c)) => i128::try_from(c.chars().ok()?.len()).ok()?,
+                ("ELEM", Sym::Var(v))
+                    if args.len() == 1 && !cx.prog.varying.contains_key(&name) =>
+                {
+                    i128::from(v.dim)
+                }
+                ("ELEM", Sym::Ds(d)) if args.len() == 1 => i128::from(d.dim),
+                _ => return None,
+            };
+            used.push(format!("{b} {name} {n}"));
+            Some(ir::Operand::Num { m: n, s: 0 })
+        }
         // %LEN of a fixed-length character field (S2.9): its length, a
         // constant (the interpreter's `type_of(arg).len()`; varying
         // fields are not eligible).

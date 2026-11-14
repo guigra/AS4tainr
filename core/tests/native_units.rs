@@ -757,3 +757,29 @@ async fn native_unit_lowered_whole_data_structures() {
     )
     .await;
 }
+
+// Stage 2, S2.25: %SIZE and %ELEM lowered to Rust as constants: fields,
+// array elements and *ALL, a data structure, a character named constant,
+// in arithmetic and a condition.
+// Source: golden capture tools/golden/native32.txt n32_size (PUB400, IBM i 7.5, 2026-11-14)
+#[tokio::test]
+async fn native_unit_lowered_size_elem() {
+    let _ = require_db!();
+    expect(
+        "NSIZE",
+        include_str!("native/NSIZE.rpgle"),
+        &[
+            "SIZE CHAR 7",
+            "SIZE PACKED 4",
+            "SIZE INT 4",
+            "SIZE ELEMENT 3",
+            "SIZE ALL 15",
+            "SIZE DS 5",
+            "SIZE CONST CHAR 4",
+            "ELEM 5",
+            "SIZE EXPR 10",
+            "SIZE COND YES",
+        ],
+    )
+    .await;
+}

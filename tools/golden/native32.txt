@@ -1,0 +1,4 @@
+# Captures for stage 2 of the native backend, S2.25: %SIZE and %ELEM.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native32.txt -f tools/golden/native32
+n32_crt_size|!system "CRTSQLRPGI OBJ(@LIB@/GN32SIZE) SRCSTMF('@HOME@/gld/gn32size.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n32_size|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN32SIZE)"; cat gn1.out; rm -f gn1.out
