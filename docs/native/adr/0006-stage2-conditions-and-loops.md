@@ -344,3 +344,11 @@ The interpreter's `path_sym` adds (i - 1) times the data structure's size to the
 **Not lowered.** `%STATUS(file)`: a file's status.
 
 **Expected values.** `core/tests/native/NSTAT.rpgle`, captured on PUB400: tools/golden/native40.txt n40_stat (IBM i 7.5, 2026-11-14). The program keeps the values and writes them at the end. A first version wrote each one as it went, through a procedure that runs SQL, and on IBM i %STATUS was 0 again after each such call. That case is not in the test; it is noted in HANDOFF.md to look at. The interpreter gives the captured values.
+
+## S2.32: %ABS (rpgcg 0.1.0+stage2.32)
+
+**What changes.** `%ABS(x)` of an eligible numeric expression is an eligible numeric expression: the interpreter's `v.num()?.abs()` (`interp.rs` "ABS"), the same scale. Its precision for an enclosing operation is its argument's (`num_precision`), which the runtime works out as before; the argument's path adds step 0.
+
+**Not lowered.** `%ABS` of a float: float is not an eligible type.
+
+**Expected values.** `core/tests/native/NABS.rpgle`, captured on PUB400: tools/golden/native41.txt n41_abs (IBM i 7.5, 2026-11-14). These include the smallest int(10) stored back into an int(10), which is status 00103. The interpreter gives the same values.
