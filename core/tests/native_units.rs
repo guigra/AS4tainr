@@ -667,3 +667,25 @@ async fn native_unit_lowered_varying_length() {
     )
     .await;
 }
+
+// Stage 2, S2.21: array elements with an index that is a field, lowered to
+// Rust: written and read in FOR loops, as targets, in conditions and
+// expressions, and status 00121 for an index of 0 or past the end.
+// Source: golden capture tools/golden/native27.txt n27_arrv (PUB400, IBM i 7.5, 2026-11-14)
+#[tokio::test]
+async fn native_unit_lowered_array_elements_with_field_indexes() {
+    let _ = require_db!();
+    expect(
+        "NARRV",
+        include_str!("native/NARRV.rpgle"),
+        &[
+            "ARRV SUM 150",
+            "ARRV CHAR [   |ABC|ABC]",
+            "ARRV COND GT",
+            "ARRV EXPR 50",
+            "ARRV PAST ERR 121",
+            "ARRV ZERO ERR 121",
+        ],
+    )
+    .await;
+}

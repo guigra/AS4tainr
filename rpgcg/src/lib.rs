@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.20");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.21");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -88,11 +88,23 @@ pub mod ir {
             /// A procedure local (S2.8): `buf` is the frame's, and the
             /// runtime gives where it is in this call (`Runtime::local`).
             local: bool,
+            /// An array element with an index known only when it runs
+            /// (S2.21): `off` is the array's start.
+            index: Option<Box<Index>>,
         },
         /// A numeric literal: mantissa and scale (`Dec::new`).
         Num { m: i128, s: u8 },
         /// A character literal, its EBCDIC bytes (S2.4).
         Str(Vec<u8>),
+    }
+
+    /// The index of an array element (S2.21): the operand it is, and the
+    /// array's element distance and number of elements.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct Index {
+        pub of: Operand,
+        pub stride: usize,
+        pub dim: u32,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -511,6 +523,38 @@ fn ty(t: &ir::Ty) -> String {
     }
 }
 
+/// Where an array element with a run-time index is (S2.21): the
+/// interpreter's `elem_off`, the index evaluated first.
+fn elem_at(off: usize, ix: &ir::Index) -> String {
+    format!(
+        "rpgrt::native::elem_at({off}, {}, {}, &{})?",
+        ix.stride,
+        ix.dim,
+        value(&ix.of)
+    )
+}
+
+/// Where a target operand of lowered code is (see `place`), an array
+/// element with a run-time index included.
+fn place_of(o: &ir::Operand) -> Option<(String, String, String)> {
+    match o {
+        ir::Operand::Var {
+            buf,
+            off,
+            index: Some(ix),
+            ..
+        } => Some((
+            format!("    let so = {};\n", elem_at(*off, ix)),
+            buf.to_string(),
+            "so".to_string(),
+        )),
+        ir::Operand::Var {
+            buf, off, local, ..
+        } => Some(place(*buf, *off, *local)),
+        _ => None,
+    }
+}
+
 /// Where a field written by lowered code is: a statement to put first
 /// (empty for a global), then the buffer and offset expressions. A
 /// procedure local's place is the runtime's, for this call.
@@ -529,6 +573,17 @@ fn place(buf: usize, off: usize, local: bool) -> (String, String, String) {
 /// An operand as a `Value` expression (inside a helper with `rt`).
 fn value(o: &ir::Operand) -> String {
     match o {
+        ir::Operand::Var {
+            buf,
+            off,
+            ty: t,
+            index: Some(ix),
+            ..
+        } => format!(
+            "{{ let o = {}; rpgrt::native::load(rt.mem(), {buf}, o, {})? }}",
+            elem_at(*off, ix),
+            ty(t)
+        ),
         ir::Operand::Var {
             buf,
             off,
@@ -555,6 +610,17 @@ fn value(o: &ir::Operand) -> String {
 /// An operand as a `Dec` expression.
 fn number(o: &ir::Operand) -> String {
     match o {
+        ir::Operand::Var {
+            buf,
+            off,
+            ty: t,
+            index: Some(ix),
+            ..
+        } => format!(
+            "{{ let o = {}; rpgrt::native::load_num(rt.mem(), {buf}, o, {})? }}",
+            elem_at(*off, ix),
+            ty(t)
+        ),
         ir::Operand::Var {
             buf,
             off,
@@ -708,17 +774,10 @@ fn lowered_step(
             )
         }
         (ir::Kind::LoopStep, ir::Lowered::LoopStep { var, by, down }) => {
-            let ir::Operand::Var {
-                buf,
-                off,
-                ty: t,
-                local,
-                ..
-            } = var
-            else {
+            let ir::Operand::Var { ty: t, .. } = var else {
                 return Err(bad());
             };
-            let (prelude, sb, so) = place(*buf, *off, *local);
+            let (prelude, sb, so) = place_of(var).ok_or_else(bad)?;
             let _ = writeln!(
                 helpers,
                 "\nfn ls{pc}(rt: &mut dyn Runtime) -> NResult<()> {{"
@@ -753,17 +812,10 @@ fn lowered_step(
                 right,
             },
         ) => {
-            let ir::Operand::Var {
-                buf,
-                off,
-                ty: t,
-                local,
-                ..
-            } = target
-            else {
+            let ir::Operand::Var { ty: t, .. } = target else {
                 return Err(bad());
             };
-            let (prelude, sb, so) = place(*buf, *off, *local);
+            let (prelude, sb, so) = place_of(target).ok_or_else(bad)?;
             // The expression's helpers first, then this one whole.
             let v = num_expr(pc, value, helpers);
             let _ = writeln!(
@@ -790,17 +842,10 @@ fn lowered_step(
                 right,
             },
         ) => {
-            let ir::Operand::Var {
-                buf,
-                off,
-                ty: t,
-                local,
-                ..
-            } = target
-            else {
+            let ir::Operand::Var { ty: t, .. } = target else {
                 return Err(bad());
             };
-            let (prelude, sb, so) = place(*buf, *off, *local);
+            let (prelude, sb, so) = place_of(target).ok_or_else(bad)?;
             let v = char_expr(pc, value, helpers);
             let _ = writeln!(
                 helpers,
@@ -826,17 +871,10 @@ fn lowered_step(
                 to,
             },
         ) => {
-            let ir::Operand::Var {
-                buf,
-                off,
-                ty: t,
-                local,
-                ..
-            } = to
-            else {
+            let ir::Operand::Var { ty: t, .. } = to else {
                 return Err(bad());
             };
-            let (prelude, sb, so) = place(*buf, *off, *local);
+            let (prelude, sb, so) = place_of(to).ok_or_else(bad)?;
             // A literal has no type (the interpreter's `type_of`).
             let from_ty = match from {
                 ir::Operand::Var { ty: f, .. } => format!("Some({})", ty(f)),
@@ -871,17 +909,10 @@ fn lowered_step(
                 inds,
             },
         ) => {
-            let ir::Operand::Var {
-                buf,
-                off,
-                ty: t,
-                local,
-                ..
-            } = result
-            else {
+            let ir::Operand::Var { ty: t, .. } = result else {
                 return Err(bad());
             };
-            let (prelude, sb, so) = place(*buf, *off, *local);
+            let (prelude, sb, so) = place_of(result).ok_or_else(bad)?;
             let _ = writeln!(
                 helpers,
                 "\nfn ar{pc}(rt: &mut dyn Runtime) -> NResult<()> {{"
@@ -1364,6 +1395,7 @@ mod tests {
             off: 0,
             ty: Ty::Packed(5, 0),
             local: false,
+            index: None,
         };
         let mut test = ins(Kind::LoopTest { end: 3 }, 1, false);
         test.lowered = Some(Lowered::LoopTest {
@@ -1438,6 +1470,7 @@ mod tests {
             off: 0,
             ty: Ty::Packed(5, 2),
             local: false,
+            index: None,
         };
         let mut ev = ins(Kind::Stmt, 4, true);
         // r = x * y - 0.001
@@ -1489,6 +1522,7 @@ mod tests {
             off: 4,
             ty: Ty::Int(10),
             local: true,
+            index: None,
         };
         let mut ev = ins(Kind::Stmt, 2, false);
         ev.lowered = Some(Lowered::Eval {
