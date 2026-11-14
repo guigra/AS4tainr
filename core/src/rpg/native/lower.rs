@@ -517,6 +517,17 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 how: b.get(6..).unwrap_or_default().to_string(),
             })
         }
+        // %ABS of a numeric expression (S2.32): the interpreter's
+        // `v.num()?.abs()` (interp.rs "ABS"; a float argument is not an
+        // eligible numeric expression).
+        Expr::Bif(b, args) if b == "ABS" => {
+            let [inner] = args.as_slice() else {
+                return None;
+            };
+            let mut ip = path;
+            ip.push(0);
+            Some(ir::NumExpr::Abs(Box::new(num_expr(cx, inner, used, ip)?)))
+        }
         // %INT, %INTH of a numeric expression (S2.14).
         Expr::Bif(b, args) if matches!(b.as_str(), "INT" | "INTH") => {
             let [inner] = args.as_slice() else {

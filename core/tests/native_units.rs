@@ -887,6 +887,31 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.32: %ABS lowered to Rust.
+// Source: golden capture tools/golden/native41.txt n41_abs (PUB400, IBM i 7.5, 2026-11-14)
+#[tokio::test]
+async fn native_unit_lowered_abs() {
+    let _ = require_db!();
+    expect(
+        "NABS",
+        include_str!("native/NABS.rpgle"),
+        &[
+            "ABS P 123.450",
+            "ABS Q 67.890",
+            "ABS Z .125",
+            "ABS I 42",
+            "ABS DIFF 191.340",
+            "ABS ARITH 123.700",
+            "ABS ZERO .000",
+            "ABS UNS 42",
+            "ABS COND TRUE",
+            "ABS MIN INT20 2147483648",
+            "ABS MIN INT10 ERR 103",
+        ],
+    )
+    .await;
+}
+
 // Stage 2, S2.31: %STATUS with no file lowered to Rust: it keeps the last
 // program error's code through statements that end normally.
 // Source: golden capture tools/golden/native40.txt n40_stat (PUB400, IBM i 7.5, 2026-11-14)
