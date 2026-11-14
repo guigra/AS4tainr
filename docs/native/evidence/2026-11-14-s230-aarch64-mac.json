@@ -1,0 +1,82 @@
+{
+  "topic": "native engine S2.26-S2.30 (up to subfields of data structure arrays) validated on aarch64 (Mac M1, podman), with release",
+  "date": "2026-11-14",
+  "branch": "native/engine",
+  "commit": "8e212bd",
+  "tree": "commit 8e212bd plus the catalog::init lock fix (git diff origin/main origin/fix/init-lock-timeout -- core/src/catalog.rs; upstream issue #18) applied without a commit, as mac-tareas-2026-11-14.md step 2 says",
+  "platform": "aarch64, Debian 12.15 container in podman machine (Linux 7.0.12-201.fc44.aarch64, applehv, 8 GiB, 6 CPUs) on a Mac M1; PostgreSQL 16.16 (new database)",
+  "toolchain": "rustc 1.99.1 (58cf8f9c3 2026-10-13), host aarch64-unknown-linux-gnu, LLVM 23.1.1",
+  "logs_dir": "target/evidence/2026-11-14-s230-aarch64-mac (podman volume as4tainr-target)",
+  "steps": {
+    "1-fmt": {
+      "command": "cargo fmt --all -- --check",
+      "start": "2026-11-14T09:47:43Z", "end": "2026-11-14T09:47:46Z",
+      "exit": 0, "status": "PASS"
+    },
+    "2-clippy": {
+      "command": "cargo clippy --locked --all-targets -- -D warnings",
+      "start": "2026-11-14T09:47:46Z", "end": "2026-11-14T09:48:12Z",
+      "exit": 101, "status": "FAIL",
+      "cause": "upstream code only: clippy::chunks_exact_to_as_chunks at core/src/hostcmd.rs:375, hostdb.rs:737, hostifs.rs:217 with rustc 1.99.1"
+    },
+    "2b-clippy-no-upstream-lint": {
+      "command": "cargo clippy --locked --all-targets -- -D warnings -A clippy::chunks_exact_to_as_chunks",
+      "start": "2026-11-14T09:48:12Z", "end": "2026-11-14T09:48:21Z",
+      "exit": 0, "status": "PASS"
+    },
+    "3-native-tests": {
+      "command": "cargo test --locked -p as4tainr-core --test native_tripwire --test native_units --test native_engine",
+      "start": "2026-11-14T09:48:21Z", "end": "2026-11-14T09:49:13Z",
+      "exit": 0, "status": "PASS",
+      "tests": "native_engine 2 passed, native_tripwire 1 passed, native_units 39 passed; 0 failed, 0 ignored"
+    },
+    "4-native-diff": {
+      "command": "env AS4TAINR_RPG_ENGINE=rust NATIVE_DIFF_OUT=/work/target/evidence/2026-11-14-s230-aarch64-mac/native-diff scripts/native-diff.sh",
+      "start": "2026-11-14T09:49:13Z", "end": "2026-11-14T09:57:05Z",
+      "exit": 0, "status": "PASS",
+      "levels": {
+        "reference": "PASS 658 test results",
+        "demo-interp": "PASS 7 cases",
+        "generate": "PASS 390 routines",
+        "build": "PASS with 390 routines",
+        "level1": "PASS corpus identical under both engines",
+        "level2-auto": "PASS 658 tests, same results as the interpreter",
+        "level2-rust": "PASS 636 of 658 tests as under the interpreter; 23 programs refused, none generated (source differs by process); native_units 39 passed under rust",
+        "level3-demo": "PASS 7 cases, the same output as the interpreter",
+        "level3-golden": "NOT_RUN: no captures in target/ibmi/golden (PUB400 not set up on this machine)"
+      },
+      "notes": "save_changed_objects failed under interp and auto alike: the known intermittent upstream failure, not an engine difference"
+    },
+    "5-test-release": {
+      "command": "env CARGO_BUILD_JOBS=2 AS4TAINR_TEST_DATABASE_URL=postgres://as4tainr:as4tainr@127.0.0.1/as4tainr cargo test --locked --release",
+      "start": "2026-11-14T09:57:05Z", "end": "2026-11-14T10:06:17Z",
+      "exit": 0, "status": "PASS",
+      "tests": "657 passed, 0 failed, 1 ignored"
+    },
+    "6-build-release": {
+      "command": "env CARGO_BUILD_JOBS=2 cargo build --locked --release",
+      "start": "2026-11-14T10:06:17Z", "end": "2026-11-14T10:06:23Z",
+      "exit": 0, "status": "PASS"
+    }
+  },
+  "artifacts_sha256": {
+    "target/release/as4tainr": "83e217bbfe4d877adf2690730a65984989e8d121742847df9163246f3339694e"
+  },
+  "logs_sha256": {
+    "0-platform.log": "deef5f2e5e4cb8091561451d30b1ecd4dda820a34e7da7c28811337796e47c62",
+    "1-fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "2-clippy.log": "ba07927e48ca2b79e6514d7444fe5b7bb035c67989204a7e4b0c40a1dc82ec4d",
+    "2b-clippy-no-upstream-lint.log": "06318fec64223e23af01e2f0deb6f2be1012dd740f32853d5c92842bf5b4b922",
+    "3-native-tests.log": "2c4761eb05fe00229b79a312e3f6fefa6bc125280f7e9f6b4779c0621da196e6",
+    "4-native-diff.log": "0b3cc08d89fe06eaba4e1be0b1d1c48fd4073920f613acdb4de309b685351242",
+    "5-test-release.log": "920cb3334b028d7158647b52aa0b04ce57bc13d03c76a6e549acc9977f82fcea",
+    "6-build-release.log": "abc96acdaca889fae57201b8d61ccf35e60890f7e93757d448ea52cde3f4d2dd",
+    "steps.tsv": "a7514a017149b5a6a95ac7df3036fe5461d3f45388dd6e313489cdace4471253",
+    "native-diff/status.tsv": "871a70f212c3be6ab4cd91b525f8eb1c039f4f92d1a96f5fded3a5671a6c92d5"
+  },
+  "not_run": [
+    "scripts/native-e2e.sh and scripts/native-bench.sh: NOT_RUN here (not in the task list; the ARM VM covers them)",
+    "golden comparison: NOT_RUN, PUB400 not set up on this machine",
+    "x86_64: NOT_RUN"
+  ]
+}
