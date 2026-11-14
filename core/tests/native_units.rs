@@ -887,6 +887,33 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.34: %CHECK and %CHECKR with no start lowered to Rust.
+// Source: golden capture tools/golden/native43.txt n43_chk (PUB400, IBM i 7.5, 2026-11-14)
+#[tokio::test]
+async fn native_unit_lowered_check() {
+    let _ = require_db!();
+    expect(
+        "NCHECK",
+        include_str!("native/NCHECK.rpgle"),
+        &[
+            "CHK C 8",
+            "CHKR C 10",
+            "CHKR BLANK C 7",
+            "CHK V 3",
+            "CHKR V 3",
+            "CHK ALL 0",
+            "CHK EMPTY 0",
+            "CHKR EMPTY 0",
+            "CHK LEAD 3",
+            "CHKR TRAIL 4",
+            "CHK EXPR 2",
+            "CHK ARITH 1",
+            "CHK COND TRUE",
+        ],
+    )
+    .await;
+}
+
 // Stage 2, S2.33: %MAX and %MIN lowered to Rust (the capture's three %CHAR
 // cases where the interpreter differs are left out, fidelity.md).
 // Source: golden capture tools/golden/native42.txt n42_mm (PUB400, IBM i 7.5, 2026-11-14)

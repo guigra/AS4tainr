@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.33");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.34");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -354,6 +354,14 @@ pub mod ir {
         Status,
         /// %ABS of a numeric expression (S2.32).
         Abs(Box<NumExpr>),
+        /// %CHECK (`rev` false) or %CHECKR of character expressions, with
+        /// no start (S2.34).
+        Check {
+            set: Box<CharExpr>,
+            s: Box<CharExpr>,
+            rev: bool,
+            path: Vec<u8>,
+        },
         /// %MAX (`max`) or %MIN of two or more numeric expressions
         /// (S2.33): the first of the greatest, or of the smallest.
         MinMax {
@@ -1408,6 +1416,17 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             let _ = writeln!(
                 helpers,
                 "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::dec::Dec> {{\n{body}    Ok(best)\n}}"
+            );
+            format!("{name}(rt)?")
+        }
+        ir::NumExpr::Check { set, s, rev, path } => {
+            let name = format!("ck{pc}_{}", path_id(path));
+            let a = char_expr(pc, set, helpers);
+            let x = char_expr(pc, s, helpers);
+            // As the interpreter: the set, then the string.
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::dec::Dec> {{\n    let set = {a}.chars()?;\n    let s = {x}.chars()?;\n    rpgrt::native::check(&set, &s, {rev})\n}}"
             );
             format!("{name}(rt)?")
         }

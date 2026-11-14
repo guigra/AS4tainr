@@ -579,6 +579,24 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 path,
             })
         }
+        // %CHECK, %CHECKR of character expressions with no start (S2.34):
+        // the interpreter's interp.rs "CHECK" | "CHECKR" arm. With a start
+        // they stay with the interpreter (upstream #16 changes its check).
+        Expr::Bif(b, args) if matches!(b.as_str(), "CHECK" | "CHECKR") => {
+            let [set, s] = args.as_slice() else {
+                return None;
+            };
+            let mut ap = path.clone();
+            ap.push(0);
+            let mut sp = path.clone();
+            sp.push(1);
+            Some(ir::NumExpr::Check {
+                set: Box::new(char_expr(cx, set, used, ap)?),
+                s: Box::new(char_expr(cx, s, used, sp)?),
+                rev: b == "CHECKR",
+                path,
+            })
+        }
         // %SCAN of character expressions, with a start that is a numeric
         // literal or field (S2.12).
         Expr::Bif(b, args) if b == "SCAN" => {

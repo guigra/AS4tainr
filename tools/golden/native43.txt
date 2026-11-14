@@ -1,0 +1,4 @@
+# Captures for stage 2 of the native backend, S2.34: %CHECK and %CHECKR.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native43.txt -f tools/golden/native43
+n43_crt_chk|!system "CRTSQLRPGI OBJ(@LIB@/GN43CHK) SRCSTMF('@HOME@/gld/gn43chk.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n43_chk|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN43CHK)"; cat gn1.out; rm -f gn1.out
