@@ -1,0 +1,4 @@
+# Captures for stage 2 of the native backend, S2.26: %EDITC.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native34.txt -f tools/golden/native34
+n34_crt_editc|!system "CRTSQLRPGI OBJ(@LIB@/GN34EDC) SRCSTMF('@HOME@/gld/gn34editc.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n34_editc|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN34EDC)"; cat gn1.out; rm -f gn1.out

@@ -548,6 +548,147 @@ pub fn replace(rep: &[u8], s: &[u8], start: Option<&Value>, len: Option<&Value>)
     Ok(Value::Char(out))
 }
 
+/// An edit code (S2.26): the interpreter's `edit_code_with`, written again
+/// under section 5's lints, with the program's DECEDIT (the decimal point,
+/// and whether a zero goes before it).
+pub fn edit_code_with(
+    v: &Dec,
+    digits: u32,
+    decs: u32,
+    code: char,
+    point: char,
+    zero: bool,
+) -> NResult<String> {
+    let bad = || anyhow::anyhow!("edit code {code}: {digits} digits, {decs} decimal places");
+    let code = code.to_ascii_uppercase();
+    let thousands = if point == ',' { '.' } else { ',' };
+    let d = v.rescale(u8::try_from(decs)?, false).unwrap_or(*v);
+    let w = usize::try_from(digits)?;
+    let raw = format!("{:0>w$}", d.mantissa().unsigned_abs().to_string());
+    let decs_n = usize::try_from(decs)?;
+    let cut = raw.len().checked_sub(decs_n).ok_or_else(bad)?;
+    let int = raw.get(..cut).ok_or_else(bad)?;
+    let frac = raw.get(cut..).ok_or_else(bad)?;
+    let commas = matches!(code, '1' | '2' | 'A' | 'B' | 'J' | 'K' | 'N' | 'O');
+    let zero_blank = matches!(code, '2' | '4' | 'B' | 'D' | 'K' | 'M' | 'O' | 'Q' | 'Z');
+    if code == 'X' {
+        if d.is_negative() {
+            let last = raw.len().checked_sub(1).ok_or_else(bad)?;
+            let digit = raw
+                .get(last..)
+                .and_then(|c| c.parse::<usize>().ok())
+                .ok_or_else(bad)?;
+            let zoned = "}JKLMNOPQR".chars().nth(digit).ok_or_else(bad)?;
+            return Ok(format!("{}{zoned}", raw.get(..last).ok_or_else(bad)?));
+        }
+        return Ok(raw);
+    }
+    if code == 'Z' {
+        let all = format!("{int}{frac}");
+        let t = all.trim_start_matches('0');
+        return Ok(format!("{t:>w$}"));
+    }
+    if code == 'Y' {
+        let s = if digits == 8 {
+            format!(
+                "{}/{}/{}",
+                raw.get(0..2).ok_or_else(bad)?,
+                raw.get(2..4).ok_or_else(bad)?,
+                raw.get(4..8).ok_or_else(bad)?
+            )
+        } else {
+            let s = format!("{raw:0>6}");
+            let n = s.len();
+            let at = |k: usize| n.checked_sub(k).ok_or_else(bad);
+            format!(
+                "{}/{}/{}",
+                s.get(at(6)?..at(4)?).ok_or_else(bad)?,
+                s.get(at(4)?..at(2)?).ok_or_else(bad)?,
+                s.get(at(2)?..).ok_or_else(bad)?
+            )
+        };
+        return Ok(match s.strip_prefix('0') {
+            Some(rest) => format!(" {rest}"),
+            None => s,
+        });
+    }
+    let int_trim = int.trim_start_matches('0');
+    let mut int_out = String::new();
+    for (k, c) in int_trim.chars().enumerate() {
+        let left = int_trim.len().saturating_sub(k);
+        if commas && k > 0 && left.checked_rem(3) == Some(0) {
+            int_out.push(thousands);
+        }
+        int_out.push(c);
+    }
+    if zero && decs > 0 && int_out.is_empty() {
+        int_out.push('0');
+    }
+    let body = if decs > 0 {
+        format!("{int_out}{point}{frac}")
+    } else if int_out.is_empty() {
+        "0".to_string()
+    } else {
+        int_out.clone()
+    };
+    let neg = d.is_negative();
+    let sign = match code {
+        'A' | 'B' | 'C' | 'D' => {
+            if neg {
+                "CR"
+            } else {
+                "  "
+            }
+        }
+        'J' | 'K' | 'L' | 'M' => {
+            if neg {
+                "-"
+            } else {
+                " "
+            }
+        }
+        _ => "",
+    };
+    let lead = match (matches!(code, 'N' | 'O' | 'P' | 'Q'), neg) {
+        (true, true) => "-",
+        (true, false) => " ",
+        _ => "",
+    };
+    let groups = if commas {
+        usize::try_from(digits.saturating_sub(decs).saturating_sub(1) / 3)?
+    } else {
+        0
+    };
+    let width = w
+        .saturating_add(usize::from(decs > 0))
+        .saturating_add(groups);
+    if d.is_zero() && zero_blank {
+        return Ok(" ".repeat(width.saturating_add(sign.len()).saturating_add(lead.len())));
+    }
+    let out = format!("{lead}{body}");
+    let ow = width.saturating_add(lead.len());
+    Ok(format!("{out:>ow$}{sign}"))
+}
+
+/// %EDITC of a number with a literal edit code (S2.26), as the
+/// interpreter's "EDITC" arm: the value's digits and decimal places are
+/// its node's precision (`p`), or else its own.
+pub fn editc(
+    v: &Dec,
+    p: Option<(u32, u32)>,
+    code: char,
+    point: char,
+    zero: bool,
+) -> NResult<Value> {
+    let (digits, decs) = p.unwrap_or_else(|| {
+        let s = u32::from(v.scale());
+        (v.int_digits().saturating_add(s), s)
+    });
+    Ok(Value::str(&edit_code_with(
+        v, digits, decs, code, point, zero,
+    )?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

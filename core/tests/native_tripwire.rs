@@ -109,13 +109,15 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    ",
         ),
         function(INTERP, "    fn do_move(\n", "    "),
+        // S2.26: %EDITC.
+        function(INTERP, "pub fn edit_code_with(\n", ""),
     ];
     let hash = sha256(&watched.concat());
     // Reviewed on 2026-11-13 against native_rt.rs and the stage 2
     // helpers of rpgrt/src/native.rs (upstream dd47e28, with #9's %SUBST
     // and %SCAN starts and #10's MONITOR routing, plus the native hook at
     // the start of run_code_at).
-    let reviewed = "7a0d8613d09c9b8fe6c616751c265c5c8a9f591b96c85a980933f444e6cc4262";
+    let reviewed = "9ea77c1db6dad8f45a59301aacad17a5c7366aec7eaaa0aa6c76ffd403ae4160";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

@@ -243,6 +243,28 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                 path,
             })
         }
+        // %EDITC of a numeric expression with a literal edit code (S2.26):
+        // the code's first character (Z when it is empty), the program's
+        // DECEDIT in the fingerprint, the interpreter's precision rule.
+        Expr::Bif(b, args) if b == "EDITC" => {
+            let [x, Expr::Str(code)] = args.as_slice() else {
+                return None;
+            };
+            let mut ip = path.clone();
+            ip.push(0);
+            let inner = num_expr(cx, x, used, ip)?;
+            let code = super::super::data::a(code).chars().next().unwrap_or('Z');
+            let (point, zero) = cx.prog.decedit();
+            used.push(format!("decedit {point} {zero}"));
+            Some(ir::CharExpr::EditC {
+                own: matches!(x, Expr::Num(_)),
+                inner,
+                code,
+                point,
+                zero,
+                path,
+            })
+        }
         // %REPLACE of character expressions, with a start and a length
         // that are numeric literals or fields (S2.23).
         Expr::Bif(b, args) if b == "REPLACE" => {

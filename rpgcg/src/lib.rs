@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.25");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.26");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -252,6 +252,17 @@ pub mod ir {
             inner: NumExpr,
             point: char,
             zero: bool,
+            path: Vec<u8>,
+        },
+        /// %EDITC of a numeric expression with a literal edit code
+        /// (S2.26), with the program's DECEDIT; `own` when the value is a
+        /// literal, whose own digits the interpreter uses.
+        EditC {
+            inner: NumExpr,
+            code: char,
+            point: char,
+            zero: bool,
+            own: bool,
             path: Vec<u8>,
         },
         /// %REPLACE (S2.23): `rep` in place of `len` characters of `s`
@@ -1117,6 +1128,33 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
             let _ = writeln!(
                 helpers,
                 "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let x = {x};\n    Ok(rpgrt::native::char_of_num(&x, {point:?}, {zero}))\n}}"
+            );
+            format!("{name}(rt)?")
+        }
+        ir::CharExpr::EditC {
+            inner,
+            code,
+            point,
+            zero,
+            own,
+            path,
+        } => {
+            let name = format!("k{pc}_{}", path_id(path));
+            let x = num_expr(pc, inner, helpers);
+            let mut ip: Vec<String> = path.iter().map(|b| b.to_string()).collect();
+            ip.push("0".to_string());
+            let p = if *own {
+                "None".to_string()
+            } else {
+                "*P.get_or_init(|| rt.precision(".to_string()
+                    + &pc.to_string()
+                    + ", &["
+                    + &ip.join(", ")
+                    + "]))"
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let v = {x};\n    static P: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let p = {p};\n    rpgrt::native::editc(&v, p, {code:?}, {point:?}, {zero})\n}}"
             );
             format!("{name}(rt)?")
         }
