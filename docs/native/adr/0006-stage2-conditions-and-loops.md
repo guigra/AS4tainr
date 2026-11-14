@@ -280,3 +280,9 @@ A figurative constant is never a numeric operand of lowered arithmetic, nor fact
 **What changes.** The name of a data structure is an eligible operand when the data structure is global, not an array, not based, not of multiple occurrences, and not imported or exported. It is `Ty::Char(size)` at the data structure's buffer and offset, because that is how the interpreter treats it: `eval` gives its bytes as `Value::Char`, and `assign` stores with `data::store` as `DType::Char(size)`. Its subfields share the bytes, lowered or not. The layout line marks it `ds`.
 
 **Expected values.** `core/tests/native/NDSW.rpgle`, captured on PUB400: tools/golden/native31.txt n31_dsw (IBM i 7.5, 2026-11-14).
+
+## S2.25: %SIZE and %ELEM (rpgcg 0.1.0+stage2.25)
+
+**What changes.** %SIZE of a field, an array element (and of the whole array with a second argument), a data structure or a named constant, and %ELEM of an array that is not of varying dimension or of a data structure array, are numeric literals of lowered code. Their values are the interpreter's `"SIZE"` and `"ELEM"` arms, worked out from the same definitions. The value goes into the fingerprint's layout lines.
+
+**Expected values.** `core/tests/native/NSIZE.rpgle`, captured on PUB400: tools/golden/native32.txt n32_size (IBM i 7.5, 2026-11-14). The capture found an interpreter defect (fidelity.md): %SIZE of a numeric named constant is its digits as written, not its size as packed decimal. It is left out of the test.
