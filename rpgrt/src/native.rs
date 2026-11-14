@@ -820,6 +820,115 @@ pub fn scanrpl(
     Ok(Value::Char(out))
 }
 
+/// An edit word (S2.29): the interpreter's `edit_word`, written again
+/// under section 5's lints.
+pub fn edit_word(v: &Dec, digits: u32, decs: u32, word: &str) -> NResult<String> {
+    let w: Vec<char> = word.chars().collect();
+    let at = |i: usize| w.get(i).copied();
+    let stop = w.iter().position(|c| *c == '0' || *c == '*');
+    let last_blank = w.iter().rposition(|c| *c == ' ');
+    let body_end = match (last_blank, stop) {
+        (Some(b), Some(s)) => b.max(s),
+        (Some(b), None) => b,
+        (None, Some(s)) => s,
+        (None, None) => anyhow::bail!("the edit word '{word}' has no digit positions"),
+    };
+    let floating = stop.is_some_and(|s| s > 0 && s.checked_sub(1).and_then(at) == Some('$'));
+    let positions = (0..=body_end)
+        .filter(|&i| at(i) == Some(' ') || Some(i) == stop)
+        .count();
+    if u32::try_from(positions).unwrap_or(u32::MAX) < digits {
+        anyhow::bail!(
+            "the edit word '{word}' has {positions} digit positions, the field {digits} digits"
+        );
+    }
+    let d = v.rescale(u8::try_from(decs)?, false).unwrap_or(*v);
+    let text = format!("{:0>positions$}", d.mantissa().unsigned_abs());
+    let mut ds = text.chars().skip(text.len().saturating_sub(positions));
+    let fill = if stop.and_then(at) == Some('*') {
+        '*'
+    } else {
+        ' '
+    };
+    let mut out: Vec<char> = Vec::with_capacity(w.len());
+    let mut significant = false;
+    let mut forced = false;
+    let mut first_digit: Option<usize> = None;
+    for (i, &c) in w.iter().enumerate().take(body_end.saturating_add(1)) {
+        if floating && Some(i.saturating_add(1)) == stop {
+            continue;
+        }
+        if c == ' ' || Some(i) == stop {
+            let dg = ds.next().unwrap_or('0');
+            if significant || forced || dg != '0' {
+                if !significant && !forced {
+                    first_digit = Some(out.len());
+                }
+                significant = true;
+                out.push(dg);
+            } else {
+                out.push(fill);
+            }
+            if Some(i) == stop {
+                forced = true;
+                if first_digit.is_none() {
+                    first_digit = Some(out.len());
+                }
+            }
+        } else if c == '&' {
+            out.push(' ');
+        } else if c == '$' && i == 0 {
+            out.push('$');
+        } else if significant || forced {
+            out.push(c);
+        } else {
+            out.push(fill);
+        }
+    }
+    if floating {
+        let k = first_digit.unwrap_or(out.len()).min(out.len());
+        out.insert(k, '$');
+    }
+    let rest: Vec<char> = w
+        .get(body_end.saturating_add(1)..)
+        .unwrap_or_default()
+        .to_vec();
+    let rest_s: String = rest.iter().collect();
+    let status_len = match rest_s.find("CR") {
+        Some(p) => p.saturating_add(2),
+        None if rest.last() == Some(&'-') => rest.len(),
+        None => 0,
+    }
+    .min(rest.len());
+    let negative = d.is_negative();
+    for &c in rest.get(..status_len).unwrap_or_default() {
+        out.push(if negative {
+            if c == '&' {
+                ' '
+            } else {
+                c
+            }
+        } else {
+            ' '
+        });
+    }
+    for &c in rest.get(status_len..).unwrap_or_default() {
+        out.push(if c == '&' { ' ' } else { c });
+    }
+    Ok(out.into_iter().collect())
+}
+
+/// %EDITW (S2.29), as the interpreter's "EDITW" arm: the digits and
+/// decimal places of a field's type (`p`), or else the value's own (at
+/// least one digit).
+pub fn editw(v: &Dec, p: Option<(u32, u32)>, word: &str) -> NResult<Value> {
+    let (digits, decs) = p.unwrap_or_else(|| {
+        let s = u32::from(v.scale());
+        (v.int_digits().saturating_add(s).max(1), s)
+    });
+    Ok(Value::str(&edit_word(v, digits, decs, word)?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

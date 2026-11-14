@@ -112,6 +112,12 @@ fn native_runtime_matches_the_interpreter_it_copies() {
         function(INTERP, "    fn do_move(\n", "    "),
         // S2.26: %EDITC.
         function(INTERP, "pub fn edit_code_with(\n", ""),
+        // S2.29: %EDITW.
+        function(
+            INTERP,
+            "pub fn edit_word(v: &Dec, digits: u32, decs: u32, word: &str) -> Result<String> {",
+            "",
+        ),
         // S2.27: %LOOKUP's search.
         function(
             BIFS,
@@ -124,7 +130,7 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // helpers of rpgrt/src/native.rs (upstream dd47e28, with #9's %SUBST
     // and %SCAN starts and #10's MONITOR routing, plus the native hook at
     // the start of run_code_at).
-    let reviewed = "f3f502d0f4883b9fec22daadc3e44b66c3a681be9479e0dfb11db349dc164560";
+    let reviewed = "354cc617fa777342e97ebc12a90dc5a8929252f675d5236d45195ce2c21e24e7";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

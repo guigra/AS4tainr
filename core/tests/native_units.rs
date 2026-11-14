@@ -886,3 +886,29 @@ async fn native_unit_lowered_scanrpl() {
     )
     .await;
 }
+
+// Stage 2, S2.29: %EDITW lowered to Rust: thousands separators, CR, minus,
+// asterisk fill, ampersands, zero, a positive value with CR, an integer
+// and an expression (its own digits).
+// Source: golden capture tools/golden/native37.txt n37_editw (PUB400, IBM i 7.5, 2026-11-14)
+#[tokio::test]
+async fn native_unit_lowered_editw() {
+    let _ = require_db!();
+    expect(
+        "NEDITW",
+        include_str!("native/NEDITW.rpgle"),
+        &[
+            "EW PLAIN [      1,234.56]",
+            "EW CR [      1,234.56CR]",
+            "EW MINUS [      1,234.56-]",
+            "EW ASTER [******1,234.56]",
+            "EW AMP [      1 234.56]",
+            "EW ZERO [           .00]",
+            "EW ZERO CR [           .00  ]",
+            "EW INT [   1,234,567]",
+            "EW POS CR [      1,234.56  ]",
+            "EW EXPR [       2,469.12]",
+        ],
+    )
+    .await;
+}

@@ -265,6 +265,33 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                 path,
             })
         }
+        // %EDITW of a numeric expression with a literal edit word (S2.29):
+        // a field's type gives the digits, as the interpreter's type_of;
+        // any other expression its own digits.
+        Expr::Bif(b, args) if b == "EDITW" => {
+            let [x, Expr::Str(word)] = args.as_slice() else {
+                return None;
+            };
+            let mut ip = path.clone();
+            ip.push(0);
+            let inner = num_expr(cx, x, used, ip)?;
+            let prec = match &inner {
+                ir::NumExpr::Leaf(ir::Operand::Var { ty, .. }) => match ty {
+                    ir::Ty::Packed(d, s) | ir::Ty::Zoned(d, s) | ir::Ty::Binary(d, s) => {
+                        Some((*d, *s))
+                    }
+                    ir::Ty::Int(n) | ir::Ty::Uns(n) => Some((*n, 0)),
+                    _ => return None,
+                },
+                _ => None,
+            };
+            Some(ir::CharExpr::EditW {
+                inner,
+                word: super::super::data::a(word),
+                prec,
+                path,
+            })
+        }
         // %SCANRPL of character expressions, with a start and a length that
         // are numeric literals or fields (S2.28).
         Expr::Bif(b, args) if b == "SCANRPL" => {
