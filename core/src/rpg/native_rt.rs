@@ -415,7 +415,13 @@ impl Runtime for Rt<'_, '_> {
             .or_else(|| prog.routines.subroutines.get(name))
             .ok_or_else(|| anyhow!("subroutine {name} is not defined"))?;
         let saved = std::mem::replace(&mut self.m.routine, name.clone());
-        let r = self.m.run_code(sub);
+        // The subroutine's generated code (S2.40, ADR 0007); the
+        // interpreter only under auto with none, as for any routine
+        // (run_code is the same dispatch first).
+        let r = match dispatch(self.m, sub, 0) {
+            Some(r) => r,
+            None => self.m.run_code(sub),
+        };
         self.m.routine = saved;
         self.m.line = line;
         match r? {
