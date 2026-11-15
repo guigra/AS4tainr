@@ -887,6 +887,33 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.35 (ADR 0007): procedure calls within the module: BYREF,
+// aliasing, forwarding, VALUE, CONST, nested calls, return values,
+// %PARMS, an error in the callee (00202), %STATUS after a return.
+// Source: golden capture tools/golden/native44.txt n44_call (PUB400, IBM i 7.5, 2026-11-15)
+#[tokio::test]
+async fn native_unit_calls() {
+    let _ = require_db!();
+    expect(
+        "NCALL",
+        include_str!("native/NCALL.rpgle"),
+        &[
+            "BYREF 11.50",
+            "ALIAS 7.00",
+            "FWD 125.00",
+            "VALUE 5 15.25",
+            "CONST 377.00",
+            "NESTED 20.00",
+            "RETURN 12.3",
+            "PARMS 1 1",
+            "PARMS 2 2",
+            "CHAR [abcX!]",
+            "ERR 202 AFTER 0",
+        ],
+    )
+    .await;
+}
+
 // Stage 2, S2.34: %CHECK and %CHECKR with no start lowered to Rust.
 // Source: golden capture tools/golden/native43.txt n43_chk (PUB400, IBM i 7.5, 2026-11-14)
 #[tokio::test]
