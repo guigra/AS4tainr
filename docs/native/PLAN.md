@@ -126,7 +126,7 @@ File I/O, workstation, printer, SQL, system APIs and dynamic calls stay as `Runt
 ## Priorities (the user, 2026-11-12)
 
 1. Help upstream complete the project. This fork's defect reports and contributions are for upstream first.
-2. Keep both engines. Programs run interpreted or native, switched with `AS4TAINR_RPG_ENGINE`. This supersedes the next section's goal: the interpreter stays unless the user decides otherwise.
+2. Keep both engines. Programs run interpreted or native, switched with `AS4TAINR_RPG_ENGINE`. This supersedes the next section's goal: the interpreter stays unless the user decides otherwise. The native engine itself must become 100% native, so that the interpreter *could* be removed (the user, 2026-11-15; ADR 0007: phase A lowers every instruction, phase B gives rpgrt a runtime of its own).
 3. Training (a PUB400.com equivalent) and small-scale production. The production build with programs compiled in (`native-tools`) serves this.
 4. Later, migrating RPG code bases to Rust that people maintain. That is a separate source-to-source project, not this backend's fidelity-first generated code.
 
