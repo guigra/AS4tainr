@@ -132,3 +132,9 @@ Item 6 of the task file (an upstream PR for #18 from the x86 machine, then closi
 - aarch64 VM: S2.23-S2.28 and S2.29 development runs. native-diff PASS, 5250 end-to-end the same, OpenRPG 384/385 (test396: the interpreter's %SCANRPL panic).
 - Upstream: nothing published. Five fix branches are validated and held, and there is an issue draft for %EDITW. The user decides when to publish (as4tainr-up-logs/revision-2026-11-14.md).
 - Next: wait for the user's decisions: when to publish, the branch and worktree clean-up, and the next block (CALLP, then block B).
+
+## 2026-11-15: the goal is a fully native engine (ADR 0007)
+
+- The user's requirement: the `rust` engine must become 100% native, so the interpreter could be removed. Option A: behaviour that exists only in interp.rs is written again in our code (native_rt.rs and rpgrt), checked by the differential suite. Upstream code is not moved.
+- Phase A: lower every instruction, with a dispatch count down to 0. Phase B: a runtime in rpgrt with no `Machine`.
+- Next step: S2.35, native procedure calls within the module (ADR 0007, "S2.35"). First the PUB400 captures for its tests, then `enter_proc`/`leave_proc` in native_rt.rs, the IR for a call, and lowering.
