@@ -597,6 +597,11 @@ impl Runtime for Rt<'_, '_> {
         r
     }
 
+    fn dsply(&mut self, text: String) {
+        // Stmt::Dsply with no response: `messages.push(text.trim_end())`.
+        self.m.messages.push(text.trim_end().to_string());
+    }
+
     fn status(&self) -> u32 {
         // bifs.rs "STATUS" with no argument: `self.last`'s code.
         self.m.last.code
@@ -618,6 +623,10 @@ impl Runtime for Rt<'_, '_> {
             Some(Ins::JumpIfNot(c, _)) => c,
             // A CALLP's arguments (S2.35).
             Some(Ins::Stmt(super::super::ast::Stmt::CallP(e))) => e,
+            // A DSPLY's message (S2.36).
+            Some(Ins::Stmt(super::super::ast::Stmt::Dsply {
+                message: Some(m), ..
+            })) => m,
             _ => return None,
         };
         // Each step: 0 or 1 into an operation's operands, or the index of
