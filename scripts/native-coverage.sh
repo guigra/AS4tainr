@@ -6,6 +6,8 @@
 #   native    its code never calls the interpreter;
 #   fallback  lowered, but run by the interpreter when the runtime says
 #             the context is not one the lowered code handles (native_ok);
+#             none since rpgcg 0.1.0+stage2.37, which refuses such a
+#             routine as a whole instead;
 #   interp    always run by the interpreter (stage 1).
 #
 # Phase A ends when "fallback" and "interp" are 0. Every routine also

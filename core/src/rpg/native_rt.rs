@@ -94,6 +94,21 @@ pub(super) fn dispatch(m: &mut Machine<'_>, code: &Code, start: usize) -> Option
         },
         _ => m.frames.is_empty(),
     };
+    // ADR 0007 (S2.37): generated code has no interpreter fallback, so a
+    // routine outside its own context is refused as a whole: under auto
+    // the interpreter runs it, under rust it is an error. On IBM i a
+    // subprocedure cannot run a subroutine of the main procedure (EXSR:
+    // RNF7030/RNF7018 at severity 30, PUB400 capture
+    // tools/golden/native45), the one way the interpreter gets here.
+    if !ok {
+        return refuse(
+            m,
+            format!(
+                "{} runs under the frame of another procedure (a subprocedure's EXSR of a main procedure subroutine, which IBM i does not compile)",
+                entry.place
+            ),
+        );
+    }
     let mut rt = Rt { m, code, ok };
     Some(run(&mut rt, start).map(|f| match f {
         rpgrt::native::Flow::Normal => Flow::Normal,
