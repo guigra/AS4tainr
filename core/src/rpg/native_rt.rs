@@ -31,6 +31,7 @@ use super::{Flow, GotoSignal, LeaveSrSignal, Machine, ReturnPointSignal, ReturnS
 use anyhow::{anyhow, Result};
 use rpgrt::native::{CallArg, MonitorStack, NResult, Runtime, Settled};
 use std::cmp::Ordering;
+use std::io::Write as _;
 
 /// Before `run_code_at` runs `code` from `start`: None to let the
 /// interpreter run it; Some with how the routine ended when generated
@@ -373,7 +374,7 @@ impl Runtime for Rt<'_, '_> {
             return Err(mismatch(pc, "a FOR-EACH start"));
         };
         let vals = self.m.list_of(list)?;
-        let key = (self.code.as_ptr() as usize, pc, self.m.frames.len());
+        let key = (self.code.as_ptr().addr(), pc, self.m.frames.len());
         self.m.each.insert(key, (vals, 0));
         Ok(())
     }
@@ -382,7 +383,7 @@ impl Runtime for Rt<'_, '_> {
         let Ins::EachNext { var, init, .. } = &at(self.code, pc)?.ins else {
             return Err(mismatch(pc, "a FOR-EACH step"));
         };
-        let key = (self.code.as_ptr() as usize, *init, self.m.frames.len());
+        let key = (self.code.as_ptr().addr(), *init, self.m.frames.len());
         let next = self.m.each.get_mut(&key).and_then(|(v, at)| {
             let x = v.get(*at).cloned();
             // A list's length is a usize: it cannot reach usize::MAX.
@@ -450,7 +451,7 @@ impl Runtime for Rt<'_, '_> {
                     .off
                     .checked_add(n)
                     .ok_or_else(|| anyhow!("native: data structure array size"))?;
-                let buf = std::ops::Index::index(&self.m.bufs, d.buf);
+                let buf = rpgrt::native::storage(&self.m.bufs, d.buf);
                 let bytes = buf
                     .get(d.off..end)
                     .ok_or_else(|| anyhow!("native: data structure array past its storage"))?;
@@ -586,7 +587,14 @@ impl Runtime for Rt<'_, '_> {
         // AS4TAINR_TRACE_CALLS=1, as call_named prints it.
         let trace = std::env::var("AS4TAINR_TRACE_CALLS").is_ok();
         if trace {
-            eprintln!("[call] {} line {} -> {proc}", self.m.prog.name, self.m.line);
+            // A diagnostic that cannot be written is dropped (section 5:
+            // writing can fail; eprintln! would panic).
+            let _ = writeln!(
+                std::io::stderr(),
+                "[call] {} line {} -> {proc}",
+                self.m.prog.name,
+                self.m.line
+            );
         }
         let r = self.call_frame(proc, args).map_err(|mut e| {
             // An error the called procedure did not handle comes out of
@@ -604,7 +612,7 @@ impl Runtime for Rt<'_, '_> {
                     }
                     v => v.describe(),
                 };
-                eprintln!("[return] {proc} = {shown}");
+                let _ = writeln!(std::io::stderr(), "[return] {proc} = {shown}");
             }
         }
         // A call that ends normally leaves the program status 00000, with

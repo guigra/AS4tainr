@@ -100,6 +100,10 @@ printf '%s\t%s\t%s\n' coverage INFO "$(sed -n '2,4p' "$out/coverage.txt" | tr -s
 AS4TAINR_NATIVE_DIR="$emit" cargo build --locked > "$out/2-build.log" 2>&1 &&
   AS4TAINR_NATIVE_DIR="$emit" cargo test --locked --no-run >> "$out/2-build.log" 2>&1
 if [ $? -eq 0 ]; then step build PASS "with $n routines"; else step build FAIL "see 2-build.log"; fi
+# The generated code under the same lints as the rest (CLAUDE.native.md
+# section 5): rpgnative's forbidden lints, and every warning an error.
+AS4TAINR_NATIVE_DIR="$emit" cargo clippy --locked -p rpgnative -- -D warnings > "$out/2-lints.log" 2>&1
+if [ $? -eq 0 ]; then step generated-lints PASS "clippy -D warnings on $n routines"; else step generated-lints FAIL "$(grep -c '^error' "$out/2-lints.log") errors, see 2-lints.log"; fi
 
 # 3. Level 1.
 AS4TAINR_NATIVE_DIR="$emit" AS4TAINR_TEST_DATABASE_URL="$db" \

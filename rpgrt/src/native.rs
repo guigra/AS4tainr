@@ -207,12 +207,20 @@ pub enum CmpOp {
     Ge,
 }
 
+/// A buffer of storage as the interpreter's `bufs[i]` gives it. `Mem`'s
+/// `Index` does not panic: a buffer that does not exist (a pointer fault)
+/// reads as a blank scratch area, the interpreter's behaviour, which
+/// `Mem::get` (an Option) would not keep.
+pub fn storage(mem: &Mem, buf: usize) -> &Vec<u8> {
+    std::ops::Index::index(mem, buf)
+}
+
 /// A field's value, as the interpreter reads a standalone field with no
 /// index (`load_var`: `data::load` over its bytes; a parameter longer than
 /// the storage passed for it, OPTIONS(*VARSIZE), reads what is there and
 /// then blanks).
 pub fn load(mem: &Mem, buf: usize, off: usize, t: DType) -> NResult<Value> {
-    let b = std::ops::Index::index(mem, buf);
+    let b = storage(mem, buf);
     let n = t.size();
     match off.checked_add(n) {
         Some(end) if end <= b.len() => data::load(
@@ -248,7 +256,7 @@ pub fn store(
     let end = off
         .checked_add(n)
         .ok_or_else(|| anyhow::anyhow!("native: a field past the end of storage"))?;
-    let have = std::ops::Index::index(&*mem, buf).len();
+    let have = storage(mem, buf).len();
     if end > have {
         // A parameter longer than its argument (OPTIONS(*VARSIZE)): only
         // the argument's storage changes (the interpreter's store_var).
