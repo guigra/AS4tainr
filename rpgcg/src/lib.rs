@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.39");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.40");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -655,18 +655,19 @@ fn via(i: &ir::Ins) -> &'static str {
         return "native";
     }
     match i.kind {
-        Jump(_) | Label | Nop | Monitor { .. } | EndMonitor { .. } => "native",
+        // EXSR runs the subroutine's generated code; LEAVESR and a GOTO out
+        // of a subroutine are signals (S2.40): no interpreter evaluation.
+        Jump(_) | Label | Nop | Monitor { .. } | EndMonitor { .. } | ExSr | LeaveSr | GotoOut => {
+            "native"
+        }
         Stmt
         | JumpIfNot(_)
         | LoopTest { .. }
         | LoopStep
         | EachInit
         | EachNext { .. }
-        | ExSr
         | Return
-        | LeaveSr
         | Cab { .. }
-        | GotoOut
         | EndSr => "interp",
     }
 }
