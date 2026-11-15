@@ -1,0 +1,9 @@
+# One batch (PUB400: one connection at a time, 2026-11-15): DIM(*AUTO/*VAR),
+# %SUBST targets, the nesting limit at 100 and 101 levels.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native47.txt -f tools/golden/native47
+n47_crt_var|!system "CRTSQLRPGI OBJ(@LIB@/GN47VAR) SRCSTMF('@HOME@/gld/gn47var.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n47_var|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN47VAR)"; cat gn1.out; rm -f gn1.out
+n47_crt_subt|!system "CRTSQLRPGI OBJ(@LIB@/GN47SUBT) SRCSTMF('@HOME@/gld/gn47subt.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n47_subt|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN47SUBT)"; cat gn1.out; rm -f gn1.out
+n47_crt_n100|!system "CRTBNDRPG PGM(@LIB@/GN47N100) SRCSTMF('@HOME@/gld/gn47n100.rpgle')"
+n47_crt_n101|!system "CRTBNDRPG PGM(@LIB@/GN47N101) SRCSTMF('@HOME@/gld/gn47n101.rpgle')"

@@ -191,3 +191,16 @@ The interpreter turns a negative start or length into an unsigned number. That g
 The start and length are expressions of the target, not of the value, so their precision paths start with `rpgrt::native::TARGET_PATH`, and `Runtime::precision` follows them into the EVAL's target.
 
 Expected values come from IBM's documentation ("%SUBST Used as the Result of an Assignment", IBM i 7.5): its example `%SUBST(A:3:4) = '****'`, any expression for the start and length, no length meaning to the end, and a run-time error for a length past the end. PUB400 was unreachable, so there was no new capture. NSUBT; coverage ceiling 0.
+
+## S2.45: varying-dimension arrays (rpgcg 0.1.0+stage2.45)
+
+DIM(*AUTO:n) and DIM(*VAR:n) arrays, global, with elements of an eligible type:
+- **Reading an element** (the interpreter's eval of an indexed name): the index must be 1 to the elements in use, then within the dimension. `rpgrt::native::elem_in_use` does this.
+- **Writing an element** (the interpreter's assign): an index past the elements in use grows a DIM(*AUTO) array to it, within the dimension, before the store. Otherwise it is RNQ0121. `rpgrt::native::elem_grow` does this, and the count is set through `Runtime::set_elem_count`.
+- **A literal index** cannot be placed at compile time here, so it takes the run-time path.
+- **`%ELEM(arr)` as a value** is the elements in use (bifs.rs bif_override "ELEM").
+- **`%ELEM(arr) = n`** follows assign_value's "ELEM" arm: a count outside 0 to the dimension is RNQ0121, and the elements from those in use to n get their initial value (`rpgrt::native::set_elems`).
+- **The array's kind** goes into the layout lines.
+- **Not lowered:** `*NEXT`, local arrays, data structure arrays.
+
+Expected values come from PUB400 (tools/golden/native47b.txt n47_var): growth, `*NEXT`, indexes past the elements in use, `%ELEM` read and set, and initial values after shrinking and growing again. On IBM i an index past a DIM(*AUTO) array's dimension, and `%ELEM` past it, are status 00124. The interpreter gives 00121, so NVARDIM leaves those two cases out (fidelity.md). The capture's first version showed that IBM i also rejects such constants at compile time (RNF0530, RNF7563). NSUBT2 adds the %SUBST-target cases the documentation does not give (S2.44).

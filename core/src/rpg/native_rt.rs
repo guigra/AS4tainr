@@ -648,6 +648,16 @@ impl Runtime for Rt<'_, '_> {
         self.m.inds.insert(n, on);
     }
 
+    fn elems(&self, name: &str) -> u32 {
+        // bifs.rs elems_in_use for a varying-dimension array: the count
+        // set, 0 at first.
+        self.m.var_elems.get(name).copied().unwrap_or(0)
+    }
+
+    fn set_elem_count(&mut self, name: &str, n: u32) {
+        self.m.var_elems.insert(name.to_string(), n);
+    }
+
     fn dsply(&mut self, text: String) {
         // Stmt::Dsply with no response: `messages.push(text.trim_end())`.
         self.m.messages.push(text.trim_end().to_string());

@@ -294,6 +294,45 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             from: any_operand(cx, from, &mut used)?,
             to: variable(cx, to, &mut used)?,
         },
+        // %ELEM of a global varying-dimension array set (S2.45):
+        // assign_value's "ELEM" arm.
+        Ins::Stmt(Stmt::Eval {
+            target: Expr::Bif(b, args),
+            value,
+            ext,
+            ..
+        }) if b == "ELEM" && !ext.error && !ext.no_lock && args.len() == 1 => {
+            let Some(Expr::Name { parts, args: None }) = args.first() else {
+                return None;
+            };
+            let name = parts.join(".");
+            let Some(Sym::Var(v)) = cx.syms.get(&name) else {
+                return None;
+            };
+            let prog = cx.prog;
+            if v.local
+                || v.dim == 0
+                || !prog.varying.contains_key(&name)
+                || prog.based.contains_key(&v.buf)
+                || prog.occurs.iter().any(|o| o.buf == v.buf)
+            {
+                return None;
+            }
+            let ty = param_ty(v.dtype)?;
+            used.push(format!(
+                "set elems {name} {} {} {} {} {:?}",
+                v.buf, v.off, v.stride, v.dim, v.dtype
+            ));
+            ir::Lowered::SetElems {
+                name,
+                buf: v.buf,
+                off: v.off,
+                stride: v.stride,
+                dim: v.dim,
+                ty,
+                value: Box::new(num_expr(cx, value, &mut used, Vec::new())?),
+            }
+        }
         // EVAL with %SUBST as its target (S2.44): assign_value's "SUBST"
         // arm, on an eligible character field, with a character value.
         Ins::Stmt(Stmt::Eval {
@@ -657,6 +696,23 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
 /// (S2.2), each operation with its place in the statement's expression.
 fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::NumExpr> {
     match e {
+        // %ELEM of a global varying-dimension array (S2.45): its elements
+        // in use, bifs.rs bif_override "ELEM".
+        Expr::Bif(b, args) if b == "ELEM" && args.len() == 1 => {
+            let Some(Expr::Name { parts, args: None }) = args.first() else {
+                return None;
+            };
+            let name = parts.join(".");
+            match cx.syms.get(&name) {
+                Some(Sym::Var(v))
+                    if !v.local && v.dim > 0 && cx.prog.varying.contains_key(&name) =>
+                {
+                    used.push(format!("elems {name}"));
+                    Some(ir::NumExpr::Elems(name))
+                }
+                _ => operand(cx, e, used).map(ir::NumExpr::Leaf),
+            }
+        }
         // A procedure of this module returning a number (S2.35).
         Expr::Name {
             parts,
@@ -1224,7 +1280,15 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
     let mut index = None;
     let elem = match args.as_deref() {
         None if v.dim == 0 => None,
-        Some([Expr::Num(k)]) if v.dim > 0 && !v.local && !name.starts_with("TAB") => {
+        // A varying-dimension array's element is checked at run time
+        // against its elements in use (S2.45), so a literal index takes
+        // the run-time path below.
+        Some([Expr::Num(k)])
+            if v.dim > 0
+                && !v.local
+                && !name.starts_with("TAB")
+                && !cx.prog.varying.contains_key(name) =>
+        {
             let k = k.to_i128().ok()?;
             if k < 1 || k > i128::from(v.dim) {
                 return None;
@@ -1233,10 +1297,15 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         }
         Some([ix]) if v.dim > 0 && !v.local && !name.starts_with("TAB") => {
             let of = operand(cx, ix, used)?;
+            let vary = cx.prog.varying.get(name).map(|k| (name.clone(), *k == 'A'));
+            if let Some((n, auto)) = &vary {
+                used.push(format!("vary {n} auto={auto}"));
+            }
             index = Some(Box::new(ir::Index {
                 of,
                 stride: v.stride,
                 dim: v.dim,
+                vary,
             }));
             Some(1)
         }
@@ -1266,7 +1335,9 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         (v.dim != 0) != elem.is_some()
             || prog.based.contains_key(&v.buf)
             || prog.occurs.iter().any(|o| o.buf == v.buf)
-            || prog.varying.contains_key(name)
+            // A varying-dimension array's elements only with a run-time
+            // index (S2.45).
+            || (prog.varying.contains_key(name) && index.is_none())
             || prog.data_imports.iter().any(|(n, _)| n == name)
             || prog.data_exports.iter().any(|(n, _)| n == name)
     };
@@ -1374,6 +1445,7 @@ fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::O
             of,
             stride: d.size,
             dim: d.dim,
+            vary: None,
         })),
     })
 }

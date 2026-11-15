@@ -1,0 +1,7 @@
+# Second batch (one connection at a time): DIM(*AUTO/*VAR) with variable
+# indexes, and nested built-in functions at 100 and 101 levels.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native47b.txt -f tools/golden/native47
+n47_crt_var|!system "CRTSQLRPGI OBJ(@LIB@/GN47VAR) SRCSTMF('@HOME@/gld/gn47var.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n47_var|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN47VAR)"; cat gn1.out; rm -f gn1.out
+n47_crt_a100|!system "CRTBNDRPG PGM(@LIB@/GN47A100) SRCSTMF('@HOME@/gld/gn47a100.rpgle')"
+n47_crt_a101|!system "CRTBNDRPG PGM(@LIB@/GN47A101) SRCSTMF('@HOME@/gld/gn47a101.rpgle')"
