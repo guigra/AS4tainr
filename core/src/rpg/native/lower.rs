@@ -45,6 +45,7 @@ pub fn lower(prog: &Program, place: &Place, code: &Code) -> (Vec<ir::Ins>, Vec<S
                 cond: !i.cond.is_empty(),
                 what,
                 lowered,
+                refused: past_limits(&i.ins),
             }
         })
         .collect();
@@ -61,57 +62,149 @@ struct Cx<'p> {
     based: Option<&'p std::collections::HashMap<usize, String>>,
 }
 
-/// The deepest expression lowering takes (CLAUDE.native.md section 5:
-/// recursion has an explicit limit). Lowering and the generator walk an
-/// expression recursively; a deeper one stays with stage 1. No RPG
-/// expression written by hand comes near it.
-pub const MAX_DEPTH: usize = 64;
+/// IBM i's limit on levels of nesting in an expression: "Maximum of 100"
+/// (ILE RPG Reference, Appendix A. RPG IV Restrictions, IBM i 7.4 and 7.5,
+/// https://www.ibm.com/docs/ssw_ibm_i_75/rzasd/rpgrest.htm, read
+/// 2026-11-15). A chain of the same kind of operation (a + b + c, a || b
+/// || c, x AND y AND z) is one level: lowering walks it with a loop.
+pub const MAX_NESTING: usize = 100;
 
-/// Whether an expression is at most `MAX_DEPTH` deep (the walk stops at
-/// the limit, so it is bounded itself).
-fn shallow(e: &Expr, depth: usize) -> bool {
-    if depth > MAX_DEPTH {
+/// The most expression nodes one instruction may have (a resource limit,
+/// CLAUDE.native.md section 5): far above what a program written by hand
+/// has, and what bounds the paths `rpgrt::native::path_rle` builds.
+pub const MAX_NODES: usize = 2048;
+
+/// The nodes of an expression, counted with an explicit stack (no
+/// recursion), up to one past `MAX_NODES`.
+fn node_count(e: &Expr) -> usize {
+    let mut stack = vec![e];
+    let mut n = 0usize;
+    while let Some(x) = stack.pop() {
+        n = n.saturating_add(1);
+        if n > MAX_NODES {
+            return n;
+        }
+        match x {
+            Expr::Unary(_, a) => stack.push(a),
+            Expr::Bin(_, l, r) => {
+                stack.push(r);
+                stack.push(l);
+            }
+            Expr::Bif(_, args) => stack.extend(args.iter()),
+            Expr::Name {
+                args: Some(args), ..
+            } => stack.extend(args.iter()),
+            Expr::Path { idx, args, .. } => {
+                stack.extend(idx.iter().flatten().map(|b| &**b));
+                stack.extend(args.iter().flatten());
+            }
+            Expr::IndArray(Some(a)) => stack.push(a),
+            _ => {}
+        }
+    }
+    n
+}
+
+/// Whether an operation chains with its left operand into one level.
+fn chains(op: &BinOp, left: &Expr) -> bool {
+    match left {
+        Expr::Bin(lop, _, _) => match op {
+            BinOp::Add | BinOp::Sub | BinOp::Mul => {
+                matches!(lop, BinOp::Add | BinOp::Sub | BinOp::Mul)
+            }
+            BinOp::And | BinOp::Or => lop == op,
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Whether an expression nests at most `MAX_NESTING` levels: a chain's
+/// left operands are walked with a loop; the recursion is into nested
+/// operands only, and it stops past the limit.
+fn nests_within(e: &Expr, level: usize) -> bool {
+    if level > MAX_NESTING {
         return false;
     }
-    let d = depth.saturating_add(1);
+    let d = level.saturating_add(1);
     match e {
-        Expr::Unary(_, x) => shallow(x, d),
-        Expr::Bin(_, l, r) => shallow(l, d) && shallow(r, d),
-        Expr::Bif(_, args) => args.iter().all(|a| shallow(a, d)),
+        Expr::Bin(..) => {
+            // The chain down the left operands is this level: walked with
+            // a loop, its right operands and its first operand one deeper.
+            let mut rights = Vec::new();
+            let mut cur: &Expr = e;
+            while let Expr::Bin(o, l, r) = cur {
+                rights.push(&**r);
+                let more = chains(o, l);
+                cur = l;
+                if !more {
+                    break;
+                }
+            }
+            nests_within(cur, d) && rights.into_iter().all(|x| nests_within(x, d))
+        }
+        Expr::Unary(_, x) => nests_within(x, d),
+        Expr::Bif(_, args) => args.iter().all(|a| nests_within(a, d)),
         Expr::Name {
             args: Some(args), ..
-        } => args.iter().all(|a| shallow(a, d)),
+        } => args.iter().all(|a| nests_within(a, d)),
         Expr::Path { idx, args, .. } => {
-            idx.iter().flatten().all(|a| shallow(a, d))
-                && args.iter().flatten().all(|a| shallow(a, d))
+            idx.iter().flatten().all(|a| nests_within(a, d))
+                && args.iter().flatten().all(|a| nests_within(a, d))
         }
-        Expr::IndArray(Some(x)) => shallow(x, d),
+        Expr::IndArray(Some(x)) => nests_within(x, d),
         _ => true,
     }
 }
 
-/// Every expression of an instruction is shallow enough to lower.
-fn ins_shallow(i: &Ins) -> bool {
+/// The expressions of an instruction that lowering may walk.
+fn ins_exprs(i: &Ins) -> Vec<&Expr> {
+    let mut v = Vec::new();
     match i {
-        Ins::JumpIfNot(c, _) => shallow(c, 0),
+        Ins::JumpIfNot(c, _) => v.push(c),
         Ins::LoopTest { var, limit, .. } => {
-            shallow(var, 0) && limit.as_ref().is_none_or(|l| shallow(l, 0))
+            v.push(var);
+            v.extend(limit.iter());
         }
         Ins::LoopStep { var, by, .. } => {
-            shallow(var, 0) && by.as_ref().is_none_or(|b| shallow(b, 0))
+            v.push(var);
+            v.extend(by.iter());
         }
-        Ins::Return(v) => v.as_ref().is_none_or(|x| shallow(x, 0)),
-        Ins::Stmt(Stmt::Eval { target, value, .. }) => shallow(target, 0) && shallow(value, 0),
-        Ins::Stmt(Stmt::CallP(e)) => shallow(e, 0),
-        Ins::Stmt(Stmt::Dsply { message, .. }) => message.as_ref().is_none_or(|m| shallow(m, 0)),
-        // The other lowered statements take fields and literals only.
-        _ => true,
+        Ins::Return(x) => v.extend(x.iter()),
+        Ins::Stmt(Stmt::Eval { target, value, .. }) => {
+            v.push(target);
+            v.push(value);
+        }
+        Ins::Stmt(Stmt::CallP(e)) => v.push(e),
+        Ins::Stmt(Stmt::Dsply { message, .. }) => v.extend(message.iter()),
+        _ => {}
     }
+    v
+}
+
+/// Why an instruction is past IBM i's limits, if it is (S2.41): the
+/// routine is then refused with a diagnostic naming the line, not run
+/// by the interpreter instruction by instruction.
+fn past_limits(i: &Ins) -> Option<String> {
+    for e in ins_exprs(i) {
+        let n = node_count(e);
+        if n > MAX_NODES {
+            return Some(format!(
+                "an expression of more than {MAX_NODES} nodes (the native engine's limit)"
+            ));
+        }
+        if !nests_within(e, 1) {
+            return Some(format!(
+                "an expression nested more than {MAX_NESTING} levels (IBM i's limit, ILE RPG Reference, RPG IV Restrictions)"
+            ));
+        }
+    }
+    None
 }
 
 /// What an instruction evaluates, lowered, when all of it is eligible.
 fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered> {
-    if !ins_shallow(i) {
+    if past_limits(i).is_some() {
         return None;
     }
     let mut used = Vec::new();
@@ -309,6 +402,26 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                 return None;
             }
             Some(ir::CharExpr::Call(call_of(cx, parts, args, used, path)?))
+        }
+        // A chain of concatenations down the left operands (S2.41), walked
+        // with a loop.
+        Expr::Bin(BinOp::Add, l, _) if matches!(&**l, Expr::Bin(BinOp::Add, _, _)) => {
+            let mut rev = Vec::new();
+            let mut cur: &Expr = e;
+            let mut p = path.clone();
+            while let Expr::Bin(BinOp::Add, l2, r2) = cur {
+                let mut rp = p.clone();
+                rp.push(1);
+                rev.push((&**r2, rp));
+                cur = l2;
+                p.push(0);
+            }
+            let mut parts = Vec::with_capacity(rev.len().saturating_add(1));
+            parts.push(char_expr(cx, cur, used, p)?);
+            for (r, rp) in rev.into_iter().rev() {
+                parts.push(char_expr(cx, r, used, rp)?);
+            }
+            Some(ir::CharExpr::Chain { parts, path })
         }
         Expr::Bin(BinOp::Add, l, r) => {
             let mut lp = path.clone();
@@ -533,6 +646,34 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 return None;
             }
             Some(ir::NumExpr::Call(call_of(cx, parts, args, used, path)?))
+        }
+        // A chain of +, - and * down the left operands (S2.41): walked with
+        // a loop, each operation keeping its own path for its precision.
+        Expr::Bin(op @ (BinOp::Add | BinOp::Sub | BinOp::Mul), l, _) if chains(op, l) => {
+            let mut rev = Vec::new();
+            let mut cur: &Expr = e;
+            let mut p = path.clone();
+            while let Expr::Bin(o @ (BinOp::Add | BinOp::Sub | BinOp::Mul), l2, r2) = cur {
+                rev.push((ar_op(o), &**r2, p.clone()));
+                let more = chains(o, l2);
+                cur = l2;
+                p.push(0);
+                if !more {
+                    break;
+                }
+            }
+            let first = num_expr(cx, cur, used, p)?;
+            let mut steps = Vec::with_capacity(rev.len());
+            for (o, r, np) in rev.into_iter().rev() {
+                let mut rp = np.clone();
+                rp.push(1);
+                steps.push((o, num_expr(cx, r, used, rp)?, np));
+            }
+            Some(ir::NumExpr::Chain {
+                first: Box::new(first),
+                steps,
+                path,
+            })
         }
         Expr::Bin(op @ (BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div), l, r) => {
             let mut lp = path.clone();
@@ -785,6 +926,28 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
         c.push(k);
         c
     };
+    // A chain of the same AND or OR down the left operands (S2.41).
+    if matches!(op, BinOp::And | BinOp::Or) && matches!(&**l, Expr::Bin(o, _, _) if o == op) {
+        let mut rev = Vec::new();
+        let mut cur: &Expr = e;
+        let mut p = path.clone();
+        while let Expr::Bin(o, l2, r2) = cur {
+            if o != op {
+                break;
+            }
+            let mut rp = p.clone();
+            rp.push(1);
+            rev.push((&**r2, rp));
+            cur = l2;
+            p.push(0);
+        }
+        let mut conds = Vec::with_capacity(rev.len().saturating_add(1));
+        conds.push(cond_at(cx, cur, used, p)?);
+        for (r, rp) in rev.into_iter().rev() {
+            conds.push(cond_at(cx, r, used, rp)?);
+        }
+        return Some(ir::Cond::Chain(*op == BinOp::And, conds));
+    }
     let cmp = match op {
         BinOp::And | BinOp::Or => {
             let (a, b) = (
@@ -1101,8 +1264,11 @@ fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::O
     else {
         return None;
     };
-    let ([ds, field], [Some(ix), None]) = (parts.as_slice(), idx.as_slice()) else {
-        return None;
+    // The index is on the data structure: the parser gives `idx` one
+    // entry per part, or only up to the last indexed part.
+    let (ds, field, ix) = match (parts.as_slice(), idx.as_slice()) {
+        ([ds, field], [Some(ix), None]) | ([ds, field], [Some(ix)]) => (ds, field, ix),
+        _ => return None,
     };
     let prog = cx.prog;
     let Some(Sym::Ds(d)) = cx.syms.get(ds) else {
@@ -1507,5 +1673,14 @@ fn shape(cx: &Cx<'_>, e: &Expr, out: &mut Vec<String>, depth: u32) {
                 (None, None) => out.push("name:unknown".into()),
             }
         }
+    }
+}
+
+/// The generator's operation for +, - or * (S2.41's chains).
+fn ar_op(op: &BinOp) -> ir::ArOp {
+    match op {
+        BinOp::Add => ir::ArOp::Add,
+        BinOp::Sub => ir::ArOp::Sub,
+        _ => ir::ArOp::Mul,
     }
 }

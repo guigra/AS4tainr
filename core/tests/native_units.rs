@@ -887,6 +887,41 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.41 (ADR 0007): long chains of +, -, *, concatenation, AND
+// and OR, lowered as straight-line code with no recursion.
+// Source: IBM Docs, "Precedence Rules" and "Precision Rules for Numeric Operations", IBM i 7.5, https://www.ibm.com/docs/ssw_ibm_i_75/rzasd/expprec.htm, read 2026-11-15
+//
+// It runs on a thread with the stack the as4tainr binary gives its runtime
+// (64 MiB, main.rs): the interpreter evaluates a chain recursively, and
+// #[tokio::test]'s default thread stack is too small for one of 200
+// terms. The generated code needs no such stack.
+#[test]
+fn native_unit_long_chains() {
+    let _ = require_db!();
+    let t = std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .thread_stack_size(64 * 1024 * 1024)
+                .build()
+                .unwrap();
+            rt.block_on(expect(
+                "NCHAIN",
+                include_str!("native/NCHAIN.rpgle"),
+                &[
+                    "SUM 20100",
+                    "CAT 150 ABCDEFGHIJKLMNOPQRSTUVWXYZABCD",
+                    "AND TRUE",
+                    "OR TRUE",
+                    "MIXED 10000",
+                ],
+            ));
+        })
+        .unwrap();
+    t.join().unwrap();
+}
+
 // Stage 2, S2.39 (ADR 0007): indicators set to *ON, *OFF and conditions,
 // IF on indicators and NOT, fixed-form SETON and SETOFF.
 // Source: golden capture tools/golden/native46.txt n46_ind (PUB400, IBM i 7.5, 2026-11-15)
