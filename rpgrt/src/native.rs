@@ -207,6 +207,55 @@ pub enum CmpOp {
     Ge,
 }
 
+/// The first step of a path into an EVAL's target instead of its value
+/// (S2.44: %SUBST's start and length as a target).
+pub const TARGET_PATH: u8 = 255;
+
+/// %SUBST as the target of an EVAL (S2.44): `cur` (the field's current
+/// characters) with positions `start` to `start + len - 1` replaced by
+/// `val` stored as a character field of that length (padded or cut by
+/// `fit` and `right`); with no `len`, to the end. The interpreter's
+/// assign_value "SUBST" arm: a start of 0, or a part past the end, is
+/// RNQ0100; a start or length that is negative or past the end (which
+/// the interpreter reaches by wrapping an unsigned conversion) is the same
+/// error here, never a panic.
+pub fn subst_target(
+    mut cur: Vec<u8>,
+    start: &Dec,
+    len: Option<&Dec>,
+    val: &Value,
+    fit: Fit,
+    right: bool,
+) -> NResult<Vec<u8>> {
+    let outside = || anyhow::anyhow!("RNQ0100: %SUBST is outside the field.");
+    let start = usize::try_from(start.to_i128()?).map_err(|_| outside())?;
+    let first = start.checked_sub(1).ok_or_else(outside)?;
+    let len = match len {
+        Some(l) => usize::try_from(l.to_i128()?).map_err(|_| outside())?,
+        None => cur
+            .len()
+            .checked_add(1)
+            .and_then(|n| n.checked_sub(start))
+            .ok_or_else(outside)?,
+    };
+    let end = first.checked_add(len).ok_or_else(outside)?;
+    if end > cur.len() {
+        return Err(outside());
+    }
+    let mut piece = vec![data::BLANK; len];
+    data::store(
+        &DType::Char(u32::try_from(len)?),
+        val,
+        &mut piece,
+        fit,
+        right,
+    )?;
+    cur.get_mut(first..end)
+        .ok_or_else(outside)?
+        .copy_from_slice(&piece);
+    Ok(cur)
+}
+
 /// A path to an expression node written as runs of equal steps (a long
 /// chain's left operands, S2.41): the steps. Its length is bounded where
 /// the runs are written, by lowering's limit on an instruction's nodes

@@ -887,6 +887,44 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.42 (ADR 0007): two programs with the same calculations and a
+// named constant of a different value each show their own value.
+// Source: IBM Docs, "Named Constants", IBM i 7.5, https://www.ibm.com/docs/ssw_ibm_i_75/rzasd/namcon.htm, read 2026-11-15
+#[tokio::test]
+async fn native_unit_constants_keyed_by_value() {
+    let _ = require_db!();
+    expect(
+        "NCONSTA",
+        include_str!("native/NCONSTA.rpgle"),
+        &["CONST AAA"],
+    )
+    .await;
+    expect(
+        "NCONSTB",
+        include_str!("native/NCONSTB.rpgle"),
+        &["CONST BBB"],
+    )
+    .await;
+}
+
+// Stage 2, S2.44 (ADR 0007): %SUBST as the target of an EVAL.
+// Source: IBM Docs, "%SUBST Used as the Result of an Assignment", IBM i 7.5, https://www.ibm.com/docs/en/i/7.5?topic=substring-subst-used-as-result-assignment, read 2026-11-15
+#[tokio::test]
+async fn native_unit_subst_target() {
+    let _ = require_db!();
+    expect(
+        "NSUBT",
+        include_str!("native/NSUBT.rpgle"),
+        &[
+            "SUBT DOC [ab****ghijklmno]",
+            "SUBT EXPR [ab****ghijklmno]",
+            "SUBT END [abcdefghijklXYZ]",
+            "SUBT PAST ERR",
+        ],
+    )
+    .await;
+}
+
 // Stage 2, S2.41 (ADR 0007): long chains of +, -, *, concatenation, AND
 // and OR, lowered as straight-line code with no recursion.
 // Source: IBM Docs, "Precedence Rules" and "Precision Rules for Numeric Operations", IBM i 7.5, https://www.ibm.com/docs/ssw_ibm_i_75/rzasd/expprec.htm, read 2026-11-15

@@ -1,0 +1,36 @@
+{
+ "topic": "S2.41 (chains with no recursion, IBM i's nesting limit), S2.30 idx fix, coverage test: section 7",
+ "date": "2026-11-15",
+ "branch": "native/engine",
+ "commit": "5b6f0c1",
+ "snapshot": "d558c00 (the same tree)",
+ "tree": "the commit plus the catalog::init lock fix (upstream issue #18) applied uncommitted on both machines",
+ "split": "the user's decision: native-diff on the aarch64 VM, everything else on x86_64 (low memory on x86_64)",
+ "x86_64": {
+  "fmt": "PASS",
+  "clippy": "FAIL: upstream's 3 chunks_exact_to_as_chunks only",
+  "clippy_without_upstream_lint": "PASS",
+  "test": "FAIL 251/252: save_changed_objects, upstream's known intermittent test; rerun alone PASS",
+  "test_release": "PASS",
+  "build_release": "PASS",
+  "demo": "PASS",
+  "logs_sha256": {
+   "build-release.log": "923dd4c53dfda1fb55b79fbded172c9b0f6a6a0352e0c1354a5fbbc45285bada",
+   "clippy-ours.log": "f9686e7272702b9b2c78f73cd908a5adf53c9b7fb312bcd0d828316934ee3bc4",
+   "clippy.log": "5cff317d3706261d93f19dd5318ec071852d063058da1ccb59d7779f5afe402d",
+   "demo.log": "2668a3b33f5a22e3a707c8cbd310981edbc660f41238b900fcc23b3490df5d25",
+   "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "test-release.log": "eafe2338afcccec67f1b273fa484f7600bb59c25da20f116e58f2c99d2199a70",
+   "test-rerun-save.log": "2e3dd884fbb3bd609063725e8a1282513cf46493fc1e813e3826196cd5557103",
+   "test.log": "06c5d3c4b3a84f1034fef350256672fbd5147a070ddfd2e95442e2e8a18645f7"
+  }
+ },
+ "aarch64_vm": {
+  "native_diff": "PASS: reference 667, generate 409 routines, generated code clean under clippy -D warnings, level 1 identical, level 2 auto 667 the same, level 2 rust 645 of 667 (23 programs refused, none generated), level 3 demo the same, golden NOT_RUN (no captures on the VM)",
+  "coverage": "native 69.9%, interp 30.1% (409 routines)"
+ },
+ "not_run": [
+  "golden level (no captures on the VM; PUB400 unreachable)",
+  "5250 end-to-end for this commit"
+ ]
+}

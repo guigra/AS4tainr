@@ -298,8 +298,8 @@ impl<'a> Rt<'_, 'a> {
             Ok(Flow::Return(v)) => Ok(v),
             Ok(_) => Ok(None),
             Err(e) => {
-                if !errors::is_signal(&e) && !self.m.passes_by(&e) {
-                    self.m.note_error(&e);
+                if !errors::is_signal(&e) && !self.passes_by_n(&e) {
+                    self.note_error_n(&e);
                 }
                 Err(e)
             }
@@ -669,7 +669,13 @@ impl Runtime for Rt<'_, '_> {
     fn precision(&mut self, pc: usize, path: &[u8]) -> Option<(u32, u32)> {
         // The expression the path starts from: an EVAL's value, or a
         // condition (S2.14).
+        // A path into the target starts with TARGET_PATH (S2.44).
+        let (into_target, path) = match path.split_first() {
+            Some((&rpgrt::native::TARGET_PATH, rest)) => (true, rest),
+            _ => (false, path),
+        };
         let mut node = match self.code.get(pc).map(|i| &i.ins) {
+            Some(Ins::Stmt(super::super::ast::Stmt::Eval { target, .. })) if into_target => target,
             Some(Ins::Stmt(super::super::ast::Stmt::Eval { value, .. })) => value,
             Some(Ins::JumpIfNot(c, _)) => c,
             // A CALLP's arguments (S2.35).
@@ -736,7 +742,7 @@ impl Runtime for Rt<'_, '_> {
             return Settled::Exit(Err(err));
         }
         // An escape message sent to a caller passes this procedure by.
-        if self.m.passes_by(&err) {
+        if self.passes_by_n(&err) {
             return Settled::Exit(Err(err));
         }
         // An error inside a monitored body goes to the first ON-ERROR that
@@ -771,7 +777,7 @@ impl Runtime for Rt<'_, '_> {
         let line = self.code.get(pc).map(|i| i.line).unwrap_or(0);
         match handled {
             Some(h) => {
-                self.m.note_error(&err);
+                self.note_error_n(&err);
                 Settled::Go(h)
             }
             None if line == 0 => Settled::Exit(Err(err)),
@@ -780,7 +786,7 @@ impl Runtime for Rt<'_, '_> {
             None => {
                 let first = errors::origin(&err);
                 let called = first.as_ref().is_some_and(|a| a.called);
-                let sender = first.map(|a| a.sender).unwrap_or_else(|| self.m.sender());
+                let sender = first.map(|a| a.sender).unwrap_or_else(|| self.sender_n());
                 Settled::Exit(Err(err.context(errors::At {
                     line,
                     sender,
@@ -871,5 +877,206 @@ fn ind_name(n: &str) -> String {
     match t.parse::<u32>() {
         Ok(v) if t.len() <= 2 => format!("{v:02}"),
         _ => t,
+    }
+}
+
+// ---- the error path (S2.43, ADR 0007) ----------------------------------
+//
+// Written again from the interpreter's errors.rs (note_error,
+// psds_error, passes_by and the status data structure helpers) and
+// interp.rs (sender), step by step; native_tripwire.rs watches them. A
+// file error (status 1000 and up) still goes to the interpreter's
+// note_error: its file information comes from the interpreter's file
+// state, which phase A's file operations replace.
+impl Rt<'_, '_> {
+    /// errors.rs passes_by: an escape message sent to a caller passes this
+    /// procedure by.
+    fn passes_by_n(&self, err: &anyhow::Error) -> bool {
+        err.downcast_ref::<crate::pgmmsg::Escape>()
+            .is_some_and(|e| {
+                e.passes(
+                    &self.m.io.job_key,
+                    crate::pgmmsg::stack_top_id(&self.m.io.job_key),
+                )
+            })
+    }
+
+    /// interp.rs sender: the call stack entry that sends a message.
+    fn sender_n(&self) -> crate::pgmmsg::Sender {
+        let s = crate::pgmmsg::stack(&self.m.io.job_key);
+        match s.last() {
+            Some(e) => crate::pgmmsg::Sender {
+                pgm: e.pgm.clone(),
+                lib: crate::qtemp::logical(&e.lib),
+                module: e.module.clone(),
+                proc: e.proc.clone(),
+                line: self.m.line,
+                inst: String::new(),
+            },
+            None => crate::pgmmsg::Sender {
+                pgm: self.m.stack_pgm(),
+                lib: crate::qtemp::logical(&self.m.stack_lib()),
+                module: self.m.prog.name.clone(),
+                proc: self.m.prog.name.clone(),
+                line: self.m.line,
+                inst: String::new(),
+            },
+        }
+    }
+
+    /// errors.rs note_error: %STATUS and %ERROR as the operation left
+    /// them, the PSDS's exception, and the exception message in the call
+    /// message queue of the procedure that handles it.
+    fn note_error_n(&mut self, err: &anyhow::Error) -> u32 {
+        let code = errors::status_code(err);
+        if code >= 1000 {
+            // File errors: the interpreter's, for its file state (above).
+            return self.m.note_error(err);
+        }
+        if std::env::var("AS4TAINR_TRACE_ERRORS").is_ok() {
+            let _ = writeln!(
+                std::io::stderr(),
+                "[handled in {} at line {}] {err:#}",
+                self.m.prog.name,
+                self.m.line
+            );
+        }
+        self.m.last = super::Status {
+            error: true,
+            code,
+            ..super::Status::default()
+        };
+        self.psds_error_n(code, err);
+        let job = self.m.io.job_key.clone();
+        if let Some(id) = crate::pgmmsg::stack_target(&job, "*", 0) {
+            let (m, logged) = match err.downcast_ref::<crate::pgmmsg::Escape>() {
+                Some(e) => (e.0.clone(), e.0.key != 0),
+                None => {
+                    let msgid = errors::message_id(err);
+                    let mut m = crate::pgmmsg::from_error(err, &msgid);
+                    m.data = data::e(&m.text);
+                    let at = errors::origin(err)
+                        .map(|a| a.sender)
+                        .unwrap_or_else(|| self.sender_n());
+                    m.receiver.line = at.line;
+                    if msgid.starts_with("RNX") {
+                        m.logged_sender = Some(crate::pgmmsg::rpg_runtime_sender());
+                    }
+                    m.sender = at;
+                    (m, false)
+                }
+            };
+            if logged {
+                crate::pgmmsg::stack_send_unlogged(&job, id, m);
+            } else if let Some(k) = crate::pgmmsg::stack_send(&job, id, m) {
+                self.m.logged.push(k);
+            }
+        }
+        code
+    }
+
+    /// errors.rs psds_error for a program error (status below 1000): the
+    /// previous status to 16-20, the status to 11-15, the statement, the
+    /// routine, the exception ID and its data.
+    fn psds_error_n(&mut self, code: u32, err: &anyhow::Error) {
+        let Some(ds) = self.m.prog.psds.clone() else {
+            return;
+        };
+        let prev = self.ds_get_n(&ds, 11, 5);
+        if prev.len() == 5 {
+            self.ds_put_n(&ds, 15, &prev);
+        }
+        self.ds_zoned_n(&ds, 11, 5, i64::from(code));
+        let stmt = format!("{:>8}", self.m.line);
+        self.ds_text_n(&ds, 21, 8, &stmt);
+        let routine = self.m.routine.clone();
+        self.ds_text_n(&ds, 29, 8, &routine);
+        let id = errors::message_id(err);
+        self.ds_text_n(&ds, 40, 7, &id);
+        let root = err.root_cause().to_string();
+        let text = root
+            .split_once(": ")
+            .map(|(_, t)| t.to_string())
+            .unwrap_or(root);
+        self.ds_text_n(&ds, 91, 80, text.lines().next().unwrap_or(""));
+    }
+
+    /// errors.rs ds_put: bytes into a global data structure at an offset;
+    /// what falls past its end is not kept.
+    fn ds_put_n(&mut self, ds: &str, off: usize, bytes: &[u8]) {
+        let Some(super::super::program::Sym::Ds(d)) = self.m.prog.syms.get(ds) else {
+            return;
+        };
+        let Some(room) = d.size.checked_sub(off).filter(|r| *r > 0) else {
+            return;
+        };
+        let n = bytes.len().min(room);
+        let Some(at) = d.off.checked_add(off) else {
+            return;
+        };
+        let Some(end) = at.checked_add(n) else {
+            return;
+        };
+        if let (Some(dst), Some(src)) = (
+            self.m.bufs.get_mut(d.buf).and_then(|b| b.get_mut(at..end)),
+            bytes.get(..n),
+        ) {
+            dst.copy_from_slice(src);
+        }
+    }
+
+    /// errors.rs ds_get.
+    fn ds_get_n(&self, ds: &str, off: usize, len: usize) -> Vec<u8> {
+        let Some(super::super::program::Sym::Ds(d)) = self.m.prog.syms.get(ds) else {
+            return Vec::new();
+        };
+        let end = off.saturating_add(len).min(d.size);
+        if off >= end {
+            return Vec::new();
+        }
+        let (Some(a), Some(b)) = (d.off.checked_add(off), d.off.checked_add(end)) else {
+            return Vec::new();
+        };
+        self.m
+            .bufs
+            .get(d.buf)
+            .and_then(|x| x.get(a..b))
+            .map(|x| x.to_vec())
+            .unwrap_or_default()
+    }
+
+    /// errors.rs ds_text: text in EBCDIC, blank-padded or cut to `len`, at
+    /// 1-based position `from`.
+    fn ds_text_n(&mut self, ds: &str, from: usize, len: usize, text: &str) {
+        let mut b = data::e(text);
+        b.resize(len, data::BLANK);
+        b.truncate(len);
+        if let Some(off) = from.checked_sub(1) {
+            self.ds_put_n(ds, off, &b);
+        }
+    }
+
+    /// errors.rs ds_zoned: a zoned number of `digits` digits (the value
+    /// modulo 10^digits) at 1-based position `from`.
+    fn ds_zoned_n(&mut self, ds: &str, from: usize, digits: u32, v: i64) {
+        let t = data::DType::Zoned(digits, 0);
+        let mut b = t.initial();
+        let Some(m) = 10i64.checked_pow(digits) else {
+            return;
+        };
+        let v = v.rem_euclid(m);
+        if data::store(
+            &t,
+            &Value::Num(Dec::from_i64(v)),
+            &mut b,
+            Fit::Truncate { half_adjust: false },
+            false,
+        )
+        .is_ok()
+        {
+            if let Some(off) = from.checked_sub(1) {
+                self.ds_put_n(ds, off, &b);
+            }
+        }
     }
 }

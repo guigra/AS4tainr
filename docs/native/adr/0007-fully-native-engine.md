@@ -159,3 +159,35 @@ S2.40.1 had bounded lowering's recursion with a depth cut-off of 64 that left de
   - NCHAIN: a sum of 200 terms, a concatenation of 150 parts, AND and OR of 120 conditions, and 100 mixed terms. The expected values come from IBM's documented precedence and exact integer arithmetic.
   - native_coverage.rs: 100 levels are generated, 101 are refused. Each unit's count of interpreter instructions may not rise (a lowering that stops applying shows there, not in a parity test).
 - **The interpreter, for the record (fidelity.md).** It compiles expressions nested past 100 levels. A source with 20 000 nested parentheses overflows the parser's stack and aborts the process, even with 64 MiB.
+
+## S2.42: named constants in expressions (rpgcg 0.1.0+stage2.41)
+
+A named constant (`dcl-c DIGITS '0123456789'`) of character or numeric value is the operand of its value. The interpreter's eval gives `Sym::Const(c) => c`, so it is the same operand as the literal it stands for. Other constant values (a date, for example) are not lowered. NCHECK, which uses one, now has no instruction left with the interpreter, and its coverage ceiling is 0. The constant's value goes into the routine's layout lines: the compiled code names the constant, not its value, so two programs with the same calculations and a different constant (one included from another source) would otherwise share a fingerprint and the same generated code. native-diff found this through rla_test include_search_order_follows_source_kind, and NCONSTA and NCONSTB now test it.
+
+## S2.43: the error path for program errors (rpgcg 0.1.0+stage2.41)
+
+`settle` and the native call's body note and route an error with the fork's own code. These are written again, step by step:
+- from errors.rs: `note_error`, `psds_error`, `passes_by` and the status data structure helpers `ds_put`, `ds_get`, `ds_text` and `ds_zoned`;
+- from interp.rs: `sender`.
+
+That code sets `%STATUS` and `%ERROR`, and the PSDS's previous and current status, statement, routine, exception ID and data. The exception message goes to the handling procedure's call message queue, with its sender, the RPG run-time's logged sender for RNX messages, and the job log.
+
+A file error (status 1000 and up) still goes to the interpreter's `note_error`. Its PSDS file fields come from the interpreter's file state (`infds_feedback`), and phase A's file operations replace that state.
+
+native_tripwire.rs now watches every interpreter function the native runtime writes again since S2.35: calls, DSPLY's text, `%CHAR` of numbers, indicators, `run_code`, and the error path. Its hash was recorded after a review on 2026-11-15. Upstream's errors.rs and bifs.rs are unchanged, and interp.rs differs only by the authorized hook.
+
+## S2.44: %SUBST as the target of an EVAL (rpgcg 0.1.0+stage2.44)
+
+The interpreter evaluates the value first (Stmt::Eval). Then its `assign_value` "SUBST" arm:
+1. loads the field and evaluates the start and the length (with no length, to the end);
+2. raises RNQ0100 for a start of 0 or a part past the end;
+3. stores the value as a character field of the part's length;
+4. stores the field again.
+
+Generated code does the same in that order, on an eligible character field with a character value; `rpgrt::native::subst_target` is the arm's middle part.
+
+The interpreter turns a negative start or length into an unsigned number. That gives RNQ0100 in a release build and a panic in a debug build. Here it is RNQ0100, never a panic.
+
+The start and length are expressions of the target, not of the value, so their precision paths start with `rpgrt::native::TARGET_PATH`, and `Runtime::precision` follows them into the EVAL's target.
+
+Expected values come from IBM's documentation ("%SUBST Used as the Result of an Assignment", IBM i 7.5): its example `%SUBST(A:3:4) = '****'`, any expression for the start and length, no length meaning to the end, and a run-time error for a length past the end. PUB400 was unreachable, so there was no new capture. NSUBT; coverage ceiling 0.
