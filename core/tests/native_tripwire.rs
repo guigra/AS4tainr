@@ -124,13 +124,105 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    fn search(&self, x: &Value, all: &[Value], start: usize, n: usize, how: &str) -> Result<usize> {",
             "    ",
         ),
+        // S2.35 (ADR 0007): native procedure calls (native_rt.rs `call`,
+        // `call_frame`, `call_body`).
+        function(
+            INTERP,
+            "    fn call_named(&mut self, name: &str, args: &[Expr]) -> Result<Option<Value>> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn call_proc(&mut self, pi: &'a ProcInfo, args: Vec<Arg>) -> Result<Option<Value>> {",
+            "    ",
+        ),
+        function(INTERP, "    fn args_for(\n", "    "),
+        function(
+            INTERP,
+            "    fn same_type_variable(&mut self, a: &Expr, t: &DType) -> bool {",
+            "    ",
+        ),
+        function(
+            ERRORS,
+            "    pub(super) fn guarded(&mut self, code: &Code) -> Result<Flow> {",
+            "    ",
+        ),
+        function(
+            ERRORS,
+            "    pub(super) fn recover(&mut self, err: anyhow::Error) -> Result<Recovery> {",
+            "    ",
+        ),
+        // S2.36: DSPLY's text; S2.13's %CHAR of a number.
+        function(
+            INTERP,
+            "    fn text_of(&self, v: &Value) -> Result<String> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "pub fn char_of_num_edit(d: &Dec, point: char, zero: bool) -> String {",
+            "",
+        ),
+        // S2.39: indicators.
+        function(INTERP, "    pub fn ind(&self, n: &str) -> bool {", "    "),
+        function(INTERP, "    pub fn set_ind(&mut self, n: &str, v: bool) {", "    "),
+        function(INTERP, "fn ind_name(n: &str) -> String {", ""),
+        // S2.40: EXSR runs a routine as run_code does.
+        function(
+            INTERP,
+            "    fn run_code(&mut self, code: &Code) -> Result<Flow> {",
+            "    ",
+        ),
+        // S2.43: the error path.
+        function(
+            ERRORS,
+            "    pub(super) fn note_error(&mut self, err: &anyhow::Error) -> u32 {",
+            "    ",
+        ),
+        function(
+            ERRORS,
+            "    pub(super) fn psds_error(&mut self, code: u32, err: &anyhow::Error) {",
+            "    ",
+        ),
+        function(
+            ERRORS,
+            "    pub(super) fn passes_by(&self, err: &anyhow::Error) -> bool {",
+            "    ",
+        ),
+        function(
+            ERRORS,
+            "    fn ds_put(&mut self, ds: &str, off: usize, bytes: &[u8]) {",
+            "    ",
+        ),
+        function(
+            ERRORS,
+            "    fn ds_get(&self, ds: &str, off: usize, len: usize) -> Vec<u8> {",
+            "    ",
+        ),
+        function(
+            ERRORS,
+            "    fn ds_text(&mut self, ds: &str, from: usize, len: usize, text: &str) {",
+            "    ",
+        ),
+        function(
+            ERRORS,
+            "    pub(super) fn ds_zoned(&mut self, ds: &str, from: usize, digits: u32, v: i64) {",
+            "    ",
+        ),
+        function(ERRORS, "    fn statement(&self) -> String {", "    "),
+        function(
+            INTERP,
+            "    pub(super) fn sender(&self) -> crate::pgmmsg::Sender {",
+            "    ",
+        ),
     ];
     let hash = sha256(&watched.concat());
-    // Reviewed on 2026-11-13 against native_rt.rs and the stage 2
+    // Reviewed on 2026-11-15 against native_rt.rs and the stage 2
     // helpers of rpgrt/src/native.rs (upstream dd47e28, with #9's %SUBST
     // and %SCAN starts and #10's MONITOR routing, plus the native hook at
-    // the start of run_code_at).
-    let reviewed = "354cc617fa777342e97ebc12a90dc5a8929252f675d5236d45195ce2c21e24e7";
+    // the start of run_code_at). This adds the functions S2.35-S2.43 write
+    // again: calls, DSPLY's text, indicators, run_code and the error path.
+    let reviewed = "a17e434abba19839364e41e670b6cc84aa85461175645e597a4e8a8f63116577";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

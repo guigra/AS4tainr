@@ -138,3 +138,39 @@ Item 6 of the task file (an upstream PR for #18 from the x86 machine, then closi
 - The user's requirement: the `rust` engine must become 100% native, so the interpreter could be removed. Option A: behaviour that exists only in interp.rs is written again in our code (native_rt.rs and rpgrt), checked by the differential suite. Upstream code is not moved.
 - Phase A: lower every instruction, with a dispatch count down to 0. Phase B: a runtime in rpgrt with no `Machine`.
 - Next step: S2.35, native procedure calls within the module (ADR 0007, "S2.35"). First the PUB400 captures for its tests, then `enter_proc`/`leave_proc` in native_rt.rs, the IR for a call, and lowering.
+
+## 2026-11-15 (later): S2.35-S2.43, the rules audit, coverage
+
+- Done:
+  - S2.35 native calls;
+  - S2.36 DSPLY;
+  - S2.37 no interpreter fallback;
+  - S2.38 RETURN;
+  - S2.39 indicators;
+  - S2.40 EXSR;
+  - S2.41 chains with no recursion, and IBM i's nesting limit of 100 with a refusal;
+  - S2.42 named constants;
+  - S2.43 the error path for program errors.
+  
+  See ADR 0007.
+- Section 5 audit (d3ab6d7):
+  - the generated code is now linted (native-diff's generated-lints step);
+  - eprintln!, `as` casts and Index::index are fixed;
+  - the refusals set is bounded.
+  
+  The user's decisions: errors stay anyhow (documented exception), and unwrap is allowed in tests.
+- Section 7 before every commit: as4tainr-up-logs/section7.sh <snapshot> <tag> runs the full list on a `git stash create` snapshot, in its own worktree, on a new database, with the #18 fix applied without a commit.
+- core/tests/native_coverage.rs:
+  - each unit's count of interpreter instructions may not rise (a parity test cannot see a lowering that stops applying);
+  - 100 nesting levels are generated, 101 are refused.
+- Coverage of the OpenRPG corpus: 79.3% native at S2.39.
+- PUB400 is unreachable for a few days (the IP is blocked, maybe by today's many captures). Space the captures out when it is back.
+- Held for Kyle (publish at the end):
+  - the five validated branches;
+  - the %EDITW issue;
+  - an issue and PR on expression nesting: over 100 levels compiles, and 20 000 aborts the process. The PR needs a PUB400 capture of the RNF ID.
+- Next:
+  - commit the chains block once s7-chain passes;
+  - run section 7 on S2.42-S2.43 and commit;
+  - rerun the VM bench with CARGO_BUILD_JOBS=1 (it was OOM-killed);
+  - then %SUBST and %ELEM as targets, the remaining EVAL forms, and file I/O.

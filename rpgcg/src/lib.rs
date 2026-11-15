@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.41");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.44");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -206,6 +206,16 @@ pub mod ir {
         /// CALLP of a procedure of the module (S2.35, ADR 0007); its value,
         /// if any, is not used.
         Call(Call),
+        /// EVAL with %SUBST as its target (S2.44): the character field,
+        /// the start and the length (none: to the end) and the value.
+        EvalSubst {
+            base: Operand,
+            start: Box<NumExpr>,
+            len: Option<Box<NumExpr>>,
+            value: Box<CharExpr>,
+            half_adjust: bool,
+            right: bool,
+        },
         /// DSPLY with no response field (S2.36): the message, if any.
         Dsply(Option<ValExpr>),
         /// RETURN (S2.38): the value, if any.
@@ -1116,6 +1126,42 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("ec{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::EvalSubst {
+                base,
+                start,
+                len,
+                value,
+                half_adjust,
+                right,
+            },
+        ) => {
+            // The interpreter's order: the value (Stmt::Eval), then in
+            // assign the field, the start and the length; then the field
+            // stored again with the part replaced.
+            let ir::Operand::Var { ty: t, .. } = base else {
+                return Err(bad());
+            };
+            let (prelude, sb, so) = place_of(base).ok_or_else(bad)?;
+            let v = char_expr(pc, value, helpers);
+            let st = num_expr(pc, start, helpers);
+            let ln = match len {
+                Some(l) => format!("Some({})", num_expr(pc, l, helpers)),
+                None => "None".to_string(),
+            };
+            let fit = format!("rpgrt::rpg::data::Fit::Strict {{ half_adjust: {half_adjust} }}");
+            let _ = writeln!(
+                helpers,
+                "\nfn es{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let v = {v};\n{prelude}    let cur = rpgrt::native::load(rt.mem(), {sb}, {so}, {})?.chars()?;\n    let st = {st};\n    let ln = {ln};\n    let cur = rpgrt::native::subst_target(cur, &st, ln.as_ref(), &v, {fit}, {right})?;\n    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        {},\n        &rpgrt::rpg::data::Value::Char(cur),\n        {fit},\n        false,\n    )\n}}",
+                ty(t),
+                ty(t)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("es{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::Dsply(msg)) => {

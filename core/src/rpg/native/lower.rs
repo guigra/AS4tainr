@@ -294,6 +294,36 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             from: any_operand(cx, from, &mut used)?,
             to: variable(cx, to, &mut used)?,
         },
+        // EVAL with %SUBST as its target (S2.44): assign_value's "SUBST"
+        // arm, on an eligible character field, with a character value.
+        Ins::Stmt(Stmt::Eval {
+            target: Expr::Bif(b, args),
+            value,
+            ext,
+            right,
+        }) if b == "SUBST" && !ext.error && !ext.no_lock && ext.other.chars().all(|c| c == 'H') => {
+            let (base, start, len) = match args.as_slice() {
+                [f, s] => (f, s, None),
+                [f, s, l] => (f, s, Some(l)),
+                _ => return None,
+            };
+            let base = variable(cx, base, &mut used)?;
+            if !is_char(&base) {
+                return None;
+            }
+            let tp = rpgrt::native::TARGET_PATH;
+            ir::Lowered::EvalSubst {
+                base,
+                start: Box::new(num_expr(cx, start, &mut used, vec![tp, 1])?),
+                len: match len {
+                    Some(l) => Some(Box::new(num_expr(cx, l, &mut used, vec![tp, 2])?)),
+                    None => None,
+                },
+                value: Box::new(char_expr(cx, value, &mut used, Vec::new())?),
+                half_adjust: ext.half_adjust,
+                right: *right,
+            }
+        }
         // EVAL of an indicator (S2.39): Stmt::Eval then assign's
         // `set_ind(n, val.truth()?)`, for *ON, *OFF or a condition.
         Ins::Stmt(Stmt::Eval {
@@ -1027,6 +1057,28 @@ fn any_operand(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Oper
             Some(ir::Operand::Num { m, s: d.scale() })
         }
         Expr::Str(b) => Some(ir::Operand::Str(b.clone())),
+        // A named constant (S2.42): eval's `Sym::Const(c) => c`, its value
+        // as defined, so the same operand as the literal it stands for.
+        // The value goes into the routine's layout lines, so the
+        // fingerprint changes with it: two programs whose code is the same
+        // but whose constant differs (one from an include of another
+        // source) must not share generated code (rla_test
+        // include_search_order_follows_source_kind under native-diff).
+        Expr::Name { parts, args: None }
+            if matches!(cx.syms.get(&parts.join(".")), Some(Sym::Const(_))) =>
+        {
+            let name = parts.join(".");
+            let op = match cx.syms.get(&name) {
+                Some(Sym::Const(Value::Char(b))) => ir::Operand::Str(b.clone()),
+                Some(Sym::Const(Value::Num(d))) => {
+                    let m: i128 = d.mantissa().to_string().parse().ok()?;
+                    ir::Operand::Num { m, s: d.scale() }
+                }
+                _ => return None,
+            };
+            used.push(format!("const {name} {op:?}"));
+            Some(op)
+        }
         // A figurative constant (S2.22); `operand` keeps it out of
         // numeric places, and only comparisons take it.
         Expr::Fig(f) => fig_op(f).map(ir::Operand::Fig),
