@@ -93,3 +93,13 @@ In phase A the frame is still built on the interpreter's storage, but by our cod
 - `Runtime::precision` follows a path into a call's arguments, and starts from a CALLP's expression.
 - The caller's layout gets a `call` line with each parameter's name, type and kind, so a change to the procedure's interface changes the caller's key.
 - Coverage of the native units: interp 534 → 511. CALLP and the EVALs with calls are lowered (fallback only when `native_ok` is false).
+
+## S2.36: DSPLY with no response field (rpgcg 0.1.0+stage2.36)
+
+The interpreter's `Stmt::Dsply` with no response field (its batch path) puts `text_of(message)` into the job's messages, with trailing blanks removed. `text_of` gives:
+- a character value as text (`data::a`);
+- a number as `char_of_num`: %CHAR's form with a period, ignoring DECEDIT.
+
+Generated code builds the same text from an eligible character or numeric expression. That uses `rpgrt::native::char_of_num(d, '.', false)`, written again for S2.13 and equal to `char_of_num_edit`. `Runtime::dsply` stores it. Not lowered: a response field (the interactive path), and float, date, time and indicator messages, which are not eligible expressions.
+
+Coverage of the native units after S2.36: native 18.1%, fallback 73.7%, interp 8.2%. Almost everything is now lowered; what keeps it from being native is the `native_ok` fallback. That is the next phase A step.

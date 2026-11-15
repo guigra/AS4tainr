@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.35");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.36");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -195,6 +195,8 @@ pub mod ir {
         /// CALLP of a procedure of the module (S2.35, ADR 0007); its value,
         /// if any, is not used.
         Call(Call),
+        /// DSPLY with no response field (S2.36): the message, if any.
+        Dsply(Option<DsplyMsg>),
         /// EVAL of a figurative constant into a field (S2.22): stored as
         /// the interpreter stores `Value::Fig`.
         EvalFig {
@@ -411,6 +413,13 @@ pub mod ir {
             start: Option<Operand>,
             path: Vec<u8>,
         },
+    }
+
+    /// A DSPLY message (S2.36): a numeric or a character expression.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum DsplyMsg {
+        Num(NumExpr),
+        Char(CharExpr),
     }
 
     /// A call of a procedure of the module (S2.35, ADR 0007): its name, and
@@ -1022,6 +1031,31 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("ec{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::Dsply(msg)) => {
+            // The interpreter's text_of: characters as text, a number as
+            // %CHAR gives it with a period and no DECEDIT (char_of_num).
+            let text = match msg {
+                None => "String::new()".to_string(),
+                Some(ir::DsplyMsg::Char(e)) => {
+                    format!(
+                        "rpgrt::rpg::data::a(&{}.chars()?)",
+                        char_expr(pc, e, helpers)
+                    )
+                }
+                Some(ir::DsplyMsg::Num(e)) => format!(
+                    "rpgrt::rpg::data::a(&rpgrt::native::char_of_num(&{}, '.', false).chars()?)",
+                    num_expr(pc, e, helpers)
+                ),
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn dy{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let text = {text};\n    rt.dsply(text);\n    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("dy{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::Call(c)) => {

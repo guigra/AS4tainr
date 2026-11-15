@@ -145,6 +145,18 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             from: any_operand(cx, from, &mut used)?,
             to: variable(cx, to, &mut used)?,
         },
+        // DSPLY with no response field (S2.36): Stmt::Dsply's batch path.
+        // A float, date or time message is not an eligible expression.
+        Ins::Stmt(Stmt::Dsply {
+            message,
+            response: None,
+        }) => ir::Lowered::Dsply(match message {
+            None => None,
+            Some(m) => Some(match char_expr(cx, m, &mut used, Vec::new()) {
+                Some(c) => ir::DsplyMsg::Char(c),
+                None => ir::DsplyMsg::Num(num_expr(cx, m, &mut used, Vec::new())?),
+            }),
+        }),
         // CALLP of a procedure of this module (S2.35, ADR 0007).
         Ins::Stmt(Stmt::CallP(Expr::Name { parts, args })) => ir::Lowered::Call(call_of(
             cx,

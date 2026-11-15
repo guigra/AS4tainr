@@ -164,6 +164,10 @@ pub trait Runtime {
     /// entry and the procedure's own generated code, with no interpreter
     /// call. Its return value, if it has one.
     fn call(&mut self, pc: usize, proc: &str, args: Vec<CallArg>) -> NResult<Option<Value>>;
+    /// Stage 2 (S2.36): DSPLY with no response field shows `text` (the
+    /// interpreter's batch path: the job's messages, trailing blanks
+    /// removed).
+    fn dsply(&mut self, text: String);
 }
 
 /// An argument of a native procedure call (S2.35): the caller's storage
