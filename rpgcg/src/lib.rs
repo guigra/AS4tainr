@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.38");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.39");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -139,6 +139,10 @@ pub mod ir {
         CmpExpr(CmpOp, Box<CmpSide>, Box<CmpSide>),
         And(Box<Cond>, Box<Cond>),
         Or(Box<Cond>, Box<Cond>),
+        /// An indicator (`*IN50`, `*INLR`; S2.39).
+        Ind(String),
+        /// NOT of a condition (S2.39).
+        Not(Box<Cond>),
     }
 
     /// One side of a comparison: a numeric expression with no
@@ -199,6 +203,10 @@ pub mod ir {
         Dsply(Option<ValExpr>),
         /// RETURN (S2.38): the value, if any.
         Return(Option<ValExpr>),
+        /// EVAL of an indicator (S2.39): `*ON`, `*OFF` or a condition.
+        EvalInd { name: String, value: IndValue },
+        /// SETON / SETOFF of indicators (S2.39).
+        SetInd { on: bool, inds: Vec<String> },
         /// EVAL of a figurative constant into a field (S2.22): stored as
         /// the interpreter stores `Value::Fig`.
         EvalFig {
@@ -415,6 +423,14 @@ pub mod ir {
             start: Option<Operand>,
             path: Vec<u8>,
         },
+    }
+
+    /// The value an indicator is set to (S2.39).
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum IndValue {
+        On,
+        Off,
+        Cond(Cond),
     }
 
     /// A numeric or a character expression: a DSPLY message (S2.36), a
@@ -885,6 +901,15 @@ fn cond_fns(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usize) 
             );
             out.push_str(&extra);
         }
+        ir::Cond::Ind(name) => {
+            let _ = writeln!(out, "    Ok(rt.ind({}))\n}}", json_str(name));
+        }
+        ir::Cond::Not(x) => {
+            *n = n.saturating_add(1);
+            let xi = format!("c{pc}_{n}");
+            let _ = writeln!(out, "    Ok(!{xi}(rt)?)\n}}");
+            cond_fns(pc, x, &xi, out, n);
+        }
         ir::Cond::And(l, r) | ir::Cond::Or(l, r) => {
             let both = if matches!(c, ir::Cond::And(..)) {
                 "&&"
@@ -1063,6 +1088,41 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("dy{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::EvalInd { name, value }) => {
+            // Stmt::Eval of an indicator: the value's truth, then set_ind.
+            let v = match value {
+                ir::IndValue::On => "true".to_string(),
+                ir::IndValue::Off => "false".to_string(),
+                ir::IndValue::Cond(c) => {
+                    let mut n = 0;
+                    cond_fns(pc, c, &format!("ci{pc}"), helpers, &mut n);
+                    format!("ci{pc}(rt)?")
+                }
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn ei{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let v = {v};\n    rt.set_ind({}, v);\n    Ok(())\n}}",
+                json_str(name)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("ei{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::SetInd { on, inds }) => {
+            let mut body = String::new();
+            for i in inds {
+                let _ = writeln!(body, "    rt.set_ind({}, {on});", json_str(i));
+            }
+            let _ = writeln!(
+                helpers,
+                "\nfn si{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("si{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Return, ir::Lowered::Return(v)) => {
