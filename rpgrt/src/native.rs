@@ -207,6 +207,19 @@ pub enum CmpOp {
     Ge,
 }
 
+/// A path to an expression node written as runs of equal steps (a long
+/// chain's left operands, S2.41): the steps. Its length is bounded where
+/// the runs are written, by lowering's limit on an instruction's nodes
+/// (`lower::MAX_NODES`); nothing is cut here, since a shorter path would
+/// name another node.
+pub fn path_rle(runs: &[(u8, usize)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for &(step, n) in runs {
+        out.extend(std::iter::repeat_n(step, n));
+    }
+    out
+}
+
 /// A buffer of storage as the interpreter's `bufs[i]` gives it. `Mem`'s
 /// `Index` does not panic: a buffer that does not exist (a pointer fault)
 /// reads as a blank scratch area, the interpreter's behaviour, which

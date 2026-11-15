@@ -255,6 +255,11 @@ const CORPUS: &[Case] = &[
         args: &[],
     },
     Case {
+        name: "NCHAIN",
+        source: include_str!("native/NCHAIN.rpgle"),
+        args: &[],
+    },
+    Case {
         name: "NEDITW",
         source: include_str!("native/NEDITW.rpgle"),
         args: &[],
@@ -429,8 +434,27 @@ async fn run(url: &str, case: &Case, engine: Engine) -> Run {
     }
 }
 
-#[tokio::test]
-async fn native_diff_corpus() {
+/// Runs on a thread with the stack the as4tainr binary gives its runtime
+/// (64 MiB, main.rs): the interpreter evaluates expressions recursively,
+/// and the corpus has NCHAIN's long chains, too deep for
+/// #[tokio::test]'s default 2 MiB thread stack.
+#[test]
+fn native_diff_corpus() {
+    let t = std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .thread_stack_size(64 * 1024 * 1024)
+                .build()
+                .unwrap()
+                .block_on(corpus());
+        })
+        .unwrap();
+    t.join().unwrap();
+}
+
+async fn corpus() {
     let Some(url) = std::env::var("AS4TAINR_TEST_DATABASE_URL").ok() else {
         eprintln!("skipped: AS4TAINR_TEST_DATABASE_URL not set");
         return;

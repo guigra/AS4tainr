@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.40.1");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.41");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -58,6 +58,10 @@ pub mod ir {
         /// Stage 2 (docs/native/adr/0006): what the instruction evaluates,
         /// lowered to direct Rust; None: the runtime evaluates it.
         pub lowered: Option<Lowered>,
+        /// Why the routine cannot be generated at all because of this
+        /// instruction (S2.41: an expression past IBM i's limits); the
+        /// generator then refuses the routine, naming the line.
+        pub refused: Option<String>,
     }
 
     /// A numeric type lowered code reads and writes (the `DType`s of
@@ -141,6 +145,9 @@ pub mod ir {
         Or(Box<Cond>, Box<Cond>),
         /// An indicator (`*IN50`, `*INLR`; S2.39).
         Ind(String),
+        /// A chain of ANDs (`true`) or ORs down the left operands (S2.41):
+        /// the conditions in order, each evaluated only while needed.
+        Chain(bool, Vec<Cond>),
         /// NOT of a condition (S2.39).
         Not(Box<Cond>),
     }
@@ -247,6 +254,12 @@ pub mod ir {
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum CharExpr {
         Leaf(Operand),
+        /// A chain of concatenations down the left operands (S2.41): the
+        /// parts in order.
+        Chain {
+            parts: Vec<CharExpr>,
+            path: Vec<u8>,
+        },
         /// The character value a procedure of the module returns (S2.35).
         Call(Call),
         Cat {
@@ -353,6 +366,15 @@ pub mod ir {
             op: ArOp,
             left: Box<NumExpr>,
             right: Box<NumExpr>,
+            path: Vec<u8>,
+        },
+        /// A chain of +, - and * down an operation's left operands (S2.41,
+        /// ADR 0007): `first`, then each step's operator, right operand and
+        /// the path of its operation, in the interpreter's order. Generated
+        /// as straight-line code, however long the chain.
+        Chain {
+            first: Box<NumExpr>,
+            steps: Vec<(ArOp, NumExpr, Vec<u8>)>,
             path: Vec<u8>,
         },
         /// %DIV (`rem` false) or %REM of two numeric expressions
@@ -517,6 +539,12 @@ pub enum Error {
         at: usize,
         line: usize,
     },
+    /// An instruction the routine cannot be generated with (S2.41).
+    Refused {
+        at: usize,
+        line: usize,
+        why: String,
+    },
 }
 
 impl std::fmt::Display for Error {
@@ -535,6 +563,9 @@ impl std::fmt::Display for Error {
                 f,
                 "instruction {at} (line {line}): its lowered form is not for its kind"
             ),
+            Error::Refused { at, line, why } => {
+                write!(f, "instruction {at} (line {line}): {why}")
+            }
         }
     }
 }
@@ -910,6 +941,27 @@ fn cond_fns(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usize) 
             let xi = format!("c{pc}_{n}");
             let _ = writeln!(out, "    Ok(!{xi}(rt)?)\n}}");
             cond_fns(pc, x, &xi, out, n);
+        }
+        ir::Cond::Chain(and, conds) => {
+            // In order, stopping as the interpreter's AND/OR do: AND at the
+            // first false, OR at the first true.
+            let mut names = Vec::with_capacity(conds.len());
+            for _ in conds {
+                *n = n.saturating_add(1);
+                names.push(format!("c{pc}_{n}"));
+            }
+            let stop = if *and { "!" } else { "" };
+            for nm in &names {
+                let _ = writeln!(
+                    out,
+                    "    if {stop}{nm}(rt)? {{\n        return Ok({});\n    }}",
+                    !*and
+                );
+            }
+            let _ = writeln!(out, "    Ok({and})\n}}");
+            for (nm, c) in names.iter().zip(conds) {
+                cond_fns(pc, c, nm, out, n);
+            }
         }
         ir::Cond::And(l, r) | ir::Cond::Or(l, r) => {
             let both = if matches!(c, ir::Cond::And(..)) {
@@ -1390,17 +1442,47 @@ fn returned(call: String, proc: &str) -> String {
 fn path_id(path: &[u8]) -> String {
     // Steps 0 and 1 are `l` and `r`; a higher step (a function's third
     // argument on) is `x<k>x`, so that two paths never share a name.
+    // A run of more than three equal steps (a chain's left operands) is
+    // `z<n>l` or `z<n>r`, so names stay short (and snake case; `z` is in
+    // no other step).
     let mut s = String::new();
-    for b in path {
+    let mut i = 0;
+    while let Some(&b) = path.get(i) {
+        let run = path.iter().skip(i).take_while(|&&x| x == b).count();
         match b {
+            0 | 1 if run > 3 => {
+                let c = if b == 0 { 'l' } else { 'r' };
+                let _ = write!(s, "z{run}{c}");
+                i = i.saturating_add(run);
+                continue;
+            }
             0 => s.push('l'),
             1 => s.push('r'),
             k => {
                 let _ = write!(s, "x{k}x");
             }
         }
+        i = i.saturating_add(1);
     }
     s
+}
+
+/// A path as the argument of `Runtime::precision`: the steps written out,
+/// or, when the path is long (a chain's left operands), as runs that
+/// `rpgrt::native::path_rle` expands, so the code stays linear in size.
+fn path_arg(path: &[u8]) -> String {
+    if path.len() <= 16 {
+        let v: Vec<String> = path.iter().map(|b| b.to_string()).collect();
+        return format!("&[{}]", v.join(", "));
+    }
+    let mut runs = Vec::new();
+    let mut i = 0;
+    while let Some(&b) = path.get(i) {
+        let run = path.iter().skip(i).take_while(|&&x| x == b).count();
+        runs.push(format!("({b}, {run})"));
+        i = i.saturating_add(run.max(1));
+    }
+    format!("&rpgrt::native::path_rle(&[{}])", runs.join(", "))
 }
 
 /// A character expression as a `Value` expression; each concatenation is
@@ -1410,6 +1492,21 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
     match e {
         ir::CharExpr::Leaf(o) => value(o),
         ir::CharExpr::Call(c) => returned(call_fn(pc, c, helpers), &c.proc),
+        ir::CharExpr::Chain { parts, path } => {
+            // Each part evaluated in order and appended (the interpreter's
+            // concatenations, left to right).
+            let name = format!("sq{pc}_{}", path_id(path));
+            let mut body = String::from("    let mut s: Vec<u8> = Vec::new();\n");
+            for x in parts {
+                let v = char_expr(pc, x, helpers);
+                let _ = writeln!(body, "    s.extend({v}.chars()?);");
+            }
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n{body}    Ok(rpgrt::rpg::data::Value::Char(s))\n}}"
+            );
+            format!("{name}(rt)?")
+        }
         ir::CharExpr::Cat { left, right, path } => {
             let id = path_id(path);
             let name = format!("s{pc}_{id}");
@@ -1470,16 +1567,16 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
         } => {
             let name = format!("k{pc}_{}", path_id(path));
             let x = num_expr(pc, inner, helpers);
-            let mut ip: Vec<String> = path.iter().map(|b| b.to_string()).collect();
-            ip.push("0".to_string());
+            let mut ip = path.clone();
+            ip.push(0);
             // The precision is asked for only when the value is not of its
             // own digits (a literal or a field): no unused static then.
             let p = if *own {
                 "    let p = None;".to_string()
             } else {
                 format!(
-                    "    static P: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let p = *P.get_or_init(|| rt.precision({pc}, &[{}]));",
-                    ip.join(", ")
+                    "    static P: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let p = *P.get_or_init(|| rt.precision({pc}, {}));",
+                    path_arg(&ip)
                 )
             };
             let _ = writeln!(
@@ -1603,6 +1700,36 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
 fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
     match e {
         ir::NumExpr::Leaf(o) => number(o),
+        ir::NumExpr::Chain { first, steps, path } => {
+            // Straight-line code: the running value, then each operation
+            // with its own precision (as each Bin node's helper does).
+            let name = format!("eq{pc}_{}", path_id(path));
+            let mut body = String::new();
+            let a = num_expr(pc, first, helpers);
+            let _ = writeln!(body, "    let mut t = {a};");
+            for (k, (op, x, p)) in steps.iter().enumerate() {
+                let f = match op {
+                    ir::ArOp::Add => "add",
+                    ir::ArOp::Sub => "sub",
+                    ir::ArOp::Mul => "mul",
+                    // Lowering puts no division in a chain; were one there,
+                    // the generated code would not compile (no silent
+                    // multiplication).
+                    ir::ArOp::Div => "no_division_in_a_chain",
+                };
+                let y = num_expr(pc, x, helpers);
+                let _ = writeln!(
+                    body,
+                    "    let y = {y};\n    static P{k}: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let p = *P{k}.get_or_init(|| rt.precision({pc}, {}));\n    t = rpgrt::native::rule_scale(p, t.{f}(&y)?);",
+                    path_arg(p)
+                );
+            }
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::dec::Dec> {{\n{body}    Ok(t)\n}}"
+            );
+            format!("{name}(rt)?")
+        }
         ir::NumExpr::Bin {
             op,
             left,
@@ -1611,7 +1738,7 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
         } => {
             let id = path_id(path);
             let name = format!("e{pc}_{id}");
-            let path_lit: Vec<String> = path.iter().map(|b| b.to_string()).collect();
+
             let mut body = String::new();
             let _ = writeln!(
                 body,
@@ -1627,8 +1754,8 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             );
             let _ = writeln!(
                 body,
-                "    let p = *P.get_or_init(|| rt.precision({pc}, &[{}]));",
-                path_lit.join(", ")
+                "    let p = *P.get_or_init(|| rt.precision({pc}, {}));",
+                path_arg(path)
             );
             let f = match op {
                 ir::ArOp::Add => "add",
@@ -1639,15 +1766,15 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             if *op == ir::ArOp::Div {
                 // The interpreter's `divide`: each operand's precision (its
                 // node's), not the quotient's.
-                let mut l = path_lit.clone();
-                l.push("0".to_string());
-                let mut r = path_lit.clone();
-                r.push("1".to_string());
+                let mut l = path.clone();
+                l.push(0);
+                let mut r = path.clone();
+                r.push(1);
                 let _ = writeln!(
                     body,
-                    "    static PL: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let pl = *PL.get_or_init(|| rt.precision({pc}, &[{}]));\n    static PR: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let pr = *PR.get_or_init(|| rt.precision({pc}, &[{}]));\n    let _ = p;\n    rpgrt::native::divide(&a, &b, pl, pr)\n}}",
-                    l.join(", "),
-                    r.join(", ")
+                    "    static PL: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let pl = *PL.get_or_init(|| rt.precision({pc}, {}));\n    static PR: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let pr = *PR.get_or_init(|| rt.precision({pc}, {}));\n    let _ = p;\n    rpgrt::native::divide(&a, &b, pl, pr)\n}}",
+                    path_arg(&l),
+                    path_arg(&r)
                 );
             } else {
                 let _ = writeln!(body, "    Ok(rpgrt::native::rule_scale(p, a.{f}(&b)?))\n}}");
@@ -1799,6 +1926,13 @@ pub fn generate(r: &ir::Routine) -> Result<Generated, Error> {
         return Err(Error::TooLong(len));
     }
     for (at, i) in r.ins.iter().enumerate() {
+        if let Some(why) = &i.refused {
+            return Err(Error::Refused {
+                at,
+                line: i.line,
+                why: why.clone(),
+            });
+        }
         if let Some(&to) = targets(&i.kind).iter().find(|&&t| t > len) {
             return Err(Error::Target {
                 at,
@@ -1919,6 +2053,7 @@ mod tests {
             cond,
             what: "EVAL".to_string(),
             lowered: None,
+            refused: None,
         }
     }
 
@@ -2138,6 +2273,7 @@ mod tests {
                 cond: false,
                 what: "A\n} fn x() {\"q\"".to_string(),
                 lowered: None,
+                refused: None,
             }],
         };
         let g = generate(&r);
