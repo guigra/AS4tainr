@@ -168,6 +168,10 @@ pub trait Runtime {
     /// interpreter's batch path: the job's messages, trailing blanks
     /// removed).
     fn dsply(&mut self, text: String);
+    /// Stage 2 (S2.39): an indicator's value (`*INxx`, `*INLR`...).
+    fn ind(&self, name: &str) -> bool;
+    /// Stage 2 (S2.39): set an indicator.
+    fn set_ind(&mut self, name: &str, on: bool);
 }
 
 /// An argument of a native procedure call (S2.35): the caller's storage

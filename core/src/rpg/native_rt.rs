@@ -612,6 +612,28 @@ impl Runtime for Rt<'_, '_> {
         r
     }
 
+    fn ind(&self, name: &str) -> bool {
+        // Machine::ind: the indicator's value, off when never set.
+        self.m.inds.get(&ind_name(name)).copied().unwrap_or(false)
+    }
+
+    fn set_ind(&mut self, name: &str, on: bool) {
+        // Machine::set_ind, step by step: an overflow indicator coming on
+        // makes its file's overflow lines due again.
+        let n = ind_name(name);
+        if on && !self.m.ofl_inds.is_empty() && self.m.inds.get(&n) != Some(&true) {
+            for (ind, file) in &self.m.ofl_inds {
+                if *ind == n {
+                    self.m.ofl_written.remove(file);
+                    if self.m.in_detail {
+                        self.m.of_late.insert(n.clone());
+                    }
+                }
+            }
+        }
+        self.m.inds.insert(n, on);
+    }
+
     fn dsply(&mut self, text: String) {
         // Stmt::Dsply with no response: `messages.push(text.trim_end())`.
         self.m.messages.push(text.trim_end().to_string());
@@ -826,4 +848,14 @@ pub(crate) fn observe(m: &Machine<'_>) {
         names,
         indicators,
     });
+}
+
+/// An indicator's name as the machine keeps it (the interpreter's
+/// `ind_name`): upper case, and a number of up to two digits with two.
+fn ind_name(n: &str) -> String {
+    let t = n.trim().to_ascii_uppercase();
+    match t.parse::<u32>() {
+        Ok(v) if t.len() <= 2 => format!("{v:02}"),
+        _ => t,
+    }
 }

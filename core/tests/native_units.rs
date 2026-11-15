@@ -887,6 +887,20 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.39 (ADR 0007): indicators set to *ON, *OFF and conditions,
+// IF on indicators and NOT, fixed-form SETON and SETOFF.
+// Source: golden capture tools/golden/native46.txt n46_ind (PUB400, IBM i 7.5, 2026-11-15)
+#[tokio::test]
+async fn native_unit_indicators() {
+    let _ = require_db!();
+    expect(
+        "NIND",
+        include_str!("native/NIND.rpgle"),
+        &["IND 50 N51 52N53 55", "SET 61 62 N50"],
+    )
+    .await;
+}
+
 // Stage 2, S2.35 (ADR 0007): procedure calls within the module: BYREF,
 // aliasing, forwarding, VALUE, CONST, nested calls, return values,
 // %PARMS, an error in the callee (00202), %STATUS after a return.

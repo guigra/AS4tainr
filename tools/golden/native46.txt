@@ -1,0 +1,4 @@
+# Captures for stage 2 of the native backend, S2.39: indicators.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native46.txt -f tools/golden/native46
+n46_crt_ind|!system "CRTSQLRPGI OBJ(@LIB@/GN46IND) SRCSTMF('@HOME@/gld/gn46ind.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n46_ind|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN46IND)"; cat gn1.out; rm -f gn1.out

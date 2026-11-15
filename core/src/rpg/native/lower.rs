@@ -34,6 +34,11 @@ pub fn lower(prog: &Program, place: &Place, code: &Code) -> (Vec<ir::Ins>, Vec<S
         .map(|i| {
             let (kind, what) = kind(&i.ins);
             let lowered = cx.as_ref().and_then(|cx| lowered(cx, &i.ins, &mut layout));
+            if lowered.is_none() {
+                if let Some(cx) = &cx {
+                    note_why(cx, &i.ins);
+                }
+            }
             ir::Ins {
                 kind,
                 line: i.line,
@@ -144,6 +149,26 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             pad: *pad,
             from: any_operand(cx, from, &mut used)?,
             to: variable(cx, to, &mut used)?,
+        },
+        // EVAL of an indicator (S2.39): Stmt::Eval then assign's
+        // `set_ind(n, val.truth()?)`, for *ON, *OFF or a condition.
+        Ins::Stmt(Stmt::Eval {
+            target: Expr::Ind(n),
+            value,
+            ext,
+            ..
+        }) if !ext.error && !ext.no_lock => ir::Lowered::EvalInd {
+            name: n.clone(),
+            value: match value {
+                Expr::Fig(Fig::On) => ir::IndValue::On,
+                Expr::Fig(Fig::Off) => ir::IndValue::Off,
+                v => ir::IndValue::Cond(cond_at(cx, v, &mut used, Vec::new())?),
+            },
+        },
+        // SETON / SETOFF (S2.39): Stmt::SetInd's `set_ind(i, on)` for each.
+        Ins::Stmt(Stmt::SetInd { on, inds }) => ir::Lowered::SetInd {
+            on: *on,
+            inds: inds.clone(),
         },
         // RETURN (S2.38) of an eligible numeric or character expression,
         // or of nothing (a whole data structure array is not eligible).
@@ -690,6 +715,17 @@ fn cond(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Cond> {
 /// A condition at its place in the instruction's expression (0 left, 1
 /// right from the root), which names the helpers of its sides.
 fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::Cond> {
+    // An indicator, and NOT of a condition (S2.39): eval's
+    // `Value::Ind(self.ind(n))` and `Value::Ind(!v.truth()?)`.
+    match e {
+        Expr::Ind(n) => return Some(ir::Cond::Ind(n.clone())),
+        Expr::Unary(super::super::ast::UnOp::Not, x) => {
+            let mut p = path.clone();
+            p.push(0);
+            return Some(ir::Cond::Not(Box::new(cond_at(cx, x, used, p)?)));
+        }
+        _ => {}
+    }
     let Expr::Bin(op, l, r) = e else {
         return None;
     };
@@ -1263,5 +1299,126 @@ fn value_arg(
             Some(ir::CallArg::Char(char_expr(cx, a, used, path)?))
         }
         _ => Some(ir::CallArg::Num(num_expr(cx, a, used, path)?)),
+    }
+}
+
+/// AS4TAINR_NATIVE_WHY=<file>: the shape of each EVAL that is not lowered,
+/// one line each (the target's kind and type, then the expression's
+/// nodes), to find the forms that keep code in the interpreter (ADR 0007,
+/// phase A). A diagnostic: it does not change what is generated. At most
+/// 100 000 lines per process.
+fn note_why(cx: &Cx<'_>, i: &Ins) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static LINES: AtomicUsize = AtomicUsize::new(0);
+    let Ok(path) = std::env::var("AS4TAINR_NATIVE_WHY") else {
+        return;
+    };
+    let Ins::Stmt(Stmt::Eval { target, value, .. }) = i else {
+        return;
+    };
+    if LINES.fetch_add(1, Ordering::Relaxed) >= 100_000 {
+        return;
+    }
+    let mut nodes = Vec::new();
+    shape(cx, value, &mut nodes, 0);
+    nodes.sort();
+    nodes.dedup();
+    let line = format!(
+        "target={} value={}\n",
+        target_shape(cx, target),
+        nodes.join(",")
+    );
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = std::io::Write::write_all(&mut f, line.as_bytes());
+    }
+}
+
+/// What kind of target an EVAL has, and its type.
+fn target_shape(cx: &Cx<'_>, e: &Expr) -> String {
+    match e {
+        Expr::Name { parts, args } => {
+            let k = if args.is_some() { "elem" } else { "name" };
+            match cx.syms.get(&parts.join(".")) {
+                Some(Sym::Var(v)) => format!("{k}:{}", type_name(v.dtype)),
+                Some(Sym::Ds(_)) => format!("{k}:ds"),
+                Some(_) => format!("{k}:other"),
+                None => format!("{k}:unknown"),
+            }
+        }
+        Expr::Path { .. } => "path".to_string(),
+        Expr::Ind(_) => "ind".to_string(),
+        Expr::IndArray(_) => "indarray".to_string(),
+        Expr::Bif(b, _) => format!("bif:%{b}"),
+        _ => "other".to_string(),
+    }
+}
+
+fn type_name(t: DType) -> String {
+    let s = format!("{t:?}");
+    s.split('(').next().unwrap_or("").to_string()
+}
+
+/// The kinds of node in an expression (bounded depth).
+fn shape(cx: &Cx<'_>, e: &Expr, out: &mut Vec<String>, depth: u32) {
+    if depth > 32 {
+        out.push("deep".to_string());
+        return;
+    }
+    let d = depth.saturating_add(1);
+    match e {
+        Expr::Num(_) => out.push("num".into()),
+        Expr::Str(_) => out.push("str".into()),
+        Expr::Hex(_) => out.push("hex".into()),
+        Expr::Fig(_) => out.push("fig".into()),
+        Expr::Ind(_) | Expr::IndArray(_) => out.push("ind".into()),
+        Expr::Omit => out.push("omit".into()),
+        Expr::Unary(op, x) => {
+            out.push(format!("unary:{op:?}"));
+            shape(cx, x, out, d);
+        }
+        Expr::Bin(op, l, r) => {
+            out.push(format!("bin:{op:?}"));
+            shape(cx, l, out, d);
+            shape(cx, r, out, d);
+        }
+        Expr::Bif(b, args) => {
+            out.push(format!("%{b}"));
+            for a in args {
+                shape(cx, a, out, d);
+            }
+        }
+        Expr::Path { .. } => out.push("path".into()),
+        Expr::Name { parts, args } => {
+            let n = parts.join(".");
+            match (cx.syms.get(&n), args) {
+                (Some(Sym::Var(v)), None) => out.push(format!("var:{}", type_name(v.dtype))),
+                (Some(Sym::Var(v)), Some(a)) => {
+                    out.push(format!("elem:{}", type_name(v.dtype)));
+                    for x in a {
+                        shape(cx, x, out, d);
+                    }
+                }
+                (Some(Sym::Ds(_)), _) => out.push("ds".into()),
+                (Some(Sym::Const(_)), _) => out.push("const".into()),
+                (Some(_), _) => out.push("sym:other".into()),
+                (None, Some(a)) if cx.prog.procs.contains_key(&n) => {
+                    out.push("call:local".into());
+                    for x in a {
+                        shape(cx, x, out, d);
+                    }
+                }
+                (None, Some(a)) => {
+                    out.push("call:proto".into());
+                    for x in a {
+                        shape(cx, x, out, d);
+                    }
+                }
+                (None, None) => out.push("name:unknown".into()),
+            }
+        }
     }
 }
