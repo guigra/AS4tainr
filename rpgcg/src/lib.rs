@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.40");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.40.1");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -575,8 +575,8 @@ fn json_str(text: &str) -> String {
         match c {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
-            c if (c as u32) < 0x20 => {
-                let _ = write!(out, "\\u{:04x}", c as u32);
+            c if u32::from(c) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", u32::from(c));
             }
             c => out.push(c),
         }
@@ -1300,19 +1300,52 @@ fn lowered_step(
 
 /// A helper's name for a place in a statement's expression: l, r and x
 /// for the first, second and third operand on the way from the root.
+/// The helpers with their runtime parameter named `_rt` where the body
+/// does not use it (no unused-variable warning in generated code).
+fn unused_rt(helpers: &str) -> String {
+    const SIG: &str = "(rt: &mut dyn Runtime)";
+    let mut out = String::with_capacity(helpers.len());
+    for (k, chunk) in helpers.split("\nfn ").enumerate() {
+        if k > 0 {
+            out.push_str("\nfn ");
+        }
+        let body = chunk.split_once(SIG).map(|(_, b)| b);
+        match body {
+            Some(b) if !uses_ident(b, "rt") => {
+                out.push_str(&chunk.replacen(SIG, "(_rt: &mut dyn Runtime)", 1))
+            }
+            _ => out.push_str(chunk),
+        }
+    }
+    out
+}
+
+/// Whether Rust source text uses the identifier `id`. String literals
+/// and comments are not skipped; generated helpers put no `rt` in either
+/// (RPG names are upper case).
+fn uses_ident(src: &str, id: &str) -> bool {
+    src.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .any(|w| w == id)
+}
+
 /// A native call (S2.35): a helper that evaluates the arguments in
 /// parameter order and calls the procedure through the runtime; the
 /// expression that runs it.
 fn call_fn(pc: usize, c: &ir::Call, helpers: &mut String) -> String {
     let name = format!("cl{pc}_{}", path_id(&c.path));
-    let mut body = String::from("    let mut args = Vec::new();\n");
-    for a in &c.args {
+    // Each argument into its own local, in parameter order, then the
+    // vector of them (no push after creation).
+    let mut body = String::new();
+    let mut names = Vec::new();
+    for (k, a) in c.args.iter().enumerate() {
+        let an = format!("a{k}");
+        names.push(an.clone());
         match a {
             ir::CallArg::Ref(o) => match place_of(o) {
                 Some((pre, b, off)) => {
                     let _ = write!(
                         body,
-                        "{{\n{pre}    args.push(rpgrt::native::CallArg::Ref {{ buf: {b}, off: {off} }});\n    }}\n"
+                        "    let {an} = {{\n{pre}    rpgrt::native::CallArg::Ref {{ buf: {b}, off: {off} }}\n    }};\n"
                     );
                 }
                 // Lowering passes only variables by reference.
@@ -1328,18 +1361,19 @@ fn call_fn(pc: usize, c: &ir::Call, helpers: &mut String) -> String {
                 let x = num_expr(pc, e, helpers);
                 let _ = writeln!(
                     body,
-                    "    args.push(rpgrt::native::CallArg::Val(rpgrt::rpg::data::Value::Num({x})));"
+                    "    let {an} = rpgrt::native::CallArg::Val(rpgrt::rpg::data::Value::Num({x}));"
                 );
             }
             ir::CallArg::Char(e) => {
                 let x = char_expr(pc, e, helpers);
-                let _ = writeln!(body, "    args.push(rpgrt::native::CallArg::Val({x}));");
+                let _ = writeln!(body, "    let {an} = rpgrt::native::CallArg::Val({x});");
             }
         }
     }
     let _ = writeln!(
         helpers,
-        "\nfn {name}(rt: &mut dyn Runtime) -> NResult<Option<rpgrt::rpg::data::Value>> {{\n{body}    rt.call({pc}, {}, args)\n}}",
+        "\nfn {name}(rt: &mut dyn Runtime) -> NResult<Option<rpgrt::rpg::data::Value>> {{\n{body}    let args = vec![{}];\n    rt.call({pc}, {}, args)\n}}",
+        names.join(", "),
         json_str(&c.proc)
     );
     format!("{name}(rt)?")
@@ -1438,18 +1472,19 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
             let x = num_expr(pc, inner, helpers);
             let mut ip: Vec<String> = path.iter().map(|b| b.to_string()).collect();
             ip.push("0".to_string());
+            // The precision is asked for only when the value is not of its
+            // own digits (a literal or a field): no unused static then.
             let p = if *own {
-                "None".to_string()
+                "    let p = None;".to_string()
             } else {
-                "*P.get_or_init(|| rt.precision(".to_string()
-                    + &pc.to_string()
-                    + ", &["
-                    + &ip.join(", ")
-                    + "]))"
+                format!(
+                    "    static P: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let p = *P.get_or_init(|| rt.precision({pc}, &[{}]));",
+                    ip.join(", ")
+                )
             };
             let _ = writeln!(
                 helpers,
-                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let v = {x};\n    static P: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let p = {p};\n    rpgrt::native::editc(&v, p, {code:?}, {point:?}, {zero})\n}}"
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let v = {x};\n{p}\n    rpgrt::native::editc(&v, p, {code:?}, {point:?}, {zero})\n}}"
             );
             format!("{name}(rt)?")
         }
@@ -1863,7 +1898,7 @@ pub fn generate(r: &ir::Routine) -> Result<Generated, Error> {
          \x20   }\n\
          }\n",
     );
-    src.push_str(&helpers);
+    src.push_str(&unused_rt(&helpers));
     map.push_str("]}\n");
     Ok(Generated { source: src, map })
 }

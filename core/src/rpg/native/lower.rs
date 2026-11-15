@@ -61,8 +61,59 @@ struct Cx<'p> {
     based: Option<&'p std::collections::HashMap<usize, String>>,
 }
 
+/// The deepest expression lowering takes (CLAUDE.native.md section 5:
+/// recursion has an explicit limit). Lowering and the generator walk an
+/// expression recursively; a deeper one stays with stage 1. No RPG
+/// expression written by hand comes near it.
+pub const MAX_DEPTH: usize = 64;
+
+/// Whether an expression is at most `MAX_DEPTH` deep (the walk stops at
+/// the limit, so it is bounded itself).
+fn shallow(e: &Expr, depth: usize) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
+    }
+    let d = depth.saturating_add(1);
+    match e {
+        Expr::Unary(_, x) => shallow(x, d),
+        Expr::Bin(_, l, r) => shallow(l, d) && shallow(r, d),
+        Expr::Bif(_, args) => args.iter().all(|a| shallow(a, d)),
+        Expr::Name {
+            args: Some(args), ..
+        } => args.iter().all(|a| shallow(a, d)),
+        Expr::Path { idx, args, .. } => {
+            idx.iter().flatten().all(|a| shallow(a, d))
+                && args.iter().flatten().all(|a| shallow(a, d))
+        }
+        Expr::IndArray(Some(x)) => shallow(x, d),
+        _ => true,
+    }
+}
+
+/// Every expression of an instruction is shallow enough to lower.
+fn ins_shallow(i: &Ins) -> bool {
+    match i {
+        Ins::JumpIfNot(c, _) => shallow(c, 0),
+        Ins::LoopTest { var, limit, .. } => {
+            shallow(var, 0) && limit.as_ref().is_none_or(|l| shallow(l, 0))
+        }
+        Ins::LoopStep { var, by, .. } => {
+            shallow(var, 0) && by.as_ref().is_none_or(|b| shallow(b, 0))
+        }
+        Ins::Return(v) => v.as_ref().is_none_or(|x| shallow(x, 0)),
+        Ins::Stmt(Stmt::Eval { target, value, .. }) => shallow(target, 0) && shallow(value, 0),
+        Ins::Stmt(Stmt::CallP(e)) => shallow(e, 0),
+        Ins::Stmt(Stmt::Dsply { message, .. }) => message.as_ref().is_none_or(|m| shallow(m, 0)),
+        // The other lowered statements take fields and literals only.
+        _ => true,
+    }
+}
+
 /// What an instruction evaluates, lowered, when all of it is eligible.
 fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered> {
+    if !ins_shallow(i) {
+        return None;
+    }
     let mut used = Vec::new();
     let l = match i {
         Ins::JumpIfNot(c, _) => ir::Lowered::Cond(cond(cx, c, &mut used)?),
@@ -1349,7 +1400,34 @@ fn target_shape(cx: &Cx<'_>, e: &Expr) -> String {
                 None => format!("{k}:unknown"),
             }
         }
-        Expr::Path { .. } => "path".to_string(),
+        Expr::Path { parts, idx, args } => {
+            let first = parts.first().map(String::as_str).unwrap_or("");
+            let ds = match cx.syms.get(first) {
+                Some(Sym::Ds(d)) => format!(
+                    "ds{}{}",
+                    if d.local { "-local" } else { "" },
+                    if d.dim != 0 { "-arr" } else { "" }
+                ),
+                Some(Sym::Var(_)) => "var".to_string(),
+                Some(_) => "other".to_string(),
+                None => "unknown".to_string(),
+            };
+            let ix: Vec<&str> = idx
+                .iter()
+                .map(|i| match i.as_deref() {
+                    None => "-",
+                    Some(Expr::Num(_)) => "num",
+                    Some(Expr::Name { args: None, .. }) => "name",
+                    Some(_) => "expr",
+                })
+                .collect();
+            format!(
+                "path:{}:{ds}:[{}]{}",
+                parts.len(),
+                ix.join(" "),
+                if args.is_some() { ":args" } else { "" }
+            )
+        }
         Expr::Ind(_) => "ind".to_string(),
         Expr::IndArray(_) => "indarray".to_string(),
         Expr::Bif(b, _) => format!("bif:%{b}"),

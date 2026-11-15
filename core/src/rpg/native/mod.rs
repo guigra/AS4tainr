@@ -659,7 +659,8 @@ pub fn note_refusal(engine: Engine, program: &str, fingerprint: &str, reason: &s
     {
         let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
         let set = seen.get_or_insert_with(HashSet::new);
-        if !set.insert(format!("{program}\t{fingerprint}")) || set.len() > MAX_REFUSALS {
+        // Bounded: once MAX_REFUSALS are kept, nothing more is added.
+        if set.len() >= MAX_REFUSALS || !set.insert(format!("{program}\t{fingerprint}")) {
             return;
         }
     }
