@@ -174,3 +174,4 @@ Item 6 of the task file (an upstream PR for #18 from the x86 machine, then closi
   - run section 7 on S2.42-S2.43 and commit;
   - rerun the VM bench with CARGO_BUILD_JOBS=1 (it was OOM-killed);
   - then %SUBST and %ELEM as targets, the remaining EVAL forms, and file I/O.
+- Correction: f402885's message says AS4TAINR_NATIVE_WHY also writes CALLP and DSPLY shapes. That change was not in f402885; it is in the S2.46 commit.

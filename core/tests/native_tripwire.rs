@@ -137,6 +137,12 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    ",
         ),
         function(INTERP, "    fn args_for(\n", "    "),
+        // S2.46: the prototype path of a call.
+        function(
+            INTERP,
+            "    fn call_named_inner(&mut self, name: &str, args: &[Expr]) -> Result<Option<Value>> {",
+            "    ",
+        ),
         function(
             INTERP,
             "    fn same_type_variable(&mut self, a: &Expr, t: &DType) -> bool {",
@@ -221,8 +227,9 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // helpers of rpgrt/src/native.rs (upstream dd47e28, with #9's %SUBST
     // and %SCAN starts and #10's MONITOR routing, plus the native hook at
     // the start of run_code_at). This adds the functions S2.35-S2.43 write
-    // again: calls, DSPLY's text, indicators, run_code and the error path.
-    let reviewed = "a17e434abba19839364e41e670b6cc84aa85461175645e597a4e8a8f63116577";
+    // again: calls, DSPLY's text, indicators, run_code and the error path;
+    // S2.46 adds call_named_inner (prototypes), upstream still dd47e28.
+    let reviewed = "46eb0196a95a485b4a4cfea36e279208d4baa5331e11cb88402f40e4f0e31dc6";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"
