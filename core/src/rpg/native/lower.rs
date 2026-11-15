@@ -145,6 +145,14 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             from: any_operand(cx, from, &mut used)?,
             to: variable(cx, to, &mut used)?,
         },
+        // CALLP of a procedure of this module (S2.35, ADR 0007).
+        Ins::Stmt(Stmt::CallP(Expr::Name { parts, args })) => ir::Lowered::Call(call_of(
+            cx,
+            parts,
+            args.as_deref().unwrap_or(&[]),
+            &mut used,
+            Vec::new(),
+        )?),
         // EVAL of a figurative constant (S2.22): stored as the interpreter
         // stores Value::Fig (data::store fills the field by its type).
         Ins::Stmt(Stmt::Eval {
@@ -194,6 +202,17 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
 /// character fields, joined with `+`.
 fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::CharExpr> {
     match e {
+        // A procedure of this module returning a character value (S2.35).
+        Expr::Name {
+            parts,
+            args: Some(args),
+        } if is_call(cx, parts) => {
+            let pi = cx.prog.procs.get(&parts.join("."))?;
+            if !matches!(pi.returns, Some(DType::Char(_) | DType::Varchar(_))) {
+                return None;
+            }
+            Some(ir::CharExpr::Call(call_of(cx, parts, args, used, path)?))
+        }
         Expr::Bin(BinOp::Add, l, r) => {
             let mut lp = path.clone();
             lp.push(0);
@@ -398,6 +417,26 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
 /// (S2.2), each operation with its place in the statement's expression.
 fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::NumExpr> {
     match e {
+        // A procedure of this module returning a number (S2.35).
+        Expr::Name {
+            parts,
+            args: Some(args),
+        } if is_call(cx, parts) => {
+            let pi = cx.prog.procs.get(&parts.join("."))?;
+            if !matches!(
+                pi.returns,
+                Some(
+                    DType::Packed(..)
+                        | DType::Zoned(..)
+                        | DType::Binary(..)
+                        | DType::Int(_)
+                        | DType::Uns(_)
+                )
+            ) {
+                return None;
+            }
+            Some(ir::NumExpr::Call(call_of(cx, parts, args, used, path)?))
+        }
         Expr::Bin(op @ (BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div), l, r) => {
             let mut lp = path.clone();
             lp.push(0);
@@ -1079,4 +1118,129 @@ fn describe(s: &Stmt) -> String {
 
 fn file_op(op: &FileOp) -> String {
     format!("{op:?}").to_ascii_uppercase()
+}
+
+/// A name with arguments that is a procedure of this module, not a field
+/// or array (S2.35): the interpreter's `call_named` finds it in
+/// `prog.procs` when no symbol has the name.
+fn is_call(cx: &Cx<'_>, parts: &[String]) -> bool {
+    let name = parts.join(".");
+    parts.len() == 1 && cx.syms.get(&name).is_none() && cx.prog.procs.contains_key(&name)
+}
+
+/// The generator's type for a parameter's type, when it is eligible.
+fn param_ty(t: DType) -> Option<ir::Ty> {
+    Some(match t {
+        DType::Packed(d, s) => ir::Ty::Packed(d, s),
+        DType::Zoned(d, s) => ir::Ty::Zoned(d, s),
+        DType::Binary(d, s) => ir::Ty::Binary(d, s),
+        DType::Int(n) => ir::Ty::Int(n),
+        DType::Uns(n) => ir::Ty::Uns(n),
+        DType::Char(n) => ir::Ty::Char(n),
+        DType::Varchar(n) => ir::Ty::Varchar(n),
+        _ => return None,
+    })
+}
+
+/// A call of a procedure of this module that runs natively (S2.35, ADR
+/// 0007): what `call_named`, `args_for` and `call_proc` do, for a
+/// procedure with no *PSSR, ON-EXIT, pointer initializations or local
+/// files, and parameters with no OPTIONS other than *NOPASS for ones
+/// not passed. Arguments, in parameter order:
+/// - by reference: a field or array element of the parameter's own type;
+/// - CONST: a field (no index) of the parameter's own type by reference
+///   (`same_type_variable`), anything else by value;
+/// - VALUE: by value, a numeric expression for a numeric parameter or a
+///   character one for a character parameter.
+fn call_of(
+    cx: &Cx<'_>,
+    parts: &[String],
+    args: &[Expr],
+    used: &mut Vec<String>,
+    path: Vec<u8>,
+) -> Option<ir::Call> {
+    if parts.len() != 1 || cx.syms.get(&parts.join(".")).is_some() {
+        return None;
+    }
+    let name = parts.join(".");
+    let prog = cx.prog;
+    let pi = prog.procs.get(&name)?;
+    if pi.routines.subroutines.contains_key("*PSSR")
+        || pi.on_exit.is_some()
+        || !pi.ptr_inz.is_empty()
+        || prog
+            .files
+            .iter()
+            .any(|f| f.decl.proc.as_deref() == Some(pi.name.as_str()))
+        || args.len() > pi.params.len()
+        || pi.params.iter().skip(args.len()).any(|p| !p.nopass)
+    {
+        return None;
+    }
+    let mut out = Vec::with_capacity(args.len());
+    let mut layout = format!("call {name}:");
+    for (k, (p, a)) in pi.params.iter().zip(args).enumerate() {
+        if p.file || p.omit || p.string || p.varsize || p.trim || p.convert {
+            return None;
+        }
+        let ty = param_ty(p.dtype)?;
+        let _ = std::fmt::Write::write_fmt(
+            &mut layout,
+            format_args!(" {}={:?}/{}/{}", p.name, ty, p.by_value, p.konst),
+        );
+        let mut ap = path.clone();
+        ap.push(u8::try_from(k).ok()?);
+        let field = |a: &Expr| match a {
+            Expr::Name { parts, .. } => matches!(cx.syms.get(&parts.join(".")), Some(Sym::Var(_))),
+            _ => false,
+        };
+        let by_ref = !p.by_value && !p.konst;
+        let const_ref =
+            p.konst && !p.by_value && matches!(a, Expr::Name { args: None, .. }) && field(a);
+        if by_ref || const_ref {
+            if !field(a) {
+                return None;
+            }
+            let v = variable(cx, a, used)?;
+            match &v {
+                ir::Operand::Var { ty: vt, .. } if *vt == ty => {}
+                // A CONST field of another type goes by value.
+                _ if const_ref => {
+                    out.push(value_arg(cx, &ty, a, used, ap)?);
+                    continue;
+                }
+                _ => return None,
+            }
+            out.push(ir::CallArg::Ref(v));
+        } else {
+            out.push(value_arg(cx, &ty, a, used, ap)?);
+        }
+    }
+    used.push(layout);
+    Some(ir::Call {
+        proc: name,
+        args: out,
+        path,
+    })
+}
+
+/// A VALUE or CONST argument passed as a value: the interpreter's
+/// `eval` of it, numeric for a numeric parameter and character for a
+/// character one (no conversion between them, no hexadecimal literal).
+fn value_arg(
+    cx: &Cx<'_>,
+    ty: &ir::Ty,
+    a: &Expr,
+    used: &mut Vec<String>,
+    path: Vec<u8>,
+) -> Option<ir::CallArg> {
+    if matches!(a, Expr::Hex(_) | Expr::Omit) {
+        return None;
+    }
+    match ty {
+        ir::Ty::Char(_) | ir::Ty::Varchar(_) => {
+            Some(ir::CallArg::Char(char_expr(cx, a, used, path)?))
+        }
+        _ => Some(ir::CallArg::Num(num_expr(cx, a, used, path)?)),
+    }
 }

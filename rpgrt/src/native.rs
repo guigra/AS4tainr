@@ -159,6 +159,20 @@ pub trait Runtime {
     /// Stage 2 (S2.31): the most recent program or file status code, as
     /// %STATUS with no file gives it.
     fn status(&self) -> u32;
+    /// Stage 2 (S2.35, ADR 0007): call the procedure `proc` of this module
+    /// with its arguments in order, natively: the frame, the call stack
+    /// entry and the procedure's own generated code, with no interpreter
+    /// call. Its return value, if it has one.
+    fn call(&mut self, pc: usize, proc: &str, args: Vec<CallArg>) -> NResult<Option<Value>>;
+}
+
+/// An argument of a native procedure call (S2.35): the caller's storage
+/// for a parameter passed by reference (an absolute buffer and offset), or
+/// a value for a VALUE or CONST parameter.
+#[derive(Clone, Debug)]
+pub enum CallArg {
+    Ref { buf: usize, off: usize },
+    Val(Value),
 }
 
 /// A sum, difference or product with the decimal places the precision

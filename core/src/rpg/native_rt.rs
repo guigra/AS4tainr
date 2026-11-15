@@ -29,7 +29,7 @@ use super::super::native::{self, Engine};
 use super::errors;
 use super::{Flow, GotoSignal, LeaveSrSignal, Machine, ReturnPointSignal, ReturnSignal};
 use anyhow::{anyhow, Result};
-use rpgrt::native::{MonitorStack, NResult, Runtime, Settled};
+use rpgrt::native::{CallArg, MonitorStack, NResult, Runtime, Settled};
 use std::cmp::Ordering;
 
 /// Before `run_code_at` runs `code` from `start`: None to let the
@@ -131,6 +131,164 @@ fn at(code: &Code, pc: usize) -> NResult<&I> {
 /// so this does not happen).
 fn mismatch(pc: usize, want: &str) -> anyhow::Error {
     anyhow!("native: instruction {pc} is not {want}")
+}
+
+impl<'a> Rt<'_, 'a> {
+    /// The frame of a native call (S2.35): call_proc's steps for the
+    /// procedures lowering lets through.
+    fn call_frame(&mut self, proc: &str, args: Vec<CallArg>) -> NResult<Option<Value>> {
+        let prog: &'a super::super::program::Program = self.m.prog;
+        let pi = prog
+            .procs
+            .get(proc)
+            .ok_or_else(|| anyhow!("native: {proc} is not a procedure of this program"))?;
+        if self.m.frames.len() > 1000 {
+            anyhow::bail!("procedure {}: calls are nested too deeply", pi.name);
+        }
+        if args.len() > pi.params.len() {
+            anyhow::bail!(
+                "{proc}: {} parameters passed, it takes {}",
+                args.len(),
+                pi.params.len()
+            );
+        }
+        if let Some(p) = pi.params.get(args.len()) {
+            if !p.nopass {
+                anyhow::bail!("{proc}: parameter {} is missing", p.name);
+            }
+        }
+        let base = self.m.bufs.len();
+        let mut alias = std::collections::HashMap::new();
+        let mut values = Vec::new();
+        let mut lengths = Vec::new();
+        let passed = args.len();
+        for (p, arg) in pi.params.iter().zip(args) {
+            match arg {
+                CallArg::Ref { buf, off } => {
+                    // The descriptor of a reference argument of the
+                    // parameter's own type (call_proc).
+                    lengths.push(Some(match p.dtype {
+                        data::DType::Varchar(n) => {
+                            let max = usize::try_from(n)?;
+                            let pre = data::var_prefix(n);
+                            let end = off
+                                .checked_add(pre)
+                                .ok_or_else(|| anyhow!("native: an argument's offset"))?;
+                            let cur = self
+                                .m
+                                .bufs
+                                .get(buf)
+                                .and_then(|b| b.get(off..end))
+                                .map(|x| data::var_len(n, x))
+                                .unwrap_or(0);
+                            (cur, 4, max)
+                        }
+                        t => (t.size(), 2, t.size()),
+                    }));
+                    if let Some(b) = p.buf {
+                        alias.insert(b, (buf, off));
+                    }
+                }
+                CallArg::Val(v) => {
+                    let len = match &v {
+                        Value::Char(c) => Some(c.len()),
+                        _ => None,
+                    };
+                    lengths.push(match (p.dtype, len) {
+                        (data::DType::Varchar(n), Some(k)) => {
+                            let max = usize::try_from(n)?;
+                            Some((k.min(max), 4, max))
+                        }
+                        (_, Some(k)) => Some((k, 2, k)),
+                        _ => None,
+                    });
+                    values.push((p.name.clone(), v));
+                }
+            }
+        }
+        self.m.bufs.extend(pi.frame.iter().cloned());
+        self.m.frames.push(super::Frame {
+            proc: pi,
+            base,
+            alias,
+            passed,
+            omitted: Vec::new(),
+            files: std::collections::HashMap::new(),
+            lengths,
+        });
+        let pgm = self.m.stack_pgm();
+        let lib = self.m.stack_lib();
+        let job = self.m.io.job_key.clone();
+        if self.m.line > 0 {
+            crate::pgmmsg::stack_line(&job, self.m.line);
+        }
+        let ext = self.m.external_proc_name(&pi.name);
+        let module = self.m.stack_module();
+        let actgrp = self.m.io.actgrp.clone();
+        let stack_id = crate::pgmmsg::stack_push(&job, (&lib, &pgm), &module, &ext, &actgrp);
+        let saved_routine = std::mem::replace(&mut self.m.routine, pi.name.clone());
+        let saved_line = self.m.line;
+        let r = self.call_body(pi, values);
+        crate::pgmmsg::stack_pop(&job, stack_id);
+        self.m.frames.pop();
+        self.m.bufs.truncate(base);
+        self.m.routine = saved_routine;
+        self.m.line = saved_line;
+        let v = r?;
+        Ok(match (pi.returns, v) {
+            (Some(t), Some(v)) => {
+                let mut buf = t.initial();
+                data::store(&t, &v, &mut buf, Fit::Strict { half_adjust: false }, false)?;
+                Some(data::load(&t, &buf)?)
+            }
+            (Some(_), None) => {
+                anyhow::bail!("procedure {} ended without returning a value", pi.name)
+            }
+            (None, _) => None,
+        })
+    }
+
+    /// The values of VALUE and CONST parameters, then the procedure's
+    /// calculations: its generated code, with the error noted as `guarded`
+    /// and `recover` do for a procedure with no *PSSR.
+    fn call_body(
+        &mut self,
+        pi: &'a super::super::program::ProcInfo,
+        values: Vec<(String, Value)>,
+    ) -> NResult<Option<Value>> {
+        for (n, v) in values {
+            let Some(super::super::program::Sym::Var(var)) = pi.syms.get(&n) else {
+                anyhow::bail!("native: parameter {n} of {} has no storage", pi.name);
+            };
+            let (b, o) = self.local(var.buf, var.off)?;
+            rpgrt::native::store(
+                &mut self.m.bufs,
+                b,
+                o,
+                var.dtype,
+                &v,
+                Fit::Strict { half_adjust: false },
+                false,
+            )?;
+        }
+        let detail = &pi.routines.detail;
+        let r = match dispatch(self.m, detail, 0) {
+            Some(r) => r,
+            // AS4TAINR_RPG_ENGINE=auto and no generated code for the
+            // procedure: the interpreter runs it, as it would any routine.
+            None => self.m.run_code(detail),
+        };
+        match r {
+            Ok(Flow::Return(v)) => Ok(v),
+            Ok(_) => Ok(None),
+            Err(e) => {
+                if !errors::is_signal(&e) && !self.m.passes_by(&e) {
+                    self.m.note_error(&e);
+                }
+                Err(e)
+            }
+        }
+    }
 }
 
 impl Runtime for Rt<'_, '_> {
@@ -395,6 +553,50 @@ impl Runtime for Rt<'_, '_> {
         }
     }
 
+    fn call(&mut self, pc: usize, proc: &str, args: Vec<CallArg>) -> NResult<Option<Value>> {
+        // S2.35 (ADR 0007): the fork's own procedure call, for what
+        // lowering lets through (a procedure of this module with no *PSSR,
+        // ON-EXIT, local files or pointer initializations, arguments of
+        // the parameters' own types). It does, in their order, what the
+        // interpreter's call_named and call_proc do; it does not call them.
+        let _ = pc;
+        let job = self.m.io.job_key.clone();
+        crate::pgmmsg::stack_line(&job, self.m.line);
+        // AS4TAINR_TRACE_CALLS=1, as call_named prints it.
+        let trace = std::env::var("AS4TAINR_TRACE_CALLS").is_ok();
+        if trace {
+            eprintln!("[call] {} line {} -> {proc}", self.m.prog.name, self.m.line);
+        }
+        let r = self.call_frame(proc, args).map_err(|mut e| {
+            // An error the called procedure did not handle comes out of
+            // the call: 00202 where it is caught (call_named).
+            if let Some(at) = e.downcast_mut::<errors::At>() {
+                at.called = true;
+            }
+            e
+        });
+        if trace {
+            if let Ok(Some(v)) = &r {
+                let shown = match v {
+                    Value::Char(c) if c.len() > 40 => {
+                        format!("'{}...'", a(c.get(..40).unwrap_or_default()))
+                    }
+                    v => v.describe(),
+                };
+                eprintln!("[return] {proc} = {shown}");
+            }
+        }
+        // A call that ends normally leaves the program status 00000, with
+        // PSDS positions 11-15 (call_named; PUB400 verify34).
+        if r.is_ok() && self.m.last.code != 0 && self.m.last.code < 1000 {
+            self.m.last.code = 0;
+            if let Some(ds) = self.m.prog.psds.clone() {
+                self.m.ds_zoned(&ds, 11, 5, 0);
+            }
+        }
+        r
+    }
+
     fn status(&self) -> u32 {
         // bifs.rs "STATUS" with no argument: `self.last`'s code.
         self.m.last.code
@@ -414,10 +616,12 @@ impl Runtime for Rt<'_, '_> {
         let mut node = match self.code.get(pc).map(|i| &i.ins) {
             Some(Ins::Stmt(super::super::ast::Stmt::Eval { value, .. })) => value,
             Some(Ins::JumpIfNot(c, _)) => c,
+            // A CALLP's arguments (S2.35).
+            Some(Ins::Stmt(super::super::ast::Stmt::CallP(e))) => e,
             _ => return None,
         };
         // Each step: 0 or 1 into an operation's operands, or the index of
-        // a built-in function's argument.
+        // a built-in function's or a procedure call's argument.
         for step in path {
             node = match node {
                 Expr::Bin(_, l, r) => {
@@ -428,6 +632,9 @@ impl Runtime for Rt<'_, '_> {
                     }
                 }
                 Expr::Bif(_, args) => args.get(usize::from(*step))?,
+                Expr::Name {
+                    args: Some(args), ..
+                } => args.get(usize::from(*step))?,
                 _ => return None,
             };
         }
