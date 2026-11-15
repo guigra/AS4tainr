@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.34.1");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.35");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -192,6 +192,9 @@ pub mod ir {
             half_adjust: bool,
             right: bool,
         },
+        /// CALLP of a procedure of the module (S2.35, ADR 0007); its value,
+        /// if any, is not used.
+        Call(Call),
         /// EVAL of a figurative constant into a field (S2.22): stored as
         /// the interpreter stores `Value::Fig`.
         EvalFig {
@@ -232,6 +235,8 @@ pub mod ir {
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum CharExpr {
         Leaf(Operand),
+        /// The character value a procedure of the module returns (S2.35).
+        Call(Call),
         Cat {
             left: Box<CharExpr>,
             right: Box<CharExpr>,
@@ -354,6 +359,8 @@ pub mod ir {
         Status,
         /// %ABS of a numeric expression (S2.32).
         Abs(Box<NumExpr>),
+        /// The numeric value a procedure of the module returns (S2.35).
+        Call(Call),
         /// %CHECK (`rev` false) or %CHECKR of character expressions, with
         /// no start (S2.34).
         Check {
@@ -404,6 +411,24 @@ pub mod ir {
             start: Option<Operand>,
             path: Vec<u8>,
         },
+    }
+
+    /// A call of a procedure of the module (S2.35, ADR 0007): its name, and
+    /// its arguments in parameter order.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct Call {
+        pub proc: String,
+        pub args: Vec<CallArg>,
+        pub path: Vec<u8>,
+    }
+
+    /// An argument: the caller's storage, for a parameter passed by
+    /// reference; or a value, for VALUE and CONST parameters.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum CallArg {
+        Ref(Operand),
+        Num(NumExpr),
+        Char(CharExpr),
     }
 
     /// The instruction kinds of `code::Ins`, with the targets the
@@ -999,6 +1024,15 @@ fn lowered_step(
                 format!("ec{pc}(rt).map(|()| {next})"),
             )
         }
+        (ir::Kind::Stmt, ir::Lowered::Call(c)) => {
+            // The helper's result, not `?`: an error goes to `settle`.
+            let call = call_fn(pc, c, helpers);
+            let call = call.strip_suffix('?').unwrap_or(&call);
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("{call}.map(|_| {next})"),
+            )
+        }
         (
             ir::Kind::Stmt,
             ir::Lowered::EvalFig {
@@ -1144,14 +1178,73 @@ fn lowered_step(
 
 /// A helper's name for a place in a statement's expression: l, r and x
 /// for the first, second and third operand on the way from the root.
+/// A native call (S2.35): a helper that evaluates the arguments in
+/// parameter order and calls the procedure through the runtime; the
+/// expression that runs it.
+fn call_fn(pc: usize, c: &ir::Call, helpers: &mut String) -> String {
+    let name = format!("cl{pc}_{}", path_id(&c.path));
+    let mut body = String::from("    let mut args = Vec::new();\n");
+    for a in &c.args {
+        match a {
+            ir::CallArg::Ref(o) => match place_of(o) {
+                Some((pre, b, off)) => {
+                    let _ = write!(
+                        body,
+                        "{{\n{pre}    args.push(rpgrt::native::CallArg::Ref {{ buf: {b}, off: {off} }});\n    }}\n"
+                    );
+                }
+                // Lowering passes only variables by reference.
+                None => {
+                    let _ = writeln!(
+                        body,
+                        "    return Err(anyhow::anyhow!(\"native: argument of {} is not a variable\"));",
+                        c.proc
+                    );
+                }
+            },
+            ir::CallArg::Num(e) => {
+                let x = num_expr(pc, e, helpers);
+                let _ = writeln!(
+                    body,
+                    "    args.push(rpgrt::native::CallArg::Val(rpgrt::rpg::data::Value::Num({x})));"
+                );
+            }
+            ir::CallArg::Char(e) => {
+                let x = char_expr(pc, e, helpers);
+                let _ = writeln!(body, "    args.push(rpgrt::native::CallArg::Val({x}));");
+            }
+        }
+    }
+    let _ = writeln!(
+        helpers,
+        "\nfn {name}(rt: &mut dyn Runtime) -> NResult<Option<rpgrt::rpg::data::Value>> {{\n{body}    rt.call({pc}, {}, args)\n}}",
+        json_str(&c.proc)
+    );
+    format!("{name}(rt)?")
+}
+
+/// The value a called procedure returned, where the expression needs one.
+fn returned(call: String, proc: &str) -> String {
+    format!(
+        "{call}.ok_or_else(|| anyhow::anyhow!(\"procedure {} returned no value\"))?",
+        proc.replace(['\\', '"'], "")
+    )
+}
+
 fn path_id(path: &[u8]) -> String {
-    path.iter()
-        .map(|b| match b {
-            0 => 'l',
-            1 => 'r',
-            _ => 'x',
-        })
-        .collect()
+    // Steps 0 and 1 are `l` and `r`; a higher step (a function's third
+    // argument on) is `x<k>x`, so that two paths never share a name.
+    let mut s = String::new();
+    for b in path {
+        match b {
+            0 => s.push('l'),
+            1 => s.push('r'),
+            k => {
+                let _ = write!(s, "x{k}x");
+            }
+        }
+    }
+    s
 }
 
 /// A character expression as a `Value` expression; each concatenation is
@@ -1160,6 +1253,7 @@ fn path_id(path: &[u8]) -> String {
 fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
     match e {
         ir::CharExpr::Leaf(o) => value(o),
+        ir::CharExpr::Call(c) => returned(call_fn(pc, c, helpers), &c.proc),
         ir::CharExpr::Cat { left, right, path } => {
             let id = path_id(path);
             let name = format!("s{pc}_{id}");
@@ -1456,6 +1550,7 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             );
             format!("{name}(rt)?")
         }
+        ir::NumExpr::Call(c) => format!("{}.num()?", returned(call_fn(pc, c, helpers), &c.proc)),
         ir::NumExpr::Abs(inner) => format!("({}).abs()", num_expr(pc, inner, helpers)),
         ir::NumExpr::Status => "rpgrt::rpg::dec::Dec::from_i64(i64::from(rt.status()))".to_string(),
         ir::NumExpr::VarLen { var } => format!(

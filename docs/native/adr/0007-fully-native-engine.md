@@ -78,3 +78,18 @@ In phase A the frame is still built on the interpreter's storage, but by our cod
 - CONST by reference and by temporary;
 - calls nested in arithmetic and in return values (CLAUDE.native.md, section 6);
 - %PARMS, an error in the callee inside the caller's MONITOR (status 00202), and %STATUS after a normal return.
+
+## S2.35 as implemented (rpgcg 0.1.0+stage2.35)
+
+- `Runtime::call` (rpgrt) and its implementation in `native_rt.rs`, `call` and `call_frame`, are the fork's own code. They follow `call_named` and `call_proc` step by step for the procedures lowering lets through, and call neither of them.
+- The callee's routine runs through the native dispatcher. Under `auto` with no generated code for it, the interpreter runs the routine, as it runs any routine there.
+- An error from the callee's code is noted as `guarded` and `recover` note it for a procedure with no *PSSR (`note_error`). That error routing is still the interpreter's, the same dependency every routine has through `settle`. It is a later phase A step.
+- Lowering (`lower.rs`, `call_of`):
+  - CALLP statements, and calls in numeric and character expressions, of procedures of the module;
+  - the exclusions above;
+  - BYREF needs a field or array element of the parameter's own type;
+  - CONST goes by reference for a field of the parameter's type with no index (the interpreter's `same_type_variable`), and by value otherwise;
+  - VALUE goes by value, numeric for a numeric parameter and character for a character one.
+- `Runtime::precision` follows a path into a call's arguments, and starts from a CALLP's expression.
+- The caller's layout gets a `call` line with each parameter's name, type and kind, so a change to the procedure's interface changes the caller's key.
+- Coverage of the native units: interp 534 → 511. CALLP and the EVALs with calls are lowered (fallback only when `native_ok` is false).
