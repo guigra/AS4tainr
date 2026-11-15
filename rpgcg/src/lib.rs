@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.36");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.37");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -625,13 +625,15 @@ fn step(pc: usize, next: usize, kind: &ir::Kind) -> String {
 }
 
 /// How an instruction runs (ADR 0007, phase A), for the source map:
-/// "native" when its arm never calls the interpreter, "fallback" when it
-/// is lowered but goes to the interpreter if `native_ok` is false, and
-/// "interp" when it always does (stage 1).
+/// "native" when its arm never calls the interpreter (every lowered
+/// instruction since S2.37: no fallback), and "interp" when it always
+/// does (stage 1). "fallback" was a lowered instruction that the
+/// interpreter ran when `native_ok` was false (S2.35-S2.36).
 fn via(i: &ir::Ins) -> &'static str {
     use ir::Kind::*;
+    // Lowered code has no interpreter fallback since S2.37.
     if i.lowered.is_some() {
-        return "fallback";
+        return "native";
     }
     match i.kind {
         Jump(_) | Label | Nop | Monitor { .. } | EndMonitor { .. } => "native",
@@ -910,10 +912,12 @@ fn lowered_step(
         at: pc,
         line: i.line,
     };
+    // ADR 0007 (S2.37): lowered code runs only natively; the runtime
+    // refuses a routine outside its own context before any of it runs, so
+    // there is no fallback to the interpreter here.
     let guarded = |interp: String, native: String| {
-        format!(
-            "if rt.native_ok() {{\n                    {native}\n                }} else {{\n                    {interp}\n                }}"
-        )
+        let _ = interp;
+        native
     };
     Ok(match (&i.kind, l) {
         (ir::Kind::JumpIfNot(t), ir::Lowered::Cond(c)) => {
@@ -1878,11 +1882,11 @@ mod tests {
         let Ok(g) = generate(&r) else {
             return assert!(generate(&r).is_ok());
         };
-        // The runtime still runs it inside a procedure; the helpers run it
-        // otherwise.
+        // ADR 0007 (S2.37): no interpreter fallback in lowered code.
+        for gone in ["native_ok", "rt.loop_past(0)", "rt.truth(1)"] {
+            assert!(!g.source.contains(gone), "{gone} in\n{}", g.source);
+        }
         for want in [
-            "if rt.native_ok() {",
-            "rt.loop_past(0)",
             "lt0(rt)",
             "fn lt0(rt: &mut dyn Runtime) -> NResult<bool> {",
             "Ok(v > l)",
@@ -1946,8 +1950,11 @@ mod tests {
         let Ok(g) = generate(&r) else {
             return assert!(generate(&r).is_ok());
         };
+        // ADR 0007 (S2.37): no interpreter fallback in lowered code.
+        for gone in ["native_ok", "rt.stmt(0)"] {
+            assert!(!g.source.contains(gone), "{gone} in\n{}", g.source);
+        }
         for want in [
-            "rt.stmt(0).map(|()| 1)",
             "ev0(rt).map(|()| 1)",
             "fn ev0(rt: &mut dyn Runtime) -> NResult<()> {",
             "let v = e0_(rt)?;",
@@ -1987,8 +1994,13 @@ mod tests {
         let Ok(g) = generate(&r) else {
             return assert!(generate(&r).is_ok());
         };
+        // ADR 0007 (S2.37): no interpreter fallback in lowered code.
+        assert!(
+            !g.source.contains("native_ok"),
+            "native_ok in\n{}",
+            g.source
+        );
         for want in [
-            "if rt.native_ok() {",
             "rt.local(0, 4)?; rpgrt::native::load_num(rt.mem(), b, o,",
             "let (sb, so) = rt.local(1, 4)?;",
             "rt.mem(),\n        sb,\n        so,",
