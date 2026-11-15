@@ -90,6 +90,10 @@ AS4TAINR_NATIVE_EMIT="$emit" AS4TAINR_RPG_ENGINE=interp AS4TAINR_DATABASE_URL="$
 if [ $? -eq 0 ]; then step demo-interp PASS "$(grep -c '^PASS' "$out/1-demo-interp.log") cases"; else step demo-interp FAIL "see 1-demo-interp.log"; fi
 n=$(find "$emit" -name '*.rs' 2>/dev/null | wc -l)
 if [ "$n" -gt 0 ]; then step generate PASS "$n routines"; else step generate FAIL "nothing generated"; fi
+# How far the generated code is from fully native (ADR 0007, phase A):
+# information, not a pass or fail.
+scripts/native-coverage.sh "$emit" "$out/coverage.tsv" > "$out/coverage.txt" 2>&1
+printf '%s\t%s\t%s\n' coverage INFO "$(sed -n '2,4p' "$out/coverage.txt" | tr -s ' ' | tr '\n' ';')" >> "$out/status.tsv"
 
 # 2. Native build (the same target directory: only rpgnative and what
 # depends on it is built again).

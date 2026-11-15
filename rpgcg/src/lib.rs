@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.34");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.34.1");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -587,6 +587,32 @@ fn step(pc: usize, next: usize, kind: &ir::Kind) -> String {
         EndMonitor { end } => {
             format!("{{\n                monitors.pop();\n                Ok({end})\n            }}")
         }
+    }
+}
+
+/// How an instruction runs (ADR 0007, phase A), for the source map:
+/// "native" when its arm never calls the interpreter, "fallback" when it
+/// is lowered but goes to the interpreter if `native_ok` is false, and
+/// "interp" when it always does (stage 1).
+fn via(i: &ir::Ins) -> &'static str {
+    use ir::Kind::*;
+    if i.lowered.is_some() {
+        return "fallback";
+    }
+    match i.kind {
+        Jump(_) | Label | Nop | Monitor { .. } | EndMonitor { .. } => "native",
+        Stmt
+        | JumpIfNot(_)
+        | LoopTest { .. }
+        | LoopStep
+        | EachInit
+        | EachNext { .. }
+        | ExSr
+        | Return
+        | LeaveSr
+        | Cab { .. }
+        | GotoOut
+        | EndSr => "interp",
     }
 }
 
@@ -1579,10 +1605,11 @@ pub fn generate(r: &ir::Routine) -> Result<Generated, Error> {
         }
         let _ = write!(
             map,
-            "{{\"pc\":{pc},\"line\":{},\"kind\":{},\"what\":{},\"rust_line\":{src_line}}}",
+            "{{\"pc\":{pc},\"line\":{},\"kind\":{},\"what\":{},\"via\":{},\"rust_line\":{src_line}}}",
             i.line,
             json_str(kind_name(&i.kind)),
-            json_str(&i.what)
+            json_str(&i.what),
+            json_str(via(i))
         );
         let mut arm = String::new();
         let _ = writeln!(
