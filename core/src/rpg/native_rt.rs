@@ -264,6 +264,91 @@ impl<'a> Rt<'_, 'a> {
         })
     }
 
+    /// A call through a prototype (S2.46): call_named_inner's path for a
+    /// prototype that lowering lets through. A program (EXTPGM) gets each
+    /// value as a copy in its parameter's type, through the program call
+    /// service (`call_program`, a phase B dependency, ADR 0007). Otherwise
+    /// the procedure the prototype names is this module's, or one bound
+    /// into the program (`call_bound`), or it is CPD5D02, as there.
+    fn call_proto(&mut self, name: &str, args: Vec<CallArg>) -> NResult<Option<Value>> {
+        let pr = self
+            .m
+            .proto(name)
+            .ok_or_else(|| anyhow!("{name} is not a procedure or prototype of this program"))?;
+        if let Some(pgm) = &pr.extpgm {
+            let pgm = match self.m.sym(pgm) {
+                Some(super::super::program::Sym::Const(v)) => {
+                    a(&v.chars()?).trim().to_ascii_uppercase()
+                }
+                Some(_) => anyhow::bail!("native: the program of {name} is not a constant"),
+                None => pgm.clone(),
+            };
+            let base = self.m.bufs.len();
+            let mut locs = Vec::with_capacity(args.len());
+            for (arg, p) in args.into_iter().zip(&pr.params) {
+                match arg {
+                    CallArg::Ref { buf, off } => locs.push(super::Loc {
+                        buf,
+                        off,
+                        size: p.dtype.size(),
+                        dtype: p.dtype,
+                    }),
+                    CallArg::Val(v) => {
+                        let mut b = p.dtype.initial();
+                        data::store(
+                            &p.dtype,
+                            &v,
+                            &mut b,
+                            Fit::Strict { half_adjust: false },
+                            false,
+                        )?;
+                        locs.push(super::Loc {
+                            buf: self.m.bufs.len(),
+                            off: 0,
+                            size: b.len(),
+                            dtype: p.dtype,
+                        });
+                        self.m.bufs.push(b);
+                    }
+                }
+            }
+            let r = self.m.call_program(&pgm, &locs);
+            self.m.bufs.truncate(base);
+            r?;
+            return Ok(None);
+        }
+        let target = pr.extproc.clone().unwrap_or_else(|| name.to_string());
+        if self.m.prog.procs.contains_key(&target) {
+            return self.call_frame(&target, args);
+        }
+        let sym = target.to_ascii_uppercase();
+        let bound = self
+            .m
+            .io
+            .binding
+            .as_ref()
+            .and_then(|b| b.imports.get(&sym))
+            .cloned();
+        let Some(t) = bound else {
+            anyhow::bail!(
+                "CPD5D02: Definition for procedure {target} not found: it is not in this module, and the program is not bound to a module or service program that exports it (CRTPGM, CRTSRVPGM, BNDDIR)."
+            );
+        };
+        let mut a = Vec::with_capacity(args.len());
+        for (arg, p) in args.into_iter().zip(&pr.params) {
+            a.push(match arg {
+                CallArg::Ref { buf, off } => super::Arg::Ref(super::Loc {
+                    buf,
+                    off,
+                    size: p.dtype.size(),
+                    dtype: p.dtype,
+                }),
+                CallArg::Val(v) => super::Arg::Val(v),
+            });
+        }
+        self.m.call_bound(&sym, &t, a)
+    }
+
     /// The values of VALUE and CONST parameters, then the procedure's
     /// calculations: its generated code, with the error noted as `guarded`
     /// and `recover` do for a procedure with no *PSSR.
@@ -596,7 +681,14 @@ impl Runtime for Rt<'_, '_> {
                 self.m.line
             );
         }
-        let r = self.call_frame(proc, args).map_err(|mut e| {
+        // A procedure of this module (S2.35), or a prototype (S2.46).
+        let local = self.m.prog.procs.contains_key(proc);
+        let r = if local {
+            self.call_frame(proc, args)
+        } else {
+            self.call_proto(proc, args)
+        }
+        .map_err(|mut e| {
             // An error the called procedure did not handle comes out of
             // the call: 00202 where it is caught (call_named).
             if let Some(at) = e.downcast_mut::<errors::At>() {

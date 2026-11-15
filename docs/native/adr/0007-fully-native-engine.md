@@ -204,3 +204,30 @@ DIM(*AUTO:n) and DIM(*VAR:n) arrays, global, with elements of an eligible type:
 - **Not lowered:** `*NEXT`, local arrays, data structure arrays.
 
 Expected values come from PUB400 (tools/golden/native47b.txt n47_var): growth, `*NEXT`, indexes past the elements in use, `%ELEM` read and set, and initial values after shrinking and growing again. On IBM i an index past a DIM(*AUTO) array's dimension, and `%ELEM` past it, are status 00124. The interpreter gives 00121, so NVARDIM leaves those two cases out (fidelity.md). The capture's first version showed that IBM i also rejects such constants at compile time (RNF0530, RNF7563). NSUBT2 adds the %SUBST-target cases the documentation does not give (S2.44).
+
+## Calls to other programs and service programs (the user, 2026-11-15)
+
+The OpenRPG and native-diff corpora's remaining CALLPs are almost all to prototypes: programs (EXTPGM) and procedures of service programs (181 of 190, AS4TAINR_NATIVE_WHY). The user chose this approach:
+- **Now (phase A).** The fork's own code prepares the arguments and the call natively: the prototype's parameters, by reference and by value, as `call_named` and `args_for` do. The program-to-program call itself, `Machine::call_program` and `call_bound_in`, is used as a system service. It resolves the program in the library list, compiles or caches it, handles activation groups, and copies parameters back. It evaluates no RPG, and the program called runs its own generated code.
+- **The final goal (phase B).** That service is written again in rpgrt with no Machine, like files, SQL and spool.
+
+Until then, the source maps count such a call as native, with a phase B dependency on the call service, recorded here.
+
+## S2.46: calls through prototypes (rpgcg 0.1.0+stage2.45)
+
+A CALLP, or a call in an expression, through a prototype is lowered when the prototype is one of these:
+- a program (EXTPGM named by a literal or a constant);
+- a procedure bound into the program, from another module or a service program;
+- this module's procedure under another name (EXTPROC).
+
+Procedure pointers, overloads, CEE APIs, C runtime functions and an EXTPGM named by a variable are not lowered.
+
+Lowering takes the prototype's parameters with S2.35's rules. `Runtime::call` (native_rt.rs) picks the path, as call_named_inner does:
+1. a procedure of the module by that name goes through S2.35's frame;
+2. otherwise `call_proto` runs:
+   - for a program, each value becomes a copy in its parameter's type, then the call goes through `call_program`;
+   - otherwise the named procedure is this module's (S2.35's frame), or bound (`call_bound`), or else it is CPD5D02.
+
+`call_program` and `call_bound` are the program call service. They are a phase B dependency (the user's decision above). The prototype goes into the caller's layout lines. native_tripwire.rs watches call_named_inner.
+
+The native units have no calls between programs. The upstream suite's cross-program and service program tests check this under native-diff level 2.

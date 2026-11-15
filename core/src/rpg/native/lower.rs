@@ -21,11 +21,13 @@ pub fn lower(prog: &Program, place: &Place, code: &Code) -> (Vec<ir::Ins>, Vec<S
             prog,
             syms: &prog.syms,
             based: None,
+            protos: None,
         }),
         Place::Proc(name, _) => prog.procs.get(name).map(|pi| Cx {
             prog,
             syms: &pi.syms,
             based: Some(&pi.based),
+            protos: Some(&pi.protos),
         }),
     };
     let mut layout = Vec::new();
@@ -60,6 +62,9 @@ struct Cx<'p> {
     syms: &'p super::super::program::SymMap,
     /// A procedure's based locals (frame buffer → pointer).
     based: Option<&'p std::collections::HashMap<usize, String>>,
+    /// A procedure's own prototypes (S2.46), looked up before the
+    /// program's, as the interpreter's `proto`.
+    protos: Option<&'p std::collections::HashMap<String, super::super::program::Proto>>,
 }
 
 /// IBM i's limit on levels of nesting in an expression: "Maximum of 100"
@@ -466,8 +471,10 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
             parts,
             args: Some(args),
         } if is_call(cx, parts) => {
-            let pi = cx.prog.procs.get(&parts.join("."))?;
-            if !matches!(pi.returns, Some(DType::Char(_) | DType::Varchar(_))) {
+            if !matches!(
+                call_returns(cx, &parts.join(".")),
+                Some(DType::Char(_) | DType::Varchar(_))
+            ) {
                 return None;
             }
             Some(ir::CharExpr::Call(call_of(cx, parts, args, used, path)?))
@@ -718,9 +725,8 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
             parts,
             args: Some(args),
         } if is_call(cx, parts) => {
-            let pi = cx.prog.procs.get(&parts.join("."))?;
             if !matches!(
-                pi.returns,
+                call_returns(cx, &parts.join(".")),
                 Some(
                     DType::Packed(..)
                         | DType::Zoned(..)
@@ -1523,7 +1529,25 @@ fn file_op(op: &FileOp) -> String {
 /// `prog.procs` when no symbol has the name.
 fn is_call(cx: &Cx<'_>, parts: &[String]) -> bool {
     let name = parts.join(".");
-    parts.len() == 1 && cx.syms.get(&name).is_none() && cx.prog.procs.contains_key(&name)
+    parts.len() == 1
+        && cx.syms.get(&name).is_none()
+        && (cx.prog.procs.contains_key(&name) || proto(cx, &name).is_some())
+}
+
+/// A prototype in scope (S2.46): the procedure's own, then the program's
+/// (the interpreter's `proto`).
+fn proto<'p>(cx: &Cx<'p>, name: &str) -> Option<&'p super::super::program::Proto> {
+    cx.protos
+        .and_then(|p| p.get(name))
+        .or_else(|| cx.prog.protos.get(name))
+}
+
+/// What a call of `name` returns: the procedure's, or the prototype's.
+fn call_returns(cx: &Cx<'_>, name: &str) -> Option<DType> {
+    match cx.prog.procs.get(name) {
+        Some(pi) => pi.returns,
+        None => proto(cx, name)?.returns,
+    }
 }
 
 /// The generator's type for a parameter's type, when it is eligible.
@@ -1562,22 +1586,60 @@ fn call_of(
     }
     let name = parts.join(".");
     let prog = cx.prog;
-    let pi = prog.procs.get(&name)?;
-    if pi.routines.subroutines.contains_key("*PSSR")
-        || pi.on_exit.is_some()
-        || !pi.ptr_inz.is_empty()
-        || prog
-            .files
-            .iter()
-            .any(|f| f.decl.proc.as_deref() == Some(pi.name.as_str()))
-        || args.len() > pi.params.len()
-        || pi.params.iter().skip(args.len()).any(|p| !p.nopass)
-    {
+    // A procedure of this module (S2.35), or a prototype (S2.46): a
+    // program (EXTPGM named by a literal or a constant), or a procedure
+    // bound into the program; not a procedure pointer, an overload, a CEE
+    // API or a C runtime function, which keep their own paths.
+    let mut layout = format!("call {name}:");
+    let (params, local) = match prog.procs.get(&name) {
+        Some(pi) => (&pi.params, Some(pi)),
+        None => {
+            let pr = proto(cx, &name)?;
+            if !pr.overload.is_empty() || pr.extproc_ptr.is_some() {
+                return None;
+            }
+            let local = match &pr.extpgm {
+                Some(pgm) => {
+                    if matches!(cx.syms.get(pgm), Some(Sym::Var(_))) {
+                        return None;
+                    }
+                    None
+                }
+                None => {
+                    let target = pr.extproc.clone().unwrap_or_else(|| name.clone());
+                    let up = target.to_ascii_uppercase();
+                    if super::super::interp::crt::C_FUNCTIONS.contains(&up.as_str())
+                        || super::super::interp::cee::CEE_APIS.contains(&up.as_str())
+                    {
+                        return None;
+                    }
+                    prog.procs.get(&target)
+                }
+            };
+            let _ = std::fmt::Write::write_fmt(
+                &mut layout,
+                format_args!(" proto extpgm={:?} extproc={:?}", pr.extpgm, pr.extproc),
+            );
+            (&pr.params, local)
+        }
+    };
+    if let Some(pi) = local {
+        if pi.routines.subroutines.contains_key("*PSSR")
+            || pi.on_exit.is_some()
+            || !pi.ptr_inz.is_empty()
+            || prog
+                .files
+                .iter()
+                .any(|f| f.decl.proc.as_deref() == Some(pi.name.as_str()))
+        {
+            return None;
+        }
+    }
+    if args.len() > params.len() || params.iter().skip(args.len()).any(|p| !p.nopass) {
         return None;
     }
     let mut out = Vec::with_capacity(args.len());
-    let mut layout = format!("call {name}:");
-    for (k, (p, a)) in pi.params.iter().zip(args).enumerate() {
+    for (k, (p, a)) in params.iter().zip(args).enumerate() {
         if p.file || p.omit || p.string || p.varsize || p.trim || p.convert {
             return None;
         }
@@ -1585,7 +1647,7 @@ fn call_of(
         // structure as the argument: the interpreter may pass it by
         // reference (same_type_variable) where a value would be built
         // here; not lowered (OpenRPG test325 under native-corpus.sh).
-        if !matches!(pi.syms.get(&p.name), Some(Sym::Var(_)))
+        if local.is_some_and(|pi| !matches!(pi.syms.get(&p.name), Some(Sym::Var(_))))
             || matches!(a, Expr::Name { parts, .. } if matches!(cx.syms.get(&parts.join(".")), Some(Sym::Ds(_))))
         {
             return None;
@@ -1663,21 +1725,77 @@ fn note_why(cx: &Cx<'_>, i: &Ins) {
     let Ok(path) = std::env::var("AS4TAINR_NATIVE_WHY") else {
         return;
     };
-    let Ins::Stmt(Stmt::Eval { target, value, .. }) = i else {
-        return;
-    };
+    let line =
+        match i {
+            Ins::Stmt(Stmt::Eval { target, value, .. }) => {
+                let mut nodes = Vec::new();
+                shape(cx, value, &mut nodes, 0);
+                nodes.sort();
+                nodes.dedup();
+                format!(
+                    "target={} value={}\n",
+                    target_shape(cx, target),
+                    nodes.join(",")
+                )
+            }
+            // A call not lowered: a procedure of this module (and what keeps
+            // it out), or a prototype of something else (a program, a
+            // service program's procedure).
+            Ins::Stmt(Stmt::CallP(Expr::Name { parts, .. })) => {
+                let name = parts.join(".");
+                match cx.prog.procs.get(&name) {
+                    Some(pi) => {
+                        let mut why = Vec::new();
+                        if pi.routines.subroutines.contains_key("*PSSR") {
+                            why.push("pssr");
+                        }
+                        if pi.on_exit.is_some() {
+                            why.push("on-exit");
+                        }
+                        if !pi.ptr_inz.is_empty() {
+                            why.push("ptr-inz");
+                        }
+                        if pi.params.iter().any(|p| {
+                            p.file || p.omit || p.string || p.varsize || p.trim || p.convert
+                        }) {
+                            why.push("options");
+                        }
+                        if pi.params.iter().any(|p| param_ty(p.dtype).is_none()) {
+                            why.push("param-type");
+                        }
+                        if pi
+                            .params
+                            .iter()
+                            .any(|p| !matches!(pi.syms.get(&p.name), Some(Sym::Var(_))))
+                        {
+                            why.push("ds-param");
+                        }
+                        if why.is_empty() {
+                            why.push("arguments");
+                        }
+                        format!("callp=local why={}\n", why.join(","))
+                    }
+                    None => "callp=proto\n".to_string(),
+                }
+            }
+            Ins::Stmt(Stmt::Dsply { message, response }) => {
+                let mut nodes = Vec::new();
+                if let Some(m) = message {
+                    shape(cx, m, &mut nodes, 0);
+                }
+                nodes.sort();
+                nodes.dedup();
+                format!(
+                    "dsply response={} value={}\n",
+                    response.is_some(),
+                    nodes.join(",")
+                )
+            }
+            _ => return,
+        };
     if LINES.fetch_add(1, Ordering::Relaxed) >= 100_000 {
         return;
     }
-    let mut nodes = Vec::new();
-    shape(cx, value, &mut nodes, 0);
-    nodes.sort();
-    nodes.dedup();
-    let line = format!(
-        "target={} value={}\n",
-        target_shape(cx, target),
-        nodes.join(",")
-    );
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
