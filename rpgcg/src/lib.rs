@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.44");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.45");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -122,6 +122,9 @@ pub mod ir {
         pub of: Operand,
         pub stride: usize,
         pub dim: u32,
+        /// A varying-dimension array (S2.45): its name, and whether it is
+        /// DIM(*AUTO) (grows when written past its elements in use).
+        pub vary: Option<(String, bool)>,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -220,6 +223,16 @@ pub mod ir {
         Dsply(Option<ValExpr>),
         /// RETURN (S2.38): the value, if any.
         Return(Option<ValExpr>),
+        /// %ELEM of a varying-dimension array set (S2.45).
+        SetElems {
+            name: String,
+            buf: usize,
+            off: usize,
+            stride: usize,
+            dim: u32,
+            ty: Ty,
+            value: Box<NumExpr>,
+        },
         /// EVAL of an indicator (S2.39): `*ON`, `*OFF` or a condition.
         EvalInd { name: String, value: IndValue },
         /// SETON / SETOFF of indicators (S2.39).
@@ -401,6 +414,8 @@ pub mod ir {
         },
         /// %STATUS with no file (S2.31): the most recent status code.
         Status,
+        /// %ELEM of a varying-dimension array (S2.45): its elements in use.
+        Elems(String),
         /// %ABS of a numeric expression (S2.32).
         Abs(Box<NumExpr>),
         /// The numeric value a procedure of the module returns (S2.35).
@@ -743,12 +758,22 @@ fn ty(t: &ir::Ty) -> String {
 /// Where an array element with a run-time index is (S2.21): the
 /// interpreter's `elem_off`, the index evaluated first.
 fn elem_at(off: usize, ix: &ir::Index) -> String {
-    format!(
-        "rpgrt::native::elem_at({off}, {}, {}, &{})?",
-        ix.stride,
-        ix.dim,
-        value(&ix.of)
-    )
+    match &ix.vary {
+        // A varying-dimension array (S2.45): within its elements in use.
+        Some((name, _)) => format!(
+            "{{ let i = {}; rpgrt::native::elem_in_use({off}, {}, {}, &i, rt.elems({}))? }}",
+            value(&ix.of),
+            ix.stride,
+            ix.dim,
+            json_str(name)
+        ),
+        None => format!(
+            "rpgrt::native::elem_at({off}, {}, {}, &{})?",
+            ix.stride,
+            ix.dim,
+            value(&ix.of)
+        ),
+    }
 }
 
 /// Where a target operand of lowered code is (see `place`), an array
@@ -761,7 +786,18 @@ fn place_of(o: &ir::Operand) -> Option<(String, String, String)> {
             index: Some(ix),
             ..
         } => Some((
-            format!("    let so = {};\n", elem_at(*off, ix)),
+            match &ix.vary {
+                // Written (S2.45): a DIM(*AUTO) array grows to the index,
+                // before the store, as the interpreter's assign does.
+                Some((name, auto)) => format!(
+                    "    let i = {};\n    let n = rt.elems({name});\n    let (so, grow) = rpgrt::native::elem_grow({off}, {}, {}, &i, n, {auto})?;\n    if let Some(k) = grow {{\n        rt.set_elem_count({name}, k);\n    }}\n",
+                    value(&ix.of),
+                    ix.stride,
+                    ix.dim,
+                    name = json_str(name)
+                ),
+                None => format!("    let so = {};\n", elem_at(*off, ix)),
+            },
             buf.to_string(),
             "so".to_string(),
         )),
@@ -1222,6 +1258,32 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("si{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::SetElems {
+                name,
+                buf,
+                off,
+                stride,
+                dim,
+                ty: t,
+                value,
+            },
+        ) => {
+            // The interpreter's assign_value "ELEM" arm: the value, the
+            // range check, new elements initialized, the count set.
+            let v = num_expr(pc, value, helpers);
+            let _ = writeln!(
+                helpers,
+                "\nfn se{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let v = {v};\n    let cur = rt.elems({nm});\n    let arr = rpgrt::native::ArrayPlace {{ buf: {buf}, off: {off}, stride: {stride}, dim: {dim}, ty: {} }};\n    let n = rpgrt::native::set_elems(rt.mem(), &arr, cur, &v)?;\n    rt.set_elem_count({nm}, n);\n    Ok(())\n}}",
+                ty(t),
+                nm = json_str(name)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("se{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Return, ir::Lowered::Return(v)) => {
@@ -1882,6 +1944,10 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
         }
         ir::NumExpr::Call(c) => format!("{}.num()?", returned(call_fn(pc, c, helpers), &c.proc)),
         ir::NumExpr::Abs(inner) => format!("({}).abs()", num_expr(pc, inner, helpers)),
+        ir::NumExpr::Elems(name) => format!(
+            "rpgrt::rpg::dec::Dec::from_i64(i64::from(rt.elems({})))",
+            json_str(name)
+        ),
         ir::NumExpr::Status => "rpgrt::rpg::dec::Dec::from_i64(i64::from(rt.status()))".to_string(),
         ir::NumExpr::VarLen { var } => format!(
             "rpgrt::rpg::dec::Dec::from_i64(i64::try_from({}.chars()?.len())?)",

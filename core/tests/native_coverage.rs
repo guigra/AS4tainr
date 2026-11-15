@@ -58,6 +58,8 @@ const UNITS: &[(&str, &str, usize)] = &[
     ("NSUB", include_str!("native/NSUB.rpgle"), 0),
     ("NSUBT", include_str!("native/NSUBT.rpgle"), 0),
     ("NVAR", include_str!("native/NVAR.rpgle"), 0),
+    ("NVARDIM", include_str!("native/NVARDIM.rpgle"), 1),
+    ("NSUBT2", include_str!("native/NSUBT2.rpgle"), 0),
     ("NVLEN", include_str!("native/NVLEN.rpgle"), 0),
     ("ONEXIT", include_str!("native/ONEXIT.rpgle"), 1),
     ("OVERLAY", include_str!("native/OVERLAY.rpgle"), 0),

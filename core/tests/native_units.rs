@@ -887,6 +887,52 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.45 (ADR 0007): DIM(*AUTO) and DIM(*VAR) arrays: growth on
+// assignment, *NEXT, indexes past the elements in use, %ELEM read and set.
+// Source: golden capture tools/golden/native47b.txt n47_var (PUB400, IBM i 7.5, 2026-11-15)
+#[tokio::test]
+async fn native_unit_varying_dimension_arrays() {
+    let _ = require_db!();
+    expect(
+        "NVARDIM",
+        include_str!("native/NVARDIM.rpgle"),
+        &[
+            "E0 0 0",
+            "AUTO2 2 0 7",
+            "NEXT 3 9",
+            "VAR1 ERR 121",
+            "VARSET 2 [   ][xyz]",
+            "VAR3 ERR 121",
+            "READ4 ERR 121",
+            "SHRINK 1 0",
+            "REGROW 3 0 0",
+            "VARGROW 4 [   ][   ]",
+        ],
+    )
+    .await;
+}
+
+// Stage 2, S2.44: %SUBST as a target, the cases IBM's documentation does
+// not give: a value shorter and longer than the part, a varying field, a
+// start past a varying field's length, EVALR.
+// Source: golden capture tools/golden/native47.txt n47_subt (PUB400, IBM i 7.5, 2026-11-15)
+#[tokio::test]
+async fn native_unit_subst_target_captured() {
+    let _ = require_db!();
+    expect(
+        "NSUBT2",
+        include_str!("native/NSUBT2.rpgle"),
+        &[
+            "SHORT [abXY  ghij]",
+            "LONG [abWXefghij]",
+            "VARY [aQQdef] 6",
+            "VARYPAST ERR 100",
+            "EVALR [ab  XYghij]",
+        ],
+    )
+    .await;
+}
+
 // Stage 2, S2.42 (ADR 0007): two programs with the same calculations and a
 // named constant of a different value each show their own value.
 // Source: IBM Docs, "Named Constants", IBM i 7.5, https://www.ibm.com/docs/ssw_ibm_i_75/rzasd/namcon.htm, read 2026-11-15

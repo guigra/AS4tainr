@@ -172,6 +172,10 @@ pub trait Runtime {
     fn ind(&self, name: &str) -> bool;
     /// Stage 2 (S2.39): set an indicator.
     fn set_ind(&mut self, name: &str, on: bool);
+    /// Stage 2 (S2.45): the elements in use of a varying-dimension array.
+    fn elems(&self, name: &str) -> u32;
+    /// Stage 2 (S2.45): set them.
+    fn set_elem_count(&mut self, name: &str, n: u32);
 }
 
 /// An argument of a native procedure call (S2.35): the caller's storage
@@ -632,6 +636,90 @@ pub fn elem_at(off: usize, stride: usize, dim: u32, index: &Value) -> NResult<us
         .ok_or_else(|| {
             anyhow::anyhow!("RNQ0121: An array index is out of range (index {i}, {dim} elements).")
         })
+}
+
+/// An element of a varying-dimension array read (S2.45): the index must
+/// be 1 to the elements in use (the interpreter's eval of an indexed
+/// name), then within the dimension (`elem_at`).
+pub fn elem_in_use(
+    off: usize,
+    stride: usize,
+    dim: u32,
+    index: &Value,
+    in_use: u32,
+) -> NResult<usize> {
+    let i = index.num()?.to_i128()?;
+    if i < 1 || i > i128::from(in_use) {
+        anyhow::bail!(
+            "RNQ0121: An array index is out of range (index {i}, {in_use} elements in use)."
+        );
+    }
+    elem_at(off, stride, dim, index)
+}
+
+/// An element of a varying-dimension array written (S2.45): an index
+/// past the elements in use grows a DIM(*AUTO) array to it, within the
+/// dimension; otherwise it is the interpreter's RNQ0121. The element's
+/// place, and the new number of elements in use when it grows.
+pub fn elem_grow(
+    off: usize,
+    stride: usize,
+    dim: u32,
+    index: &Value,
+    in_use: u32,
+    auto: bool,
+) -> NResult<(usize, Option<u32>)> {
+    let k = index.num()?.to_i128()?;
+    let mut grow = None;
+    if k > i128::from(in_use) {
+        if auto && k <= i128::from(dim) {
+            grow = Some(u32::try_from(k)?);
+        } else {
+            anyhow::bail!(
+                "RNQ0121: An array index is out of range (index {k}, {in_use} elements in use)."
+            );
+        }
+    }
+    Ok((elem_at(off, stride, dim, index)?, grow))
+}
+
+/// Where a global array is: its buffer, its first element's offset, the
+/// distance between elements, its dimension and its elements' type.
+#[derive(Clone, Copy, Debug)]
+pub struct ArrayPlace {
+    pub buf: usize,
+    pub off: usize,
+    pub stride: usize,
+    pub dim: u32,
+    pub ty: DType,
+}
+
+/// %ELEM of a varying-dimension array set (S2.45): the interpreter's
+/// assign_value "ELEM" arm. A count outside 0 to the dimension is RNQ0121;
+/// the elements from the ones in use to the new count get their initial
+/// value. The new count.
+pub fn set_elems(mem: &mut Mem, arr: &ArrayPlace, in_use: u32, v: &Dec) -> NResult<u32> {
+    let n = v.to_i128()?;
+    if n < 0 || n > i128::from(arr.dim) {
+        anyhow::bail!("RNQ0121: %ELEM {n} is outside 0 to {}.", arr.dim);
+    }
+    let n = u32::try_from(n)?;
+    let init = arr.ty.initial();
+    let buf = arr.buf;
+    for k in in_use..n {
+        let at = usize::try_from(k)?
+            .checked_mul(arr.stride)
+            .and_then(|d| arr.off.checked_add(d))
+            .ok_or_else(|| anyhow::anyhow!("native: an array element's place"))?;
+        let end = at
+            .checked_add(init.len())
+            .ok_or_else(|| anyhow::anyhow!("native: an array element's place"))?;
+        mem.get_mut(buf)
+            .and_then(|b| b.get_mut(at..end))
+            .ok_or_else(|| anyhow::anyhow!("native: an array element past its storage"))?
+            .copy_from_slice(&init);
+    }
+    Ok(n)
 }
 
 /// %REPLACE (S2.23): `rep` in place of `len` characters of `s` from
