@@ -145,6 +145,15 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             from: any_operand(cx, from, &mut used)?,
             to: variable(cx, to, &mut used)?,
         },
+        // RETURN (S2.38) of an eligible numeric or character expression,
+        // or of nothing (a whole data structure array is not eligible).
+        Ins::Return(v) => ir::Lowered::Return(match v {
+            None => None,
+            Some(x) => Some(match char_expr(cx, x, &mut used, Vec::new()) {
+                Some(c) => ir::ValExpr::Char(c),
+                None => ir::ValExpr::Num(num_expr(cx, x, &mut used, Vec::new())?),
+            }),
+        }),
         // DSPLY with no response field (S2.36): Stmt::Dsply's batch path.
         // A float, date or time message is not an eligible expression.
         Ins::Stmt(Stmt::Dsply {
@@ -153,8 +162,8 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
         }) => ir::Lowered::Dsply(match message {
             None => None,
             Some(m) => Some(match char_expr(cx, m, &mut used, Vec::new()) {
-                Some(c) => ir::DsplyMsg::Char(c),
-                None => ir::DsplyMsg::Num(num_expr(cx, m, &mut used, Vec::new())?),
+                Some(c) => ir::ValExpr::Char(c),
+                None => ir::ValExpr::Num(num_expr(cx, m, &mut used, Vec::new())?),
             }),
         }),
         // CALLP of a procedure of this module (S2.35, ADR 0007).

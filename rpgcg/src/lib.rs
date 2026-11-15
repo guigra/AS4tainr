@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.37");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.38");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -196,7 +196,9 @@ pub mod ir {
         /// if any, is not used.
         Call(Call),
         /// DSPLY with no response field (S2.36): the message, if any.
-        Dsply(Option<DsplyMsg>),
+        Dsply(Option<ValExpr>),
+        /// RETURN (S2.38): the value, if any.
+        Return(Option<ValExpr>),
         /// EVAL of a figurative constant into a field (S2.22): stored as
         /// the interpreter stores `Value::Fig`.
         EvalFig {
@@ -415,9 +417,10 @@ pub mod ir {
         },
     }
 
-    /// A DSPLY message (S2.36): a numeric or a character expression.
+    /// A numeric or a character expression: a DSPLY message (S2.36), a
+    /// RETURN value (S2.38).
     #[derive(Clone, Debug, PartialEq, Eq)]
-    pub enum DsplyMsg {
+    pub enum ValExpr {
         Num(NumExpr),
         Char(CharExpr),
     }
@@ -1042,13 +1045,13 @@ fn lowered_step(
             // %CHAR gives it with a period and no DECEDIT (char_of_num).
             let text = match msg {
                 None => "String::new()".to_string(),
-                Some(ir::DsplyMsg::Char(e)) => {
+                Some(ir::ValExpr::Char(e)) => {
                     format!(
                         "rpgrt::rpg::data::a(&{}.chars()?)",
                         char_expr(pc, e, helpers)
                     )
                 }
-                Some(ir::DsplyMsg::Num(e)) => format!(
+                Some(ir::ValExpr::Num(e)) => format!(
                     "rpgrt::rpg::data::a(&rpgrt::native::char_of_num(&{}, '.', false).chars()?)",
                     num_expr(pc, e, helpers)
                 ),
@@ -1060,6 +1063,26 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("dy{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Return, ir::Lowered::Return(v)) => {
+            // The interpreter's RETURN: the value evaluated, then the
+            // routine ends with it (ReturnSignal, which settle turns into
+            // Flow::Return); the routine returns it here directly.
+            let val = match v {
+                None => "None".to_string(),
+                Some(ir::ValExpr::Char(e)) => format!("Some({})", char_expr(pc, e, helpers)),
+                Some(ir::ValExpr::Num(e)) => format!(
+                    "Some(rpgrt::rpg::data::Value::Num({}))",
+                    num_expr(pc, e, helpers)
+                ),
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn rv{pc}(rt: &mut dyn Runtime) -> NResult<Option<rpgrt::rpg::data::Value>> {{\n    Ok({val})\n}}"
+            );
+            format!(
+                "match rv{pc}(rt) {{\n                    Ok(v) => return Ok(Flow::Return(v)),\n                    Err(e) => Err(e),\n                }}"
             )
         }
         (ir::Kind::Stmt, ir::Lowered::Call(c)) => {
