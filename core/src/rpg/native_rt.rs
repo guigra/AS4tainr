@@ -638,6 +638,8 @@ impl Runtime for Rt<'_, '_> {
             Some(Ins::JumpIfNot(c, _)) => c,
             // A CALLP's arguments (S2.35).
             Some(Ins::Stmt(super::super::ast::Stmt::CallP(e))) => e,
+            // A RETURN's value (S2.38).
+            Some(Ins::Return(Some(v))) => v,
             // A DSPLY's message (S2.36).
             Some(Ins::Stmt(super::super::ast::Stmt::Dsply {
                 message: Some(m), ..
