@@ -1291,6 +1291,15 @@ fn call_of(
         if p.file || p.omit || p.string || p.varsize || p.trim || p.convert {
             return None;
         }
+        // A parameter that is a data structure (LIKEDS), or a whole data
+        // structure as the argument: the interpreter may pass it by
+        // reference (same_type_variable) where a value would be built
+        // here; not lowered (OpenRPG test325 under native-corpus.sh).
+        if !matches!(pi.syms.get(&p.name), Some(Sym::Var(_)))
+            || matches!(a, Expr::Name { parts, .. } if matches!(cx.syms.get(&parts.join(".")), Some(Sym::Ds(_))))
+        {
+            return None;
+        }
         let ty = param_ty(p.dtype)?;
         let _ = std::fmt::Write::write_fmt(
             &mut layout,
