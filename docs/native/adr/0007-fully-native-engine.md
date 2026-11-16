@@ -244,3 +244,11 @@ The native units have no calls between programs. The upstream suite's cross-prog
 - **Expected values.** From PUB400, tools/golden/native48.txt n48_ptr (NPTR). The tripwire now watches ptr_to.
 - **room_for_based.** After a pointer is stored into a field with no index, the storage it addresses grows to the largest variable based on that pointer, as the interpreter's `assign` does (`Runtime::pointer_set`). That step is written again from interp.rs room_for_based and ptrs.rs addr, and the tripwire watches both and `assign`. native-diff's level 1 found it missing: a buffer was 2 bytes shorter under rust.
 - **The differential harness.** A pointer's owner is the activation it was taken in, and it differs between two runs in one process. native-diff's level 1 found NPTR's P different only there (103, then 104). The observation now clears each global pointer's owner bytes (4 to 8), as it blanks the PSDS's run-dependent fields, so pointers are compared by kind, buffer and offset.
+
+## S2.48: BASED fields (rpgcg 0.1.0+stage2.48)
+
+- **Where a based field is.** A based field that is not an array, global or a procedure's local, is lowered with its pointer as an operand (`ir::Based { ptr, size }`). So is a subfield of a based data structure. Each read or write first loads the pointer, then calls `Runtime::based_at`. That is the interpreter's `based_place` (ptrs.rs) written again: `addr` of the pointer for the field's offset plus size, then the offset on.
+- **Errors.** A pointer that addresses nothing gives MCH3601, and storage too short gives MCH0601. The error is raised at the read or write, as the interpreter's `check_buf` raises the pointer fault there. A *NULL pointer used in MONITOR gives status 222, as on IBM i.
+- **The pointer.** It is found as `based_place` finds it, through the routine's names, so a procedure's own come first. It must be a scalar pointer that is not based itself, or the field is not lowered.
+- **Not lowered.** Based arrays, %ADDR of a based field, whole based data structures, and pointer arithmetic (S2.49).
+- **Expected values.** From PUB400, tools/golden/native49.txt n49_bas (the unit NBASED). The same batch captured %ABS nested 99 times (it compiles) and 100 times (RNF0640, severity 30), with lines split between tokens, and the nesting test now cites it. The tripwire watches based_place.

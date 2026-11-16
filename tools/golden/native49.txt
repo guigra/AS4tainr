@@ -1,0 +1,7 @@
+# Captures for stage 2, S2.48: BASED fields, and the nested %ABS compiles
+# again with lines split between tokens (native47b's split a token). One batch.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native49.txt -f tools/golden/native49
+n49_crt_bas|!system "CRTSQLRPGI OBJ(@LIB@/GN49BAS) SRCSTMF('@HOME@/gld/gn49bas.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n49_bas|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN49BAS)"; cat gn1.out; rm -f gn1.out
+n49_crt_a100|!system "CRTBNDRPG PGM(@LIB@/GN49A100) SRCSTMF('@HOME@/gld/gn49a100.rpgle')"
+n49_crt_a101|!system "CRTBNDRPG PGM(@LIB@/GN49A101) SRCSTMF('@HOME@/gld/gn49a101.rpgle')"

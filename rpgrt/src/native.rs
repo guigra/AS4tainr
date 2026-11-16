@@ -180,6 +180,11 @@ pub trait Runtime {
     /// largest variable based on it (the interpreter's assign,
     /// `room_for_based`).
     fn pointer_set(&mut self, name: &str, v: &Value);
+    /// Stage 2 (S2.48): where a based field is now: `off` bytes into the
+    /// storage pointer `p` addresses, with `size` bytes there (the
+    /// interpreter's `based_place`: MCH3601 for a pointer that addresses
+    /// nothing, MCH0601 for storage too short).
+    fn based_at(&mut self, p: &Value, off: usize, size: usize) -> NResult<(usize, usize)>;
     /// Stage 2 (S2.45): the elements in use of a varying-dimension array.
     fn elems(&self, name: &str) -> u32;
     /// Stage 2 (S2.45): set them.

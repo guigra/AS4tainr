@@ -887,6 +887,29 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.48 (ADR 0007): BASED fields read and written through their
+// pointer, a based data structure, a based local, a *NULL pointer used.
+// Source: golden capture tools/golden/native49.txt n49_bas (PUB400, IBM i 7.5, 2026-11-16)
+#[tokio::test]
+async fn native_unit_based() {
+    let _ = require_db!();
+    expect(
+        "NBASED",
+        include_str!("native/NBASED.rpgle"),
+        &[
+            "PART [ABCD]",
+            "BUF [wxyzEFGHIJ]",
+            "SHIFT [GHIJ]",
+            "FIRST [XY] AMOUNT 12346",
+            "RAW HEX 5 [XY] 999",
+            "LOCAL [QRST]",
+            "AFTER [QRSTEFGHIJ]",
+            "NULL ERROR 222",
+        ],
+    )
+    .await;
+}
+
 // Stage 2, S2.47 (ADR 0007): pointers: %ADDR, a pointer copied,
 // %ADDR(varying:*DATA), *NULL and comparisons with it.
 // Source: golden capture tools/golden/native48.txt n48_ptr (PUB400, IBM i 7.5, 2026-11-15)

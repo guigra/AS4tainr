@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.47.1");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.48");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -97,6 +97,9 @@ pub mod ir {
             /// An array element with an index known only when it runs
             /// (S2.21): `off` is the array's start.
             index: Option<Box<Index>>,
+            /// A based field (S2.48): its storage is where its pointer
+            /// points now, `off` bytes on (`Runtime::based_at`).
+            based: Option<Box<Based>>,
         },
         /// A numeric literal: mantissa and scale (`Dec::new`).
         Num { m: i128, s: u8 },
@@ -117,6 +120,15 @@ pub mod ir {
         All(Vec<u8>),
         /// *NULL (S2.47).
         Null,
+    }
+
+    /// Where a based field is (S2.48): the pointer it is based on (a
+    /// field that is not based itself), and the field's size, which must
+    /// fit in the storage the pointer addresses.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct Based {
+        pub ptr: Operand,
+        pub size: usize,
     }
 
     /// The index of an array element (S2.21): the operand it is, and the
@@ -796,6 +808,17 @@ fn elem_at(off: usize, ix: &ir::Index) -> String {
 fn place_of(o: &ir::Operand) -> Option<(String, String, String)> {
     match o {
         ir::Operand::Var {
+            off,
+            index: None,
+            based: Some(b),
+            ..
+        } => Some((
+            format!("    let (sb, so) = {};\n", based_at(b, *off)),
+            "sb".to_string(),
+            "so".to_string(),
+        )),
+        ir::Operand::Var { based: Some(_), .. } => None,
+        ir::Operand::Var {
             buf,
             off,
             index: Some(ix),
@@ -838,9 +861,29 @@ fn place(buf: usize, off: usize, local: bool) -> (String, String, String) {
     }
 }
 
+/// Where a based field is now (S2.48): the pointer's value, then the
+/// interpreter's `based_place` (`Runtime::based_at`).
+fn based_at(b: &ir::Based, off: usize) -> String {
+    format!(
+        "{{ let p = {}; rt.based_at(&p, {off}, {})? }}",
+        value(&b.ptr),
+        b.size
+    )
+}
+
 /// An operand as a `Value` expression (inside a helper with `rt`).
 fn value(o: &ir::Operand) -> String {
     match o {
+        ir::Operand::Var {
+            off,
+            ty: t,
+            based: Some(b),
+            ..
+        } => format!(
+            "{{ let (b, o) = {}; rpgrt::native::load(rt.mem(), b, o, {})? }}",
+            based_at(b, *off),
+            ty(t)
+        ),
         ir::Operand::Var {
             buf,
             off,
@@ -892,6 +935,16 @@ fn fig(f: &ir::FigOp) -> String {
 /// An operand as a `Dec` expression.
 fn number(o: &ir::Operand) -> String {
     match o {
+        ir::Operand::Var {
+            off,
+            ty: t,
+            based: Some(b),
+            ..
+        } => format!(
+            "{{ let (b, o) = {}; rpgrt::native::load_num(rt.mem(), b, o, {})? }}",
+            based_at(b, *off),
+            ty(t)
+        ),
         ir::Operand::Var {
             buf,
             off,
@@ -2262,6 +2315,7 @@ mod tests {
             ty: Ty::Packed(5, 0),
             local: false,
             index: None,
+            based: None,
         };
         let mut test = ins(Kind::LoopTest { end: 3 }, 1, false);
         test.lowered = Some(Lowered::LoopTest {
@@ -2337,6 +2391,7 @@ mod tests {
             ty: Ty::Packed(5, 2),
             local: false,
             index: None,
+            based: None,
         };
         let mut ev = ins(Kind::Stmt, 4, true);
         // r = x * y - 0.001
@@ -2392,6 +2447,7 @@ mod tests {
             ty: Ty::Int(10),
             local: true,
             index: None,
+            based: None,
         };
         let mut ev = ins(Kind::Stmt, 2, false);
         ev.lowered = Some(Lowered::Eval {

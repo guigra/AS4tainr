@@ -446,7 +446,10 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                     };
                     let of = variable(cx, of, &mut used)?;
                     let ir::Operand::Var {
-                        local: false, ty, ..
+                        local: false,
+                        based: None,
+                        ty,
+                        ..
                     } = &of
                     else {
                         return None;
@@ -1334,6 +1337,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
                 ty: ir::Ty::Char(size),
                 local: false,
                 index: None,
+                based: None,
             });
         }
         _ => return None,
@@ -1398,12 +1402,51 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         DType::Pointer => ir::Ty::Pointer,
         _ => return None,
     };
+    // A based field (S2.48), not an array: where its pointer points now.
+    // The pointer is found as the interpreter's based_place finds it
+    // (`sym`, the procedure's names first), and must not be based itself.
+    let based_on = if v.local {
+        cx.based.and_then(|b| b.get(&v.buf))
+    } else {
+        prog.based.get(&v.buf)
+    };
+    let based = match based_on {
+        Some(p) => {
+            if v.dim != 0 || prog.occurs.iter().any(|o| o.buf == v.buf) {
+                return None;
+            }
+            let ptr = variable(
+                cx,
+                &Expr::Name {
+                    parts: vec![p.clone()],
+                    args: None,
+                },
+                used,
+            )?;
+            if !matches!(
+                &ptr,
+                ir::Operand::Var {
+                    ty: ir::Ty::Pointer,
+                    index: None,
+                    based: None,
+                    ..
+                }
+            ) {
+                return None;
+            }
+            used.push(format!("based {name} on {p}"));
+            Some(Box::new(ir::Based {
+                ptr,
+                size: v.dtype.size(),
+            }))
+        }
+        None => None,
+    };
     let excluded = if v.local {
-        // A procedure local (S2.8): not based, and only in a procedure.
-        v.dim != 0 || cx.based.is_none_or(|b| b.contains_key(&v.buf))
+        // A procedure local (S2.8): only in a procedure (based ones above).
+        v.dim != 0 || cx.based.is_none()
     } else {
         (v.dim != 0) != elem.is_some()
-            || prog.based.contains_key(&v.buf)
             || prog.occurs.iter().any(|o| o.buf == v.buf)
             // A varying-dimension array's elements only with a run-time
             // index (S2.45).
@@ -1440,6 +1483,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         ty,
         local: v.local,
         index,
+        based,
     })
 }
 
@@ -1517,6 +1561,7 @@ fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::O
             dim: d.dim,
             vary: None,
         })),
+        based: None,
     })
 }
 

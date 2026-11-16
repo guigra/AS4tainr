@@ -761,6 +761,18 @@ impl Runtime for Rt<'_, '_> {
         })
     }
 
+    fn based_at(&mut self, p: &Value, off: usize, size: usize) -> NResult<(usize, usize)> {
+        // ptrs.rs based_place: addr(pointer, off + size), then off on.
+        let need = off
+            .checked_add(size)
+            .ok_or_else(|| anyhow!("native: a based field's size"))?;
+        let (b, o) = self.addr_n(p, need)?;
+        let o = o
+            .checked_add(off)
+            .ok_or_else(|| anyhow!("native: a based field's offset"))?;
+        Ok((b, o))
+    }
+
     fn pointer_set(&mut self, name: &str, v: &Value) {
         // interp.rs assign: a storage or heap pointer stored into a name.
         if let Value::Ptr(ptr) = v {
