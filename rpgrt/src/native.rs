@@ -1186,6 +1186,73 @@ pub fn ptr_move(p: &Value, n: &Dec, back: bool) -> NResult<Value> {
         })
 }
 
+/// Stage 2 (S2.53): how %CHAR shows a date, time or timestamp field: the
+/// format the interpreter's bif_override picks for it (the explicit one,
+/// or the field's, or the control specification's), known when the code
+/// is generated.
+#[derive(Clone, Copy, Debug)]
+pub enum TemporalFmt {
+    Date(crate::rpg::dates::DateFmt),
+    Time(crate::rpg::dates::TimeFmt),
+    /// A timestamp: *ISO0 (digits only) or as it is.
+    Ts {
+        iso0: bool,
+    },
+}
+
+/// Stage 2 (S2.53): %CHAR of a date, time or timestamp field's value
+/// (its *ISO text), as bifs.rs bif_override does: the value parsed as
+/// bifs.rs `temporal` parses it, then shown in `f`. A value that does not
+/// parse as one (bif_override gives no value) is %CHAR's generic form,
+/// the characters as they are.
+pub fn temporal_char(v: &Value, f: TemporalFmt) -> NResult<Value> {
+    use crate::rpg::dates::{self, DateFmt, TimeFmt};
+    let Value::Char(c) = v else {
+        return Ok(Value::Char(v.chars()?));
+    };
+    let t = data::a(c);
+    let b = t.as_bytes();
+    let at = |k: usize| b.get(k).copied();
+    enum K {
+        Date(dates::Ymd),
+        Time(dates::Hms),
+        Ts,
+    }
+    let kind = match t.len() {
+        10 if at(4) == Some(b'-') && at(7) == Some(b'-') => {
+            dates::parse_date(&t, &DateFmt::iso()).ok().map(K::Date)
+        }
+        8 if at(2) == Some(b'.') && at(5) == Some(b'.') => {
+            dates::parse_time(&t, &TimeFmt::iso()).ok().map(K::Time)
+        }
+        19..=32 if at(4) == Some(b'-') && at(10) == Some(b'-') => {
+            dates::parse_ts(&t).ok().map(|_| K::Ts)
+        }
+        _ => None,
+    };
+    Ok(match (kind, f) {
+        (Some(K::Date(d)), TemporalFmt::Date(f)) => Value::str(&dates::format_date(d, &f)),
+        (Some(K::Time(h)), TemporalFmt::Time(f)) => Value::str(&dates::format_time(h, &f)),
+        (Some(K::Ts), TemporalFmt::Ts { iso0 }) => {
+            let text = t.trim_end().to_string();
+            if iso0 {
+                Value::str(
+                    &text
+                        .chars()
+                        .filter(|c| c.is_ascii_digit())
+                        .collect::<String>(),
+                )
+            } else {
+                Value::str(&text)
+            }
+        }
+        // A value of another kind than its field's: not one lowering
+        // makes (a field's value is of its own kind, or does not parse).
+        (Some(_), _) => anyhow::bail!("native: %CHAR of a value of another kind than its field"),
+        (None, _) => Value::Char(c.clone()),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
