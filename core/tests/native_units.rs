@@ -887,6 +887,21 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.49 (ADR 0007): pointer arithmetic: plus and less a number,
+// a chain, a field as the step, a pointer less a pointer. (*NULL plus one
+// is NPNULL in native_diff.rs: the interpreter differs from IBM i there.)
+// Source: golden capture tools/golden/native50.txt n50_pa (PUB400, IBM i 7.5, 2026-11-16)
+#[tokio::test]
+async fn native_unit_pointer_arithmetic() {
+    let _ = require_db!();
+    expect(
+        "NPARITH",
+        include_str!("native/NPARITH.rpgle"),
+        &["PLUS [B]", "FIELD [E]", "LESS [C]", "CHAIN [G]", "DIFF 6"],
+    )
+    .await;
+}
+
 // Stage 2, S2.48 (ADR 0007): BASED fields read and written through their
 // pointer, a based data structure, a based local, a *NULL pointer used.
 // Source: golden capture tools/golden/native49.txt n49_bas (PUB400, IBM i 7.5, 2026-11-16)

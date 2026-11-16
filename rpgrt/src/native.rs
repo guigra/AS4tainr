@@ -1143,6 +1143,32 @@ pub fn editw(v: &Dec, p: Option<(u32, u32)>, word: &str) -> NResult<Value> {
     Ok(Value::str(&edit_word(v, digits, decs, word)?))
 }
 
+/// Stage 2 (S2.49): pointer arithmetic, `p + n` or `p - n` (back): the
+/// interpreter's ptrs.rs ptr_arith, written again. The number must be
+/// whole; it is taken modulo 2^64 as the interpreter's `as i64` takes it.
+/// An offset outside 0..=u32::MAX is MCH0601, a *NULL pointer MCH3601.
+pub fn ptr_move(p: &Value, n: &Dec, back: bool) -> NResult<Value> {
+    let p = match p {
+        Value::Ptr(p) => *p,
+        Value::Fig(crate::rpg::data::Fig::Null) => {
+            anyhow::bail!("MCH3601: pointer arithmetic on a pointer that is not set (*NULL).")
+        }
+        // A pointer field loads as a pointer or *NULL only.
+        other => anyhow::bail!("native: pointer arithmetic on {}", other.describe()),
+    };
+    let whole = n.to_i128()?;
+    let wrapped = u64::try_from(whole.rem_euclid(1i128 << 64))?;
+    let n = i64::from_ne_bytes(wrapped.to_ne_bytes());
+    let by = if back { n.checked_neg() } else { Some(n) };
+    // mem::Ptr::add, with its sum checked (it adds unchecked).
+    by.and_then(|n| i64::from(p.off).checked_add(n))
+        .and_then(|off| u32::try_from(off).ok())
+        .map(|off| Value::Ptr(crate::rpg::mem::Ptr { off, ..p }))
+        .ok_or_else(|| {
+            anyhow::anyhow!("MCH0601: pointer arithmetic gave an offset outside the storage.")
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

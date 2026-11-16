@@ -228,6 +228,12 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    pub(super) fn addr(&self, v: &Value, size: usize) -> Result<(usize, usize)> {",
             "    ",
         ),
+        // S2.49: pointer arithmetic.
+        function(
+            PTRS,
+            "    pub(super) fn ptr_arith(&self, op: &BinOp, x: &Value, y: &Value) -> Option<Result<Value>> {",
+            "    ",
+        ),
         // S2.48: a based field's place.
         function(
             PTRS,
@@ -257,9 +263,9 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // the start of run_code_at). This adds the functions S2.35-S2.43 write
     // again: calls, DSPLY's text, indicators, run_code and the error path;
     // S2.46 adds call_named_inner (prototypes), S2.47 ptrs.rs ptr_to and
-    // addr, assign and room_for_based, S2.48 based_place;
+    // addr, assign and room_for_based, S2.48 based_place, S2.49 ptr_arith;
     // upstream still dd47e28.
-    let reviewed = "7383868e5c5ff7a57e6199f6ab12d0e706e82d08b556252899dc9c5783306c80";
+    let reviewed = "76b3e3b12cdbe9d3193f517d9bfebec0142ea62fa2f4c5c972b39ea4bb9868e8";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

@@ -435,34 +435,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             && !matches!(value, Expr::Fig(_)) =>
         {
             let t = variable(cx, target, &mut used)?;
-            let value = match value {
-                Expr::Bif(b, args) if b == "ADDR" => {
-                    let (of, data) = match args.as_slice() {
-                        [x] => (x, false),
-                        [x, Expr::Name { parts, args: None }] if parts.as_slice() == ["*DATA"] => {
-                            (x, true)
-                        }
-                        _ => return None,
-                    };
-                    let of = variable(cx, of, &mut used)?;
-                    let ir::Operand::Var {
-                        local: false,
-                        based: None,
-                        ty,
-                        ..
-                    } = &of
-                    else {
-                        return None;
-                    };
-                    let skip = match (data, ty) {
-                        (true, ir::Ty::Varchar(n)) => rpgrt::rpg::data::var_prefix(*n),
-                        _ => 0,
-                    };
-                    ir::PtrVal::Addr { of, skip }
-                }
-                v if is_pointer_name(cx, v) => ir::PtrVal::Var(variable(cx, v, &mut used)?),
-                _ => return None,
-            };
+            let value = ptr_val(cx, value, &mut used)?;
             ir::Lowered::EvalPtr { target: t, value }
         }
         // EVAL of a figurative constant (S2.22): stored as the interpreter
@@ -2044,4 +2017,65 @@ fn is_pointer_name(cx: &Cx<'_>, e: &Expr) -> bool {
         }
         _ => false,
     }
+}
+
+/// A pointer value (S2.47, S2.49): a pointer field, %ADDR of a global
+/// field (ptr_to of its place; *DATA skips a varying field's length), or
+/// either moved by numbers (`p + n`, `p - n`, left to right: ptrs.rs
+/// ptr_arith). A number plus a pointer, and a pointer less a pointer, are
+/// not lowered.
+fn ptr_val(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::PtrVal> {
+    // The left spine of + and - with a number on the right, walked with a
+    // loop (no recursion).
+    let mut steps = Vec::new();
+    let mut at = e;
+    while let Expr::Bin(op @ (BinOp::Add | BinOp::Sub), l, r) = at {
+        if is_pointer_name(cx, r) {
+            return None;
+        }
+        steps.push((*op == BinOp::Sub, r.as_ref()));
+        at = l;
+        if steps.len() > MAX_NESTING {
+            return None;
+        }
+    }
+    let base = match at {
+        Expr::Bif(b, args) if b == "ADDR" => {
+            let (of, data) = match args.as_slice() {
+                [x] => (x, false),
+                [x, Expr::Name { parts, args: None }] if parts.as_slice() == ["*DATA"] => (x, true),
+                _ => return None,
+            };
+            let of = variable(cx, of, used)?;
+            let ir::Operand::Var {
+                local: false,
+                based: None,
+                ty,
+                ..
+            } = &of
+            else {
+                return None;
+            };
+            let skip = match (data, ty) {
+                (true, ir::Ty::Varchar(n)) => rpgrt::rpg::data::var_prefix(*n),
+                _ => 0,
+            };
+            ir::PtrVal::Addr { of, skip }
+        }
+        v if is_pointer_name(cx, v) => ir::PtrVal::Var(variable(cx, v, used)?),
+        _ => return None,
+    };
+    if steps.is_empty() {
+        return Some(base);
+    }
+    steps.reverse();
+    let mut by = Vec::with_capacity(steps.len());
+    for (k, (neg, r)) in steps.into_iter().enumerate() {
+        let path = vec![u8::try_from(k).ok()?];
+        by.push((neg, num_expr(cx, r, used, path)?));
+    }
+    Some(ir::PtrVal::Move {
+        base: Box::new(base),
+        by,
+    })
 }

@@ -252,3 +252,15 @@ The native units have no calls between programs. The upstream suite's cross-prog
 - **The pointer.** It is found as `based_place` finds it, through the routine's names, so a procedure's own come first. It must be a scalar pointer that is not based itself, or the field is not lowered.
 - **Not lowered.** Based arrays, %ADDR of a based field, whole based data structures, and pointer arithmetic (S2.49).
 - **Expected values.** From PUB400, tools/golden/native49.txt n49_bas (the unit NBASED). The same batch captured %ABS nested 99 times (it compiles) and 100 times (RNF0640, severity 30), with lines split between tokens, and the nesting test now cites it. The tripwire watches based_place.
+
+## S2.49: pointer arithmetic (rpgcg 0.1.0+stage2.49)
+
+- **What is lowered.** A pointer value can be a pointer field or %ADDR, moved by numbers in turn: `p + n`, `p - n`, and chains of them, left to right (`ir::PtrVal::Move`). The left spine is walked with a loop, at most MAX_NESTING steps, and each number is a lowered numeric expression.
+- **Arithmetic.** `rpgrt::native::ptr_move` writes ptrs.rs ptr_arith again:
+  - the number must be whole, and is taken modulo 2^64 as the interpreter's `as i64` takes it;
+  - an offset outside 0..=u32::MAX is MCH0601;
+  - *NULL is MCH3601.
+  The sum is checked where mem::Ptr::add adds unchecked. The tripwire watches ptr_arith.
+- **An interpreter difference (fidelity.md).** IBM i moves *NULL plus a number with no error (PUB400, native50 n50_pa), and the interpreter raises MCH3601. The native engine does as the interpreter does. NPNULL checks the parity, and it is held for upstream with the other reports.
+- **Not lowered.** A number plus a pointer, and a pointer less a pointer (a number).
+- **Expected values.** From PUB400, tools/golden/native50.txt n50_pa (NPARITH, all but the *NULL case).
