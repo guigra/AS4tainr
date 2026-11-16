@@ -49,7 +49,8 @@ const UNITS: &[(&str, &str, usize)] = &[
     ("NMINMAX", include_str!("native/NMINMAX.rpgle"), 0),
     ("NMOVE", include_str!("native/NMOVE.rpgle"), 0),
     ("NPROC", include_str!("native/NPROC.rpgle"), 1),
-    ("NPTR", include_str!("native/NPTR.rpgle"), 4),
+    ("NPTR", include_str!("native/NPTR.rpgle"), 0),
+    ("NBASED", include_str!("native/NBASED.rpgle"), 2),
     ("NREM", include_str!("native/NREM.rpgle"), 0),
     ("NREPL", include_str!("native/NREPL.rpgle"), 0),
     ("NSCAN", include_str!("native/NSCAN.rpgle"), 0),
@@ -171,6 +172,9 @@ async fn nesting(url: String) {
     let client = runtime::connect_db(&url).await.unwrap();
     as4tainr_core::catalog::init(&client).await.unwrap();
     // %ABS nested n times around a field: n + 1 levels with the field.
+    // Source: golden capture tools/golden/native49.txt n49_crt_a100 and
+    // n49_crt_a101 (PUB400, IBM i 7.5, 2026-11-16): 99 compile, 100 give
+    // RNF0640 at severity 30.
     let source = |n: usize| {
         format!(
             "**FREE\ndcl-s k int(10) inz(-3);\nk = {}k{};\ndsply ('K ' + %char(k));\n*inlr = *on;\n",
