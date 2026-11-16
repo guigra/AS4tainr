@@ -740,6 +740,39 @@ impl Runtime for Rt<'_, '_> {
         self.m.inds.insert(n, on);
     }
 
+    fn addr_of(&self, buf: usize, off: usize) -> Value {
+        // ptrs.rs ptr_to, step by step: lent storage belongs to the
+        // lender's activation (globals) or call (locals), the heap to no
+        // one, this module's globals to its activation and the rest to
+        // this call's frame.
+        use rpgrt::rpg::mem::{Ptr, BAD_BUF};
+        if buf == BAD_BUF {
+            return Value::Fig(data::Fig::Null);
+        }
+        let (Ok(o), Some(p)) = (u32::try_from(off), self.ptr_parts(buf)) else {
+            return Value::Fig(data::Fig::Null);
+        };
+        let (kind, owner, b) = p;
+        Value::Ptr(Ptr {
+            kind,
+            owner,
+            buf: b,
+            off: o,
+        })
+    }
+
+    fn pointer_set(&mut self, name: &str, v: &Value) {
+        // interp.rs assign: a storage or heap pointer stored into a name.
+        if let Value::Ptr(ptr) = v {
+            if matches!(
+                ptr.kind,
+                rpgrt::rpg::mem::KIND_STORAGE | rpgrt::rpg::mem::KIND_HEAP
+            ) {
+                self.room_for_based_n(name, ptr);
+            }
+        }
+    }
+
     fn elems(&self, name: &str) -> u32 {
         // bifs.rs elems_in_use for a varying-dimension array: the count
         // set, 0 at first.
@@ -943,6 +976,30 @@ pub(crate) fn observe(m: &Machine<'_>) {
                     if let Some(bytes) = b.get_mut(s..e) {
                         bytes.fill(b' ');
                     }
+                }
+            }
+        }
+    }
+    // A pointer's owner is the number of the activation it was taken in,
+    // which differs between two runs in one process (S2.47): compared by
+    // kind, buffer and offset only (bytes 4 to 8 of each pointer cleared).
+    for sym in prog.syms.values() {
+        let super::super::program::Sym::Var(v) = sym else {
+            continue;
+        };
+        if v.local || v.dtype != data::DType::Pointer {
+            continue;
+        }
+        let n = if v.dim == 0 { 1 } else { v.dim };
+        for k in 0..n {
+            let at = usize::try_from(k)
+                .ok()
+                .and_then(|k| k.checked_mul(v.stride))
+                .and_then(|d| v.off.checked_add(d))
+                .and_then(|o| o.checked_add(4));
+            if let Some((s, e)) = at.and_then(|s| s.checked_add(4).map(|e| (s, e))) {
+                if let Some(bytes) = globals.get_mut(v.buf).and_then(|b| b.get_mut(s..e)) {
+                    bytes.fill(0);
                 }
             }
         }
@@ -1178,6 +1235,132 @@ impl Rt<'_, '_> {
         {
             if let Some(off) = from.checked_sub(1) {
                 self.ds_put_n(ds, off, &b);
+            }
+        }
+    }
+}
+
+impl Rt<'_, '_> {
+    /// ptr_to's kind, owner and buffer number for an absolute buffer
+    /// (S2.47); None when it does not fit a pointer's 32-bit fields.
+    fn ptr_parts(&self, buf: usize) -> Option<(u8, u32, u32)> {
+        use rpgrt::rpg::mem::{HEAP_BASE, KIND_HEAP, KIND_STORAGE, LENT_BASE};
+        if buf >= LENT_BASE {
+            let rel = buf.checked_sub(LENT_BASE)?;
+            let k = rel >> 24;
+            let b = rel & 0xFF_FFFF;
+            let l = self.m.bufs.lent.get(k)?;
+            let owner = if b < l.globals { l.act } else { l.owner };
+            Some((KIND_STORAGE, owner, u32::try_from(b).ok()?))
+        } else if buf >= HEAP_BASE {
+            Some((
+                KIND_HEAP,
+                0,
+                u32::try_from(buf.checked_sub(HEAP_BASE)?).ok()?,
+            ))
+        } else {
+            let owner = if buf < self.m.prog.globals.len() {
+                self.m.owner
+            } else {
+                self.m.frame_owner
+            };
+            Some((KIND_STORAGE, owner, u32::try_from(buf).ok()?))
+        }
+    }
+}
+
+// ---- pointers (S2.47), written again from ptrs.rs addr and interp.rs
+// room_for_based; native_tripwire.rs watches them.
+impl Rt<'_, '_> {
+    /// ptrs.rs addr: the absolute buffer and offset a pointer addresses,
+    /// with `size` bytes there, or MCH3601/MCH0601.
+    fn addr_n(&self, v: &Value, size: usize) -> NResult<(usize, usize)> {
+        use rpgrt::rpg::mem::{HEAP_BASE, KIND_HEAP, KIND_PROC, KIND_SYS, LENT_BASE};
+        let p = match v {
+            Value::Ptr(p) => *p,
+            Value::Fig(data::Fig::Null) => anyhow::bail!(
+                "MCH3601: the pointer is not set (*NULL) where storage is used through it."
+            ),
+            other => anyhow::bail!("a pointer is expected, not {}", other.describe()),
+        };
+        let pb = usize::try_from(p.buf)?;
+        let buf = match p.kind {
+            KIND_PROC | KIND_SYS => {
+                anyhow::bail!("MCH3601: a procedure or system pointer does not address storage.")
+            }
+            KIND_HEAP => {
+                if pb >= self.m.bufs.heap.blocks.len() {
+                    anyhow::bail!("MCH3601: the pointer addresses heap storage that does not exist.");
+                }
+                HEAP_BASE
+                    .checked_add(pb)
+                    .ok_or_else(|| anyhow!("native: a heap address"))?
+            }
+            _ if p.owner == self.m.frame_owner => pb,
+            _ if p.owner == self.m.owner && pb < self.m.prog.globals.len() => pb,
+            _ => match self
+                .m
+                .bufs
+                .lent
+                .iter()
+                .rposition(|l| l.owner == p.owner || (l.act == p.owner && pb < l.globals))
+            {
+                Some(k) => k
+                    .checked_shl(24)
+                    .and_then(|s| LENT_BASE.checked_add(s))
+                    .and_then(|b| b.checked_add(pb))
+                    .ok_or_else(|| anyhow!("native: a lent address"))?,
+                None => anyhow::bail!(
+                    "MCH3601: the pointer addresses storage of a program that is not running, or that this call cannot reach."
+                ),
+            },
+        };
+        let Some(b) = self.m.bufs.get(buf) else {
+            anyhow::bail!("MCH3601: the pointer addresses storage that no longer exists.");
+        };
+        let off = usize::try_from(p.off)?;
+        if off.checked_add(size).is_none_or(|end| end > b.len()) {
+            anyhow::bail!(
+                "MCH0601: {size} bytes at offset {} are outside the {} bytes of storage the pointer addresses.",
+                p.off,
+                b.len()
+            );
+        }
+        Ok((buf, off))
+    }
+
+    /// interp.rs room_for_based: the storage a pointer now addresses gets
+    /// room for the largest variable based on that pointer (the frame's
+    /// and the module's), up to 16 MiB.
+    fn room_for_based_n(&mut self, name: &str, p: &rpgrt::rpg::mem::Ptr) {
+        let mut need = 0usize;
+        if let Some(f) = self.m.frames.last() {
+            for (b, ptr) in &f.proc.based {
+                if ptr.eq_ignore_ascii_case(name) {
+                    need = need.max(f.proc.frame.get(*b).map_or(0, |x| x.len()));
+                }
+            }
+        }
+        for (b, ptr) in &self.m.prog.based {
+            if ptr.eq_ignore_ascii_case(name) {
+                need = need.max(self.m.prog.globals.get(*b).map_or(0, |x| x.len()));
+            }
+        }
+        if need == 0 {
+            return;
+        }
+        let Ok((buf, off)) = self.addr_n(&Value::Ptr(*p), 0) else {
+            return;
+        };
+        let Some(want) = off.checked_add(need) else {
+            return;
+        };
+        if want > 16 * 1024 * 1024 {
+            return;
+        }
+        if let Some(b) = self.m.bufs.get_mut(buf) {
+            if b.len() < want {
+                b.resize(want, 0);
             }
         }
     }

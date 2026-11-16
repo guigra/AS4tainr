@@ -175,3 +175,23 @@ Item 6 of the task file (an upstream PR for #18 from the x86 machine, then closi
   - rerun the VM bench with CARGO_BUILD_JOBS=1 (it was OOM-killed);
   - then %SUBST and %ELEM as targets, the remaining EVAL forms, and file I/O.
 - Correction: f402885's message says AS4TAINR_NATIVE_WHY also writes CALLP and DSPLY shapes. That change was not in f402885; it is in the S2.46 commit.
+
+## 2026-11-15 (night): state after S2.46, next is pointers
+
+- Validated and pushed today, each with its full section 7 split between
+  x86_64 and the VM:
+  - 5b6f0c1 S2.41;
+  - e2a1fb3 S2.42-S2.44;
+  - f402885 S2.45;
+  - d87059c S2.46.
+  
+  Corpus coverage is 72.8% native.
+- AS4TAINR_NATIVE_WHY on the full suite: what is left is mostly pointers (EVAL targets of type pointer, %ADDR, pointer fields), calls through procedure pointers and C/CEE functions, file I/O and SQL.
+- Plan for pointers:
+  - S2.47:
+    - pointer fields as operands (assignment, *NULL, comparisons; FigOp::Null);
+    - %ADDR of global variables, and %ADDR(v:*DATA), with ptr_to written again in native_rt.rs and watched by the tripwire;
+    - pointers kept out of numeric operands.
+  - S2.48: BASED variables, read and written through `addr` with its checks.
+  - Then pointer arithmetic and %ALLOC/%REALLOC/DEALLOC.
+- PUB400: one connection at a time, captures batched (memory pub400-usage).

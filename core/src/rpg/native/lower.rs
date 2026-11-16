@@ -293,12 +293,19 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             from,
             to,
             ind,
-        }) if ind.is_empty() && !matches!(from, Expr::Fig(_)) => ir::Lowered::Move {
-            left: *left,
-            pad: *pad,
-            from: any_operand(cx, from, &mut used)?,
-            to: variable(cx, to, &mut used)?,
-        },
+        }) if ind.is_empty()
+            && !matches!(from, Expr::Fig(_))
+            // No pointer in MOVE (S2.47): the interpreter's do_move.
+            && !is_pointer_name(cx, to)
+            && !is_pointer_name(cx, from) =>
+        {
+            ir::Lowered::Move {
+                left: *left,
+                pad: *pad,
+                from: any_operand(cx, from, &mut used)?,
+                to: variable(cx, to, &mut used)?,
+            }
+        }
         // %ELEM of a global varying-dimension array set (S2.45):
         // assign_value's "ELEM" arm.
         Ins::Stmt(Stmt::Eval {
@@ -417,6 +424,44 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             &mut used,
             Vec::new(),
         )?),
+        // EVAL of a pointer field (S2.47): another pointer field, or %ADDR
+        // of a global field (ptr_to of its place; *DATA skips a varying
+        // field's length). *NULL is EVAL of a figurative constant below.
+        Ins::Stmt(Stmt::Eval {
+            target, value, ext, ..
+        }) if !ext.error
+            && !ext.no_lock
+            && is_pointer_name(cx, target)
+            && !matches!(value, Expr::Fig(_)) =>
+        {
+            let t = variable(cx, target, &mut used)?;
+            let value = match value {
+                Expr::Bif(b, args) if b == "ADDR" => {
+                    let (of, data) = match args.as_slice() {
+                        [x] => (x, false),
+                        [x, Expr::Name { parts, args: None }] if parts.as_slice() == ["*DATA"] => {
+                            (x, true)
+                        }
+                        _ => return None,
+                    };
+                    let of = variable(cx, of, &mut used)?;
+                    let ir::Operand::Var {
+                        local: false, ty, ..
+                    } = &of
+                    else {
+                        return None;
+                    };
+                    let skip = match (data, ty) {
+                        (true, ir::Ty::Varchar(n)) => rpgrt::rpg::data::var_prefix(*n),
+                        _ => 0,
+                    };
+                    ir::PtrVal::Addr { of, skip }
+                }
+                v if is_pointer_name(cx, v) => ir::PtrVal::Var(variable(cx, v, &mut used)?),
+                _ => return None,
+            };
+            ir::Lowered::EvalPtr { target: t, value }
+        }
         // EVAL of a figurative constant (S2.22): stored as the interpreter
         // stores Value::Fig (data::store fills the field by its type).
         Ins::Stmt(Stmt::Eval {
@@ -440,6 +485,9 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             right,
         }) if !ext.error && !ext.no_lock && ext.other.chars().all(|c| c == 'H') => {
             let target = variable(cx, target, &mut used)?;
+            if is_pointer(&target) {
+                return None;
+            }
             if is_char(&target) {
                 ir::Lowered::EvalChar {
                     target,
@@ -1094,7 +1142,9 @@ fn fig_op(f: &Fig) -> Option<ir::FigOp> {
         Fig::HiVal => ir::FigOp::HiVal,
         Fig::LoVal => ir::FigOp::LoVal,
         Fig::All(b) => ir::FigOp::All(b.clone()),
-        Fig::On | Fig::Off | Fig::Null => return None,
+        // *NULL (S2.47): for pointers, in EVAL and comparisons.
+        Fig::Null => ir::FigOp::Null,
+        Fig::On | Fig::Off => return None,
     })
 }
 
@@ -1217,13 +1267,24 @@ fn is_char(o: &ir::Operand) -> bool {
 /// A numeric literal or an eligible numeric field.
 fn operand(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
     let o = any_operand(cx, e, used)?;
-    (!is_char(&o) && !matches!(o, ir::Operand::Fig(_))).then_some(o)
+    (!is_char(&o) && !is_pointer(&o) && !matches!(o, ir::Operand::Fig(_))).then_some(o)
+}
+
+/// A pointer field (S2.47).
+fn is_pointer(o: &ir::Operand) -> bool {
+    matches!(
+        o,
+        ir::Operand::Var {
+            ty: ir::Ty::Pointer,
+            ..
+        }
+    )
 }
 
 /// An eligible numeric field.
 fn num_variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
     let o = variable(cx, e, used)?;
-    (!is_char(&o)).then_some(o)
+    (!is_char(&o) && !is_pointer(&o)).then_some(o)
 }
 
 /// An eligible field (ADR 0006): a global scalar of the main program,
@@ -1332,6 +1393,9 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         DType::Uns(n) => ir::Ty::Uns(n),
         DType::Char(n) => ir::Ty::Char(n),
         DType::Varchar(n) => ir::Ty::Varchar(n),
+        // A pointer field (S2.47): only where a pointer is taken (EVAL of
+        // a pointer, comparisons, %ADDR), never as a number (`operand`).
+        DType::Pointer => ir::Ty::Pointer,
         _ => return None,
     };
     let excluded = if v.local {
@@ -1924,5 +1988,15 @@ fn ar_op(op: &BinOp) -> ir::ArOp {
         BinOp::Add => ir::ArOp::Add,
         BinOp::Sub => ir::ArOp::Sub,
         _ => ir::ArOp::Mul,
+    }
+}
+
+/// A name that is a pointer field (S2.47).
+fn is_pointer_name(cx: &Cx<'_>, e: &Expr) -> bool {
+    match e {
+        Expr::Name { parts, .. } => {
+            matches!(cx.syms.get(&parts.join(".")), Some(Sym::Var(v)) if v.dtype == DType::Pointer)
+        }
+        _ => false,
     }
 }
