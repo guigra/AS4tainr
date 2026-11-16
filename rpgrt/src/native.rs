@@ -185,6 +185,17 @@ pub trait Runtime {
     /// interpreter's `based_place`: MCH3601 for a pointer that addresses
     /// nothing, MCH0601 for storage too short).
     fn based_at(&mut self, p: &Value, off: usize, size: usize) -> NResult<(usize, usize)>;
+    /// Stage 2 (S2.50): %ALLOC and ALLOC: new heap storage of `n` bytes
+    /// (1 to 16 776 704, RNQ0425 otherwise), a pointer to it.
+    fn alloc(&mut self, n: &Dec) -> NResult<Value>;
+    /// Stage 2 (S2.50): %REALLOC and REALLOC: the heap storage `p`
+    /// addresses made `n` bytes, its bytes kept (RNQ0426 for a pointer
+    /// that is not to the start of heap storage).
+    fn realloc(&mut self, p: &Value, n: &Dec) -> NResult<Value>;
+    /// Stage 2 (S2.50): DEALLOC: the heap storage `p` addresses freed
+    /// (*NULL is nothing; RNQ0426 for storage not from the heap or
+    /// freed already).
+    fn dealloc(&mut self, p: &Value) -> NResult<()>;
     /// Stage 2 (S2.45): the elements in use of a varying-dimension array.
     fn elems(&self, name: &str) -> u32;
     /// Stage 2 (S2.45): set them.

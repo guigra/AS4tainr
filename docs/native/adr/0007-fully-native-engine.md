@@ -264,3 +264,16 @@ The native units have no calls between programs. The upstream suite's cross-prog
 - **An interpreter difference (fidelity.md).** IBM i moves *NULL plus a number with no error (PUB400, native50 n50_pa), and the interpreter raises MCH3601. The native engine does as the interpreter does. NPNULL checks the parity, and it is held for upstream with the other reports.
 - **Not lowered.** A number plus a pointer, and a pointer less a pointer (a number).
 - **Expected values.** From PUB400, tools/golden/native50.txt n50_pa (NPARITH, all but the *NULL case).
+
+## S2.50: heap storage (rpgcg 0.1.0+stage2.50)
+
+- **What is lowered:**
+  - `%ALLOC(n)` and `%REALLOC(p: n)` as pointer values (`ir::PtrVal::Alloc`, `Realloc`), assigned as any pointer, with room_for_based;
+  - DEALLOC and DEALLOC(N) of a pointer field (`ir::Lowered::Dealloc`), as ptrs.rs storage_op: the storage freed, then with (N) *NULL stored.
+- **The runtime.** `Runtime::alloc`, `realloc` and `dealloc` write ptrs.rs alloc, realloc and dealloc again, over `addr_n`, with the same errors:
+  - RNQ0425 for a size outside 1 to 16 776 704 (status 425 on IBM i);
+  - RNQ0426 for storage not from the heap or freed twice (status 426).
+  The tripwire watches the four functions.
+- **Not lowered.** ALLOC and REALLOC in fixed form: the interpreter's parser does not take them, while IBM i runs them (fidelity.md, PUB400 n51_heap). They are held for upstream with the other reports. Also not lowered: DEALLOC with E or indicators, and %REALLOC of anything but a pointer field.
+- **Expected values.** From PUB400, tools/golden/native51.txt n51_heap (the unit NHEAP, free form).
+- **A limit.** As in the interpreter, the heap has no limit on the number of allocations (mem::Heap::alloc), only on each one's size.

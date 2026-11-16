@@ -887,6 +887,29 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.50 (ADR 0007): heap storage: %ALLOC, %REALLOC, DEALLOC and
+// DEALLOC(N), and their errors (the capture's fixed-form ALLOC and REALLOC
+// are left out: the interpreter does not take them, fidelity.md).
+// Source: golden capture tools/golden/native51.txt n51_heap (PUB400, IBM i 7.5, 2026-11-16)
+#[tokio::test]
+async fn native_unit_heap() {
+    let _ = require_db!();
+    expect(
+        "NHEAP",
+        include_str!("native/NHEAP.rpgle"),
+        &[
+            "ALLOC [HEAPDATA10]",
+            "REALLOC [HEAPDATA10]",
+            "DEALLOC N NULL",
+            "DEALLOC OF NULL OK",
+            "ALLOC 0 ERROR 425",
+            "TWICE ERROR 426",
+            "REALLOC NOT HEAP ERROR 426",
+        ],
+    )
+    .await;
+}
+
 // Stage 2, S2.49 (ADR 0007): pointer arithmetic: plus and less a number,
 // a chain, a field as the step, a pointer less a pointer. (*NULL plus one
 // is NPNULL in native_diff.rs: the interpreter differs from IBM i there.)

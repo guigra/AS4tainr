@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.49");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.50");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -242,6 +242,9 @@ pub mod ir {
         /// EVAL of a pointer field (S2.47): another pointer field, or the
         /// address of a field (%ADDR), `skip` bytes in (%ADDR(v:*DATA)).
         EvalPtr { target: Operand, value: PtrVal },
+        /// DEALLOC (S2.50): the heap storage a pointer field addresses
+        /// freed, and with (N) the field set to *NULL.
+        Dealloc { target: Operand, null: bool },
         /// %ELEM of a varying-dimension array set (S2.45).
         SetElems {
             name: String,
@@ -504,6 +507,14 @@ pub mod ir {
         Move {
             base: Box<PtrVal>,
             by: Vec<(bool, NumExpr)>,
+        },
+        /// %ALLOC(n) (S2.50): new heap storage.
+        Alloc(NumExpr),
+        /// %REALLOC(p: n) (S2.50): the heap storage made n bytes, the
+        /// pointer evaluated first (the bif's arguments in order).
+        Realloc {
+            p: Box<PtrVal>,
+            size: NumExpr,
         },
     }
 
@@ -949,6 +960,15 @@ fn ptr_val(pc: usize, pv: &ir::PtrVal, helpers: &mut String) -> Option<String> {
             code.push_str("    p\n    }");
             code
         }
+        ir::PtrVal::Alloc(n) => {
+            let n = num_expr(pc, n, helpers);
+            format!("{{\n    let n = {n};\n    rt.alloc(&n)?\n    }}")
+        }
+        ir::PtrVal::Realloc { p, size } => {
+            let pv = ptr_val(pc, p, helpers)?;
+            let n = num_expr(pc, size, helpers);
+            format!("{{\n    let p = {pv};\n    let n = {n};\n    rt.realloc(&p, &n)?\n    }}")
+        }
     })
 }
 
@@ -1386,6 +1406,27 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("se{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::Dealloc { target, null }) => {
+            // ptrs.rs storage_op's DEALLOC: the pointer, the storage freed
+            // (Runtime::dealloc), then with (N) *NULL assigned.
+            let (prelude, sb, so) = place_of(target).ok_or_else(bad)?;
+            let clear = if *null {
+                format!(
+                    "{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        rpgrt::rpg::data::DType::Pointer,\n        &rpgrt::rpg::data::Value::Fig(rpgrt::rpg::data::Fig::Null),\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: false }},\n        false,\n    )?;\n"
+                )
+            } else {
+                String::new()
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn dl{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let p = {};\n    rt.dealloc(&p)?;\n{clear}    Ok(())\n}}",
+                value(target)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("dl{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::EvalPtr { target, value: pv }) => {

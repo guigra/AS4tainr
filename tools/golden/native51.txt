@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.50: heap storage (one batch, one connection).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native51.txt -f tools/golden/native51
+n51_crt_heap|!system "CRTSQLRPGI OBJ(@LIB@/GN51HEAP) SRCSTMF('@HOME@/gld/gn51heap.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n51_heap|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN51HEAP)"; cat gn1.out; rm -f gn1.out

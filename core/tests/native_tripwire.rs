@@ -228,6 +228,23 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    pub(super) fn addr(&self, v: &Value, size: usize) -> Result<(usize, usize)> {",
             "    ",
         ),
+        // S2.50: heap storage.
+        function(
+            PTRS,
+            "    pub(super) fn alloc(&mut self, size: &Value) -> Result<Value> {",
+            "    ",
+        ),
+        function(
+            PTRS,
+            "    pub(super) fn realloc(&mut self, p: &Value, size: &Value) -> Result<Value> {",
+            "    ",
+        ),
+        function(
+            PTRS,
+            "    pub(super) fn dealloc(&mut self, p: &Value) -> Result<()> {",
+            "    ",
+        ),
+        function(PTRS, "    pub(super) fn storage_op(", "    "),
         // S2.49: pointer arithmetic.
         function(
             PTRS,
@@ -263,9 +280,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // the start of run_code_at). This adds the functions S2.35-S2.43 write
     // again: calls, DSPLY's text, indicators, run_code and the error path;
     // S2.46 adds call_named_inner (prototypes), S2.47 ptrs.rs ptr_to and
-    // addr, assign and room_for_based, S2.48 based_place, S2.49 ptr_arith;
+    // addr, assign and room_for_based, S2.48 based_place, S2.49 ptr_arith,
+    // S2.50 alloc, realloc, dealloc and storage_op;
     // upstream still dd47e28.
-    let reviewed = "76b3e3b12cdbe9d3193f517d9bfebec0142ea62fa2f4c5c972b39ea4bb9868e8";
+    let reviewed = "17446c963e81905a157078d240748d6fff549220111390ea7629f8cd68626585";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

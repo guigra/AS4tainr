@@ -438,6 +438,27 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             let value = ptr_val(cx, value, &mut used)?;
             ir::Lowered::EvalPtr { target: t, value }
         }
+        // DEALLOC (S2.50), as ptrs.rs storage_op: a pointer field as the
+        // result (free form: factor 2), (N) or no extender, no indicators.
+        // ALLOC and REALLOC are not lowered: the parser does not take
+        // them (fidelity.md).
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1: None,
+            f2,
+            result,
+            ext,
+            ind,
+        }) if code == "DEALLOC" && !ext.error && ind.is_empty() => {
+            let target = result.as_ref().or(f2.as_ref())?;
+            if !is_pointer_name(cx, target) || !ext.other.chars().all(|c| c == 'N') {
+                return None;
+            }
+            ir::Lowered::Dealloc {
+                target: variable(cx, target, &mut used)?,
+                null: ext.other.contains('N'),
+            }
+        }
         // EVAL of a figurative constant (S2.22): stored as the interpreter
         // stores Value::Fig (data::store fills the field by its type).
         Ins::Stmt(Stmt::Eval {
@@ -2019,6 +2040,11 @@ fn is_pointer_name(cx: &Cx<'_>, e: &Expr) -> bool {
     }
 }
 
+/// The path of the size in %ALLOC and %REALLOC (S2.50):
+/// apart from the steps of pointer arithmetic (0, 1, ...), so their
+/// helpers' names differ.
+const ALLOC_PATH: u8 = 200;
+
 /// A pointer value (S2.47, S2.49): a pointer field, %ADDR of a global
 /// field (ptr_to of its place; *DATA skips a varying field's length), or
 /// either moved by numbers (`p + n`, `p - n`, left to right: ptrs.rs
@@ -2063,6 +2089,19 @@ fn ptr_val(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::PtrVal> 
             ir::PtrVal::Addr { of, skip }
         }
         v if is_pointer_name(cx, v) => ir::PtrVal::Var(variable(cx, v, used)?),
+        // %ALLOC(n) and %REALLOC(p: n) (S2.50), the interpreter's bif
+        // arguments in order. %REALLOC's pointer is a pointer field.
+        Expr::Bif(b, args) if b == "ALLOC" => match args.as_slice() {
+            [n] => ir::PtrVal::Alloc(num_expr(cx, n, used, vec![ALLOC_PATH])?),
+            _ => return None,
+        },
+        Expr::Bif(b, args) if b == "REALLOC" => match args.as_slice() {
+            [p, n] if is_pointer_name(cx, p) => ir::PtrVal::Realloc {
+                p: Box::new(ir::PtrVal::Var(variable(cx, p, used)?)),
+                size: num_expr(cx, n, used, vec![ALLOC_PATH])?,
+            },
+            _ => return None,
+        },
         _ => return None,
     };
     if steps.is_empty() {
