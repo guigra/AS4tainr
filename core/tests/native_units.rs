@@ -887,6 +887,30 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.51 (ADR 0007): pointer parameters by value (a field, %ADDR,
+// pointer arithmetic, *NULL) and by reference. The harness trims each
+// message: IBM i showed "SET NO " (a CHAR(3) return). The capture's
+// QCMDEXC with OPTIONS(*VARSIZE) needs a job, which this harness does not
+// give.
+// Source: golden capture tools/golden/native52.txt n52_parm (PUB400, IBM i 7.5, 2026-11-16)
+#[tokio::test]
+async fn native_unit_parameters() {
+    let _ = require_db!();
+    expect(
+        "NPARM",
+        include_str!("native/NPARM.rpgle"),
+        &[
+            "FIRST [ABC]",
+            "ADDR [XYZ]",
+            "MOVED [CDE]",
+            "POINTED [XYZ]",
+            "NULL YES",
+            "SET NO",
+        ],
+    )
+    .await;
+}
+
 // Stage 2, S2.50 (ADR 0007): heap storage: %ALLOC, %REALLOC, DEALLOC and
 // DEALLOC(N), and their errors (the capture's fixed-form ALLOC and REALLOC
 // are left out: the interpreter does not take them, fidelity.md).

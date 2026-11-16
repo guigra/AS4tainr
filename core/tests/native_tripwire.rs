@@ -149,6 +149,12 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    fn same_type_variable(&mut self, a: &Expr, t: &DType) -> bool {",
             "    ",
         ),
+        // S2.51: a CONST *VARSIZE argument by reference.
+        function(
+            INTERP,
+            "    fn char_variable(&mut self, a: &Expr) -> bool {",
+            "    ",
+        ),
         function(
             ERRORS,
             "    pub(super) fn guarded(&mut self, code: &Code) -> Result<Flow> {",
@@ -281,9 +287,9 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // again: calls, DSPLY's text, indicators, run_code and the error path;
     // S2.46 adds call_named_inner (prototypes), S2.47 ptrs.rs ptr_to and
     // addr, assign and room_for_based, S2.48 based_place, S2.49 ptr_arith,
-    // S2.50 alloc, realloc, dealloc and storage_op;
+    // S2.50 alloc, realloc, dealloc and storage_op, S2.51 char_variable;
     // upstream still dd47e28.
-    let reviewed = "17446c963e81905a157078d240748d6fff549220111390ea7629f8cd68626585";
+    let reviewed = "9053b628d8b8324dd432b04e6073760a5f3d896dc9d1074d4f981820d73c2e59";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"
