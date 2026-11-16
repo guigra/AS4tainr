@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.48");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.49");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -495,7 +495,16 @@ pub mod ir {
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum PtrVal {
         Var(Operand),
-        Addr { of: Operand, skip: usize },
+        Addr {
+            of: Operand,
+            skip: usize,
+        },
+        /// Pointer arithmetic (S2.49): the base moved by each number in
+        /// turn, back when `true` (ptr - n).
+        Move {
+            base: Box<PtrVal>,
+            by: Vec<(bool, NumExpr)>,
+        },
     }
 
     /// The value an indicator is set to (S2.39).
@@ -917,6 +926,30 @@ fn value(o: &ir::Operand) -> String {
         ir::Operand::Str(b) => format!("rpgrt::rpg::data::Value::Char(vec!{b:?})"),
         ir::Operand::Fig(f) => fig(f),
     }
+}
+
+/// A pointer value (S2.47, S2.49) as a `Value` expression: a field, the
+/// pointer to a field's place, or one moved by numbers in turn
+/// (`rpgrt::native::ptr_move`, ptrs.rs ptr_arith).
+fn ptr_val(pc: usize, pv: &ir::PtrVal, helpers: &mut String) -> Option<String> {
+    Some(match pv {
+        ir::PtrVal::Var(o) => value(o),
+        ir::PtrVal::Addr { of, skip } => {
+            let (pre, b, o) = place_of(of)?;
+            format!(
+                "{{\n{pre}    let at = usize::checked_add({o}, {skip}).ok_or_else(|| anyhow::anyhow!(\"native: an address\"))?;\n    rt.addr_of({b}, at)\n    }}"
+            )
+        }
+        ir::PtrVal::Move { base, by } => {
+            let mut code = format!("{{\n    let mut p = {};\n", ptr_val(pc, base, helpers)?);
+            for (neg, n) in by {
+                let n = num_expr(pc, n, helpers);
+                let _ = writeln!(code, "    p = rpgrt::native::ptr_move(&p, &{n}, {neg})?;");
+            }
+            code.push_str("    p\n    }");
+            code
+        }
+    })
 }
 
 /// A figurative constant as a `Value` expression.
@@ -1368,15 +1401,10 @@ fn lowered_step(
                 } => format!("    rt.pointer_set({}, &v);\n", json_str(name)),
                 _ => String::new(),
             };
-            let v = match pv {
-                ir::PtrVal::Var(o) => format!("    let v = {};\n", value(o)),
-                ir::PtrVal::Addr { of, skip } => {
-                    let (pre, b, o) = place_of(of).ok_or_else(bad)?;
-                    format!(
-                        "    let v = {{\n{pre}    let at = usize::checked_add({o}, {skip}).ok_or_else(|| anyhow::anyhow!(\"native: an address\"))?;\n    rt.addr_of({b}, at)\n    }};\n"
-                    )
-                }
-            };
+            let v = format!(
+                "    let v = {};\n",
+                ptr_val(pc, pv, helpers).ok_or_else(bad)?
+            );
             let _ = writeln!(
                 helpers,
                 "\nfn ep{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{v}{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        rpgrt::rpg::data::DType::Pointer,\n        &v,\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: false }},\n        false,\n    )?;\n{room}    Ok(())\n}}"

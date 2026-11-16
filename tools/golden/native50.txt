@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.49: pointer arithmetic (one batch, one connection).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native50.txt -f tools/golden/native50
+n50_crt_pa|!system "CRTSQLRPGI OBJ(@LIB@/GN50PA) SRCSTMF('@HOME@/gld/gn50pa.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n50_pa|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN50PA)"; cat gn1.out; rm -f gn1.out
