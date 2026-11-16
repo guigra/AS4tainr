@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.51: pointer parameters and OPTIONS(*VARSIZE) (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native52.txt -f tools/golden/native52
+n52_crt_parm|!system "CRTSQLRPGI OBJ(@LIB@/GN52PARM) SRCSTMF('@HOME@/gld/gn52parm.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n52_parm|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN52PARM)"; cat gn1.out; rm -f gn1.out

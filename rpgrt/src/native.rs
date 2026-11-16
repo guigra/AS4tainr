@@ -207,7 +207,13 @@ pub trait Runtime {
 /// a value for a VALUE or CONST parameter.
 #[derive(Clone, Debug)]
 pub enum CallArg {
-    Ref { buf: usize, off: usize },
+    /// By reference: the storage, and the argument's own type (S2.51:
+    /// as the interpreter's loc_of gives it, for OPTIONS(*VARSIZE)).
+    Ref {
+        buf: usize,
+        off: usize,
+        dtype: crate::rpg::data::DType,
+    },
     Val(Value),
 }
 

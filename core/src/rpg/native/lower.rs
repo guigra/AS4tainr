@@ -435,7 +435,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             && !matches!(value, Expr::Fig(_)) =>
         {
             let t = variable(cx, target, &mut used)?;
-            let value = ptr_val(cx, value, &mut used)?;
+            let value = ptr_val(cx, value, &mut used, Vec::new())?;
             ir::Lowered::EvalPtr { target: t, value }
         }
         // DEALLOC (S2.50), as ptrs.rs storage_op: a pointer field as the
@@ -1743,7 +1743,10 @@ fn call_of(
     }
     let mut out = Vec::with_capacity(args.len());
     for (k, (p, a)) in params.iter().zip(args).enumerate() {
-        if p.file || p.omit || p.string || p.varsize || p.trim || p.convert {
+        // OPTIONS(*VARSIZE) (S2.51) only for a program or a bound
+        // procedure, whose arguments go as the interpreter's loc_of gives
+        // them (the argument's own size and type).
+        if p.file || p.omit || p.string || p.trim || p.convert || (p.varsize && local.is_some()) {
             return None;
         }
         // A parameter that is a data structure (LIKEDS), or a whole data
@@ -1755,10 +1758,13 @@ fn call_of(
         {
             return None;
         }
-        let ty = param_ty(p.dtype)?;
+        let ty = call_param_ty(p.dtype)?;
         let _ = std::fmt::Write::write_fmt(
             &mut layout,
-            format_args!(" {}={:?}/{}/{}", p.name, ty, p.by_value, p.konst),
+            format_args!(
+                " {}={:?}/{}/{}/{}",
+                p.name, ty, p.by_value, p.konst, p.varsize
+            ),
         );
         let mut ap = path.clone();
         ap.push(u8::try_from(k).ok()?);
@@ -1776,6 +1782,13 @@ fn call_of(
             let v = variable(cx, a, used)?;
             match &v {
                 ir::Operand::Var { ty: vt, .. } if *vt == ty => {}
+                // OPTIONS(*VARSIZE) (S2.51): a character field of any
+                // length for a character parameter, by reference (args_for:
+                // by reference as loc_of gives it; CONST: char_variable).
+                ir::Operand::Var {
+                    ty: ir::Ty::Char(_),
+                    ..
+                } if p.varsize && matches!(ty, ir::Ty::Char(_)) => {}
                 // A CONST field of another type goes by value.
                 _ if const_ref => {
                     out.push(value_arg(cx, &ty, a, used, ap)?);
@@ -1813,7 +1826,21 @@ fn value_arg(
         ir::Ty::Char(_) | ir::Ty::Varchar(_) => {
             Some(ir::CallArg::Char(char_expr(cx, a, used, path)?))
         }
+        // A pointer parameter (S2.51): *NULL, or a pointer value.
+        ir::Ty::Pointer => Some(ir::CallArg::Ptr(match a {
+            Expr::Fig(Fig::Null) => ir::PtrVal::Null,
+            _ => ptr_val(cx, a, used, path)?,
+        })),
         _ => Some(ir::CallArg::Num(num_expr(cx, a, used, path)?)),
+    }
+}
+
+/// The generator's type for a parameter of a call (S2.51): `param_ty`, or
+/// a pointer.
+fn call_param_ty(t: DType) -> Option<ir::Ty> {
+    match t {
+        DType::Pointer => Some(ir::Ty::Pointer),
+        other => param_ty(other),
     }
 }
 
@@ -1878,7 +1905,7 @@ fn note_why(cx: &Cx<'_>, i: &Ins) {
                         }
                         format!("callp=local why={}\n", why.join(","))
                     }
-                    None => "callp=proto\n".to_string(),
+                    None => format!("callp=proto why={}\n", proto_why(cx, &name)),
                 }
             }
             Ins::Stmt(Stmt::Dsply { message, response }) => {
@@ -1914,10 +1941,10 @@ fn target_shape(cx: &Cx<'_>, e: &Expr) -> String {
         Expr::Name { parts, args } => {
             let k = if args.is_some() { "elem" } else { "name" };
             match cx.syms.get(&parts.join(".")) {
-                Some(Sym::Var(v)) => format!("{k}:{}", type_name(v.dtype)),
+                Some(Sym::Var(v)) => format!("{k}:{}!{}", type_name(v.dtype), var_why(cx, v)),
                 Some(Sym::Ds(_)) => format!("{k}:ds"),
                 Some(_) => format!("{k}:other"),
-                None => format!("{k}:unknown"),
+                None => format!("{k}:unknown:{}", parts.join(".")),
             }
         }
         Expr::Path { parts, idx, args } => {
@@ -1993,7 +2020,14 @@ fn shape(cx: &Cx<'_>, e: &Expr, out: &mut Vec<String>, depth: u32) {
         Expr::Name { parts, args } => {
             let n = parts.join(".");
             match (cx.syms.get(&n), args) {
-                (Some(Sym::Var(v)), None) => out.push(format!("var:{}", type_name(v.dtype))),
+                (Some(Sym::Var(v)), None) => {
+                    let why = if variable(cx, e, &mut Vec::new()).is_some() {
+                        String::new()
+                    } else {
+                        format!("!{}", var_why(cx, v))
+                    };
+                    out.push(format!("var:{}{why}", type_name(v.dtype)))
+                }
                 (Some(Sym::Var(v)), Some(a)) => {
                     out.push(format!("elem:{}", type_name(v.dtype)));
                     for x in a {
@@ -2010,12 +2044,12 @@ fn shape(cx: &Cx<'_>, e: &Expr, out: &mut Vec<String>, depth: u32) {
                     }
                 }
                 (None, Some(a)) => {
-                    out.push("call:proto".into());
+                    out.push(format!("call:proto!{}", proto_why(cx, &n)));
                     for x in a {
                         shape(cx, x, out, d);
                     }
                 }
-                (None, None) => out.push("name:unknown".into()),
+                (None, None) => out.push(format!("name:unknown:{n}")),
             }
         }
     }
@@ -2050,7 +2084,13 @@ const ALLOC_PATH: u8 = 200;
 /// either moved by numbers (`p + n`, `p - n`, left to right: ptrs.rs
 /// ptr_arith). A number plus a pointer, and a pointer less a pointer, are
 /// not lowered.
-fn ptr_val(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::PtrVal> {
+fn ptr_val(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::PtrVal> {
+    // Each number's helpers are named by `path` and its own place.
+    let at_path = |k: u8| {
+        let mut p = path.clone();
+        p.push(k);
+        p
+    };
     // The left spine of + and - with a number on the right, walked with a
     // loop (no recursion).
     let mut steps = Vec::new();
@@ -2092,13 +2132,13 @@ fn ptr_val(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::PtrVal> 
         // %ALLOC(n) and %REALLOC(p: n) (S2.50), the interpreter's bif
         // arguments in order. %REALLOC's pointer is a pointer field.
         Expr::Bif(b, args) if b == "ALLOC" => match args.as_slice() {
-            [n] => ir::PtrVal::Alloc(num_expr(cx, n, used, vec![ALLOC_PATH])?),
+            [n] => ir::PtrVal::Alloc(num_expr(cx, n, used, at_path(ALLOC_PATH))?),
             _ => return None,
         },
         Expr::Bif(b, args) if b == "REALLOC" => match args.as_slice() {
             [p, n] if is_pointer_name(cx, p) => ir::PtrVal::Realloc {
                 p: Box::new(ir::PtrVal::Var(variable(cx, p, used)?)),
-                size: num_expr(cx, n, used, vec![ALLOC_PATH])?,
+                size: num_expr(cx, n, used, at_path(ALLOC_PATH))?,
             },
             _ => return None,
         },
@@ -2110,11 +2150,102 @@ fn ptr_val(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::PtrVal> 
     steps.reverse();
     let mut by = Vec::with_capacity(steps.len());
     for (k, (neg, r)) in steps.into_iter().enumerate() {
-        let path = vec![u8::try_from(k).ok()?];
-        by.push((neg, num_expr(cx, r, used, path)?));
+        by.push((neg, num_expr(cx, r, used, at_path(u8::try_from(k).ok()?))?));
     }
     Some(ir::PtrVal::Move {
         base: Box::new(base),
         by,
     })
+}
+
+/// AS4TAINR_NATIVE_WHY: what may keep a field out of lowered code (the
+/// checks of `variable`, by name; a diagnostic only).
+fn var_why(cx: &Cx<'_>, v: &super::super::program::VarInfo) -> String {
+    let prog = cx.prog;
+    let mut why = Vec::new();
+    if v.local {
+        why.push("local");
+    }
+    if v.dim != 0 {
+        why.push("array");
+    }
+    let based = if v.local {
+        cx.based.is_some_and(|b| b.contains_key(&v.buf))
+    } else {
+        prog.based.contains_key(&v.buf)
+    };
+    if based {
+        why.push("based");
+    }
+    if prog.occurs.iter().any(|o| o.buf == v.buf) {
+        why.push("occurs");
+    }
+    if !matches!(
+        v.dtype,
+        DType::Packed(..)
+            | DType::Zoned(..)
+            | DType::Binary(..)
+            | DType::Int(_)
+            | DType::Uns(_)
+            | DType::Char(_)
+            | DType::Varchar(_)
+            | DType::Pointer
+    ) {
+        why.push("type");
+    }
+    if why.is_empty() {
+        why.push("other");
+    }
+    why.join("+")
+}
+
+/// AS4TAINR_NATIVE_WHY: what keeps a call through a prototype out of
+/// lowered code (the checks of `call_of`, by name; a diagnostic only).
+fn proto_why(cx: &Cx<'_>, name: &str) -> String {
+    let Some(pr) = proto(cx, name) else {
+        return "no-proto".to_string();
+    };
+    let mut why = Vec::new();
+    if !pr.overload.is_empty() {
+        why.push("overload".to_string());
+    }
+    if pr.extproc_ptr.is_some() {
+        why.push("procptr".to_string());
+    }
+    match &pr.extpgm {
+        Some(pgm) if matches!(cx.syms.get(pgm), Some(Sym::Var(_))) => {
+            why.push("pgm-var".to_string())
+        }
+        Some(_) => {}
+        None => {
+            let up = pr
+                .extproc
+                .clone()
+                .unwrap_or_else(|| name.to_string())
+                .to_ascii_uppercase();
+            if super::super::interp::crt::C_FUNCTIONS.contains(&up.as_str()) {
+                why.push("c".to_string());
+            }
+            if super::super::interp::cee::CEE_APIS.contains(&up.as_str()) {
+                why.push("cee".to_string());
+            }
+        }
+    }
+    for p in &pr.params {
+        if p.file || p.omit || p.string || p.varsize || p.trim || p.convert {
+            why.push("options".to_string());
+        }
+        if param_ty(p.dtype).is_none() {
+            why.push(format!("param:{}", type_name(p.dtype)));
+        }
+    }
+    if pr.returns.is_some_and(|t| param_ty(t).is_none()) {
+        why.push("returns".to_string());
+    }
+    if why.is_empty() {
+        why.push("arguments".to_string());
+    }
+    why.sort();
+    why.dedup();
+    why.join("+")
 }

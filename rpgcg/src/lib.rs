@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.50");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.51");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -510,6 +510,8 @@ pub mod ir {
         },
         /// %ALLOC(n) (S2.50): new heap storage.
         Alloc(NumExpr),
+        /// *NULL as an argument (S2.51).
+        Null,
         /// %REALLOC(p: n) (S2.50): the heap storage made n bytes, the
         /// pointer evaluated first (the bif's arguments in order).
         Realloc {
@@ -550,6 +552,8 @@ pub mod ir {
         Ref(Operand),
         Num(NumExpr),
         Char(CharExpr),
+        /// A pointer value for a pointer parameter (S2.51).
+        Ptr(PtrVal),
     }
 
     /// The instruction kinds of `code::Ins`, with the targets the
@@ -960,6 +964,7 @@ fn ptr_val(pc: usize, pv: &ir::PtrVal, helpers: &mut String) -> Option<String> {
             code.push_str("    p\n    }");
             code
         }
+        ir::PtrVal::Null => fig(&ir::FigOp::Null),
         ir::PtrVal::Alloc(n) => {
             let n = num_expr(pc, n, helpers);
             format!("{{\n    let n = {n};\n    rt.alloc(&n)?\n    }}")
@@ -1670,15 +1675,17 @@ fn call_fn(pc: usize, c: &ir::Call, helpers: &mut String) -> String {
         let an = format!("a{k}");
         names.push(an.clone());
         match a {
-            ir::CallArg::Ref(o) => match place_of(o) {
-                Some((pre, b, off)) => {
+            ir::CallArg::Ref(o) => match (place_of(o), o) {
+                // The argument's own type goes with it (S2.51: loc_of).
+                (Some((pre, b, off)), ir::Operand::Var { ty: t, .. }) => {
                     let _ = write!(
                         body,
-                        "    let {an} = {{\n{pre}    rpgrt::native::CallArg::Ref {{ buf: {b}, off: {off} }}\n    }};\n"
+                        "    let {an} = {{\n{pre}    rpgrt::native::CallArg::Ref {{ buf: {b}, off: {off}, dtype: {} }}\n    }};\n",
+                        ty(t)
                     );
                 }
                 // Lowering passes only variables by reference.
-                None => {
+                _ => {
                     let _ = writeln!(
                         body,
                         "    return Err(anyhow::anyhow!(\"native: argument of {} is not a variable\"));",
@@ -1697,6 +1704,18 @@ fn call_fn(pc: usize, c: &ir::Call, helpers: &mut String) -> String {
                 let x = char_expr(pc, e, helpers);
                 let _ = writeln!(body, "    let {an} = rpgrt::native::CallArg::Val({x});");
             }
+            ir::CallArg::Ptr(pv) => match ptr_val(pc, pv, helpers) {
+                Some(x) => {
+                    let _ = writeln!(body, "    let {an} = rpgrt::native::CallArg::Val({x});");
+                }
+                None => {
+                    let _ = writeln!(
+                        body,
+                        "    return Err(anyhow::anyhow!(\"native: a pointer argument of {} has no place\"));",
+                        c.proc
+                    );
+                }
+            },
         }
     }
     let _ = writeln!(

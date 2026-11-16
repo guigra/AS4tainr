@@ -180,7 +180,7 @@ impl<'a> Rt<'_, 'a> {
         let passed = args.len();
         for (p, arg) in pi.params.iter().zip(args) {
             match arg {
-                CallArg::Ref { buf, off } => {
+                CallArg::Ref { buf, off, .. } => {
                     // The descriptor of a reference argument of the
                     // parameter's own type (call_proc).
                     lengths.push(Some(match p.dtype {
@@ -287,11 +287,13 @@ impl<'a> Rt<'_, 'a> {
             let mut locs = Vec::with_capacity(args.len());
             for (arg, p) in args.into_iter().zip(&pr.params) {
                 match arg {
-                    CallArg::Ref { buf, off } => locs.push(super::Loc {
+                    // As args_for's loc_of (S2.51): the argument's own size
+                    // and type (they are the parameter's but for *VARSIZE).
+                    CallArg::Ref { buf, off, dtype } => locs.push(super::Loc {
                         buf,
                         off,
-                        size: p.dtype.size(),
-                        dtype: p.dtype,
+                        size: dtype.size(),
+                        dtype,
                     }),
                     CallArg::Val(v) => {
                         let mut b = p.dtype.initial();
@@ -335,13 +337,13 @@ impl<'a> Rt<'_, 'a> {
             );
         };
         let mut a = Vec::with_capacity(args.len());
-        for (arg, p) in args.into_iter().zip(&pr.params) {
+        for arg in args.into_iter().take(pr.params.len()) {
             a.push(match arg {
-                CallArg::Ref { buf, off } => super::Arg::Ref(super::Loc {
+                CallArg::Ref { buf, off, dtype } => super::Arg::Ref(super::Loc {
                     buf,
                     off,
-                    size: p.dtype.size(),
-                    dtype: p.dtype,
+                    size: dtype.size(),
+                    dtype,
                 }),
                 CallArg::Val(v) => super::Arg::Val(v),
             });
@@ -371,6 +373,12 @@ impl<'a> Rt<'_, 'a> {
                 Fit::Strict { half_adjust: false },
                 false,
             )?;
+            // call_proc assigns each value with `assign`, which makes room
+            // for the procedure's variables based on a pointer (S2.51:
+            // room_for_based, with the new frame the last).
+            if var.dtype == data::DType::Pointer {
+                self.pointer_set(&n, &v);
+            }
         }
         let detail = &pi.routines.detail;
         let r = match dispatch(self.m, detail, 0) {

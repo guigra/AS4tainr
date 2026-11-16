@@ -277,3 +277,14 @@ The native units have no calls between programs. The upstream suite's cross-prog
 - **Not lowered.** ALLOC and REALLOC in fixed form: the interpreter's parser does not take them, while IBM i runs them (fidelity.md, PUB400 n51_heap). They are held for upstream with the other reports. Also not lowered: DEALLOC with E or indicators, and %REALLOC of anything but a pointer field.
 - **Expected values.** From PUB400, tools/golden/native51.txt n51_heap (the unit NHEAP, free form).
 - **A limit.** As in the interpreter, the heap has no limit on the number of allocations (mem::Heap::alloc), only on each one's size.
+
+## S2.51: pointer parameters and OPTIONS(*VARSIZE) (rpgcg 0.1.0+stage2.51)
+
+- **Pointer parameters.** A parameter of a call (a procedure of the module, a program, a bound procedure) can be a pointer.
+  - By reference, it takes a pointer field.
+  - By value or CONST, it takes *NULL or a pointer value (`ir::CallArg::Ptr`): a field, %ADDR, pointer arithmetic, %ALLOC.
+  The numbers in a pointer value now take their helper names from the argument's path (`ptr_val`'s `path`), so two arguments never share one.
+- **OPTIONS(*VARSIZE).** It is lowered for a program or a bound procedure. A by-reference argument goes as the interpreter's `args_for` passes it, `loc_of`: with the argument's own size and type. `rpgrt::native::CallArg::Ref` carries the type now, and `call_proto` builds the Loc from it. For every other argument that type is the parameter's, so nothing else changes. A character field of any length is taken for a character parameter, by reference, and with CONST as `char_variable` decides. *VARSIZE for a procedure of the module is not lowered: its descriptor is the parameter's in `call_frame`.
+- **Expected values.** From PUB400, tools/golden/native52.txt n52_parm (NPARM, the pointer parameters). The capture's QCMDEXC with *VARSIZE needs a job, which the unit harness does not give. The suite's own *VARSIZE tests run in jobs, and native-diff level 2 compares them. The tripwire watches char_variable.
+- **room_for_based for VALUE parameters.** call_proc binds each VALUE or CONST value with `assign` once the frame is pushed, so a pointer passed by value makes room for the called procedure's based variables. `call_body` now does the same through `pointer_set`. native-diff's level 1 found it missing: NPARM's BUF was 2 bytes shorter under rust.
+- **The WHY diagnostic** now names what keeps a field out (local, array, based, occurs, type) and what keeps a prototype's call out (options, pointer parameters, C or CEE functions, procedure pointers, overloads, return types).
