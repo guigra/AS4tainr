@@ -49,6 +49,7 @@ const UNITS: &[(&str, &str, usize)] = &[
     ("NMINMAX", include_str!("native/NMINMAX.rpgle"), 0),
     ("NMOVE", include_str!("native/NMOVE.rpgle"), 0),
     ("NPROC", include_str!("native/NPROC.rpgle"), 1),
+    ("NPTR", include_str!("native/NPTR.rpgle"), 4),
     ("NREM", include_str!("native/NREM.rpgle"), 0),
     ("NREPL", include_str!("native/NREPL.rpgle"), 0),
     ("NSCAN", include_str!("native/NSCAN.rpgle"), 0),

@@ -172,6 +172,14 @@ pub trait Runtime {
     fn ind(&self, name: &str) -> bool;
     /// Stage 2 (S2.39): set an indicator.
     fn set_ind(&mut self, name: &str, on: bool);
+    /// Stage 2 (S2.47): a pointer to storage at an absolute buffer and
+    /// offset (the interpreter's `ptr_to`).
+    fn addr_of(&self, buf: usize, off: usize) -> Value;
+    /// Stage 2 (S2.47): a pointer field named `name` (with no index) was
+    /// set to `v`: the storage it addresses grows to the size of the
+    /// largest variable based on it (the interpreter's assign,
+    /// `room_for_based`).
+    fn pointer_set(&mut self, name: &str, v: &Value);
     /// Stage 2 (S2.45): the elements in use of a varying-dimension array.
     fn elems(&self, name: &str) -> u32;
     /// Stage 2 (S2.45): set them.

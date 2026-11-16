@@ -231,3 +231,16 @@ Lowering takes the prototype's parameters with S2.35's rules. `Runtime::call` (n
 `call_program` and `call_bound` are the program call service. They are a phase B dependency (the user's decision above). The prototype goes into the caller's layout lines. native_tripwire.rs watches call_named_inner.
 
 The native units have no calls between programs. The upstream suite's cross-program and service program tests check this under native-diff level 2.
+
+## S2.47: pointer fields and %ADDR (rpgcg 0.1.0+stage2.47)
+
+- **Pointer fields as operands.** Global or local pointer fields (`ir::Ty::Pointer`, 16 bytes in rpgrt::rpg::mem::Ptr's encoding) can be used in three places:
+  - EVAL of a pointer, from another pointer field or from %ADDR;
+  - EVAL of *NULL (EvalFig with `FigOp::Null`);
+  - comparisons with each other or with *NULL (data::compare's pointer order).
+- **Kept out.** Pointers are not numeric operands, not in MOVE, and not in the generic EVAL.
+- **%ADDR.** %ADDR of a global field, element or data structure, and %ADDR(varying:*DATA) past the length prefix, are ptrs.rs `ptr_to` of the field's place. `Runtime::addr_of` writes it again: lent storage, the heap, the module's globals (its activation's) and the frame's (this call's). It differs in one place only: a buffer or offset that does not fit a pointer's 32-bit field gives *NULL, where `ptr_to` would cut the number. Storage never reaches that size.
+- **Not lowered.** BASED fields read or written through a pointer (S2.48), pointer arithmetic, %ALLOC, %PADDR, %ADDR of a local or a parameter (*OMIT gives *NULL there).
+- **Expected values.** From PUB400, tools/golden/native48.txt n48_ptr (NPTR). The tripwire now watches ptr_to.
+- **room_for_based.** After a pointer is stored into a field with no index, the storage it addresses grows to the largest variable based on that pointer, as the interpreter's `assign` does (`Runtime::pointer_set`). That step is written again from interp.rs room_for_based and ptrs.rs addr, and the tripwire watches both and `assign`. native-diff's level 1 found it missing: a buffer was 2 bytes shorter under rust.
+- **The differential harness.** A pointer's owner is the activation it was taken in, and it differs between two runs in one process. native-diff's level 1 found NPTR's P different only there (103, then 104). The observation now clears each global pointer's owner bytes (4 to 8), as it blanks the PSDS's run-dependent fields, so pointers are compared by kind, buffer and offset.

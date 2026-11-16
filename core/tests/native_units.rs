@@ -887,6 +887,28 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.47 (ADR 0007): pointers: %ADDR, a pointer copied,
+// %ADDR(varying:*DATA), *NULL and comparisons with it.
+// Source: golden capture tools/golden/native48.txt n48_ptr (PUB400, IBM i 7.5, 2026-11-15)
+#[tokio::test]
+async fn native_unit_pointers() {
+    let _ = require_db!();
+    expect(
+        "NPTR",
+        include_str!("native/NPTR.rpgle"),
+        &[
+            "START NULL",
+            "P [hello]",
+            "Q [hel]",
+            "DATA [abc]",
+            "P SET DIFFERENT",
+            "AFTER NULL",
+            "AGAIN [world]",
+        ],
+    )
+    .await;
+}
+
 // Stage 2, S2.45 (ADR 0007): DIM(*AUTO) and DIM(*VAR) arrays: growth on
 // assignment, *NEXT, indexes past the elements in use, %ELEM read and set.
 // Source: golden capture tools/golden/native47b.txt n47_var (PUB400, IBM i 7.5, 2026-11-15)

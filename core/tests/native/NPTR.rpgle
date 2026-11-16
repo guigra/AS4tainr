@@ -1,0 +1,43 @@
+**FREE
+// Stage 2, S2.47: pointers, lowered to Rust. Expected: what IBM i 7.5 gave
+// (golden capture tools/golden/native48.txt n48_ptr, cited in native_units.rs).
+ctl-opt dftactgrp(*no);
+dcl-s x char(5) inz('hello');
+dcl-s y varchar(10) inz('abc');
+dcl-s p pointer;
+dcl-s q pointer;
+dcl-s bx char(5) based(p);
+dcl-s bq char(3) based(q);
+dcl-s t varchar(40);
+if p = *null;
+  dsply ('START NULL');
+else;
+  dsply ('START SET');
+endif;
+p = %addr(x);
+dsply ('P [' + bx + ']');
+q = p;
+dsply ('Q [' + bq + ']');
+q = %addr(y:*data);
+dsply ('DATA [' + bq + ']');
+if p = *null;
+  t = 'P NULL';
+else;
+  t = 'P SET';
+endif;
+if p = q;
+  t += ' SAME';
+else;
+  t += ' DIFFERENT';
+endif;
+dsply (t);
+p = *null;
+if p = *null;
+  dsply ('AFTER NULL');
+else;
+  dsply ('AFTER SET');
+endif;
+x = 'world';
+p = %addr(x);
+dsply ('AGAIN [' + bx + ']');
+*inlr = *on;

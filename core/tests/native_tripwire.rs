@@ -11,6 +11,7 @@
 const INTERP: &str = include_str!("../src/rpg/interp.rs");
 const ERRORS: &str = include_str!("../src/rpg/errors.rs");
 const BIFS: &str = include_str!("../src/rpg/bifs.rs");
+const PTRS: &str = include_str!("../src/rpg/ptrs.rs");
 
 /// The text of a function, from its signature to its closing brace at
 /// the same indentation.
@@ -216,6 +217,27 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    ",
         ),
         function(ERRORS, "    fn statement(&self) -> String {", "    "),
+        // S2.47: %ADDR's pointer.
+        function(
+            PTRS,
+            "    pub(super) fn ptr_to(&self, buf: usize, off: usize) -> Value {",
+            "    ",
+        ),
+        function(
+            PTRS,
+            "    pub(super) fn addr(&self, v: &Value, size: usize) -> Result<(usize, usize)> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn room_for_based(&mut self, name: &str, p: &super::mem::Ptr) {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn assign(&mut self, target: &Expr, val: &Value, fit: Fit, right: bool) -> Result<()> {",
+            "    ",
+        ),
         function(
             INTERP,
             "    pub(super) fn sender(&self) -> crate::pgmmsg::Sender {",
@@ -228,8 +250,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // and %SCAN starts and #10's MONITOR routing, plus the native hook at
     // the start of run_code_at). This adds the functions S2.35-S2.43 write
     // again: calls, DSPLY's text, indicators, run_code and the error path;
-    // S2.46 adds call_named_inner (prototypes), upstream still dd47e28.
-    let reviewed = "46eb0196a95a485b4a4cfea36e279208d4baa5331e11cb88402f40e4f0e31dc6";
+    // S2.46 adds call_named_inner (prototypes), S2.47 ptrs.rs ptr_to and
+    // addr, assign and room_for_based;
+    // upstream still dd47e28.
+    let reviewed = "d9ab3bad1e5bcc8c842f8d3c982478f83843c311a9ba6b078d05203104592bfe";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

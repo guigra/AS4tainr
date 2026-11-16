@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.45");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.47.1");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -78,6 +78,8 @@ pub mod ir {
         /// A varying-length character field of this many characters at
         /// most (S2.19); its bytes start with the current length.
         Varchar(u32),
+        /// A pointer (S2.47): 16 bytes, rpgrt::rpg::mem::Ptr's encoding.
+        Pointer,
     }
 
     /// An operand of lowered code.
@@ -113,6 +115,8 @@ pub mod ir {
         LoVal,
         /// *ALL'x...': the pattern's EBCDIC bytes.
         All(Vec<u8>),
+        /// *NULL (S2.47).
+        Null,
     }
 
     /// The index of an array element (S2.21): the operand it is, and the
@@ -223,6 +227,9 @@ pub mod ir {
         Dsply(Option<ValExpr>),
         /// RETURN (S2.38): the value, if any.
         Return(Option<ValExpr>),
+        /// EVAL of a pointer field (S2.47): another pointer field, or the
+        /// address of a field (%ADDR), `skip` bytes in (%ADDR(v:*DATA)).
+        EvalPtr { target: Operand, value: PtrVal },
         /// %ELEM of a varying-dimension array set (S2.45).
         SetElems {
             name: String,
@@ -470,6 +477,13 @@ pub mod ir {
             start: Option<Operand>,
             path: Vec<u8>,
         },
+    }
+
+    /// What a pointer is set to (S2.47).
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum PtrVal {
+        Var(Operand),
+        Addr { of: Operand, skip: usize },
     }
 
     /// The value an indicator is set to (S2.39).
@@ -752,6 +766,7 @@ fn ty(t: &ir::Ty) -> String {
         Uns(n) => format!("{p}::Uns({n})"),
         Char(n) => format!("{p}::Char({n})"),
         Varchar(n) => format!("{p}::Varchar({n})"),
+        Pointer => format!("{p}::Pointer"),
     }
 }
 
@@ -870,6 +885,7 @@ fn fig(f: &ir::FigOp) -> String {
         ir::FigOp::HiVal => format!("{p}::Value::Fig({p}::Fig::HiVal)"),
         ir::FigOp::LoVal => format!("{p}::Value::Fig({p}::Fig::LoVal)"),
         ir::FigOp::All(b) => format!("{p}::Value::Fig({p}::Fig::All(vec!{b:?}))"),
+        ir::FigOp::Null => format!("{p}::Value::Fig({p}::Fig::Null)"),
     }
 }
 
@@ -1284,6 +1300,37 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("se{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::EvalPtr { target, value: pv }) => {
+            // Stmt::Eval of a pointer: the value, then assign (data::store
+            // of a pointer). %ADDR is the interpreter's ptr_to of the
+            // field's place (Runtime::addr_of).
+            let (prelude, sb, so) = place_of(target).ok_or_else(bad)?;
+            // A field with no index: the storage it now addresses gets
+            // room for the variables based on it (assign's room_for_based).
+            let room = match target {
+                ir::Operand::Var {
+                    name, index: None, ..
+                } => format!("    rt.pointer_set({}, &v);\n", json_str(name)),
+                _ => String::new(),
+            };
+            let v = match pv {
+                ir::PtrVal::Var(o) => format!("    let v = {};\n", value(o)),
+                ir::PtrVal::Addr { of, skip } => {
+                    let (pre, b, o) = place_of(of).ok_or_else(bad)?;
+                    format!(
+                        "    let v = {{\n{pre}    let at = usize::checked_add({o}, {skip}).ok_or_else(|| anyhow::anyhow!(\"native: an address\"))?;\n    rt.addr_of({b}, at)\n    }};\n"
+                    )
+                }
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn ep{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{v}{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        rpgrt::rpg::data::DType::Pointer,\n        &v,\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: false }},\n        false,\n    )?;\n{room}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("ep{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Return, ir::Lowered::Return(v)) => {
