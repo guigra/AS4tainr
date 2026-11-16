@@ -769,6 +769,12 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
 /// The value of a character EVAL (S2.52): a date, time or timestamp field
 /// as the whole value, or a character expression.
 fn char_value(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::CharExpr> {
+    // %DATE, %TIME and %TIMESTAMP as the whole value (S2.54).
+    if let Expr::Bif(b, args) = e {
+        if matches!(b.as_str(), "DATE" | "TIME" | "TIMESTAMP") {
+            return temporal_bif(cx, b, args, used);
+        }
+    }
     if let Expr::Name { .. } = e {
         if let Some(o) = variable(cx, e, used) {
             if is_temporal(&o) {
@@ -2371,4 +2377,58 @@ fn temporal_char(cx: &Cx<'_>, args: &[Expr], used: &mut Vec<String>) -> Option<i
     };
     used.push(format!("temporal char {fmt:?}"));
     Some(ir::CharExpr::TemporalChar { of, fmt })
+}
+
+/// %DATE, %TIME or %TIMESTAMP (S2.54), as bifs.rs bif_more takes them:
+/// no argument, *SYS (and *JOB for %DATE) for the current date and time;
+/// otherwise the first argument's value (a date, time or timestamp field,
+/// a character or a numeric expression), and a special value as the
+/// second argument is the format (any other second argument is not
+/// looked at, as special_arg gives none).
+fn temporal_bif(
+    cx: &Cx<'_>,
+    b: &str,
+    args: &[Expr],
+    used: &mut Vec<String>,
+) -> Option<ir::CharExpr> {
+    let special = |e: Option<&Expr>| match e {
+        Some(Expr::Name { parts, args: None }) if parts.len() == 1 => {
+            parts.first().filter(|p| p.starts_with('*')).cloned()
+        }
+        _ => None,
+    };
+    let (kind, dft) = match b {
+        "DATE" => (ir::TemporalBifKind::Date, cx.prog.datfmt().ok()?.code()),
+        "TIME" => (ir::TemporalBifKind::Time, cx.prog.timfmt().ok()?.code()),
+        _ => (ir::TemporalBifKind::Ts, String::new()),
+    };
+    let now = match special(args.first()).as_deref() {
+        _ if args.is_empty() => true,
+        Some("*SYS") => true,
+        Some("*JOB") if kind == ir::TemporalBifKind::Date => true,
+        // Another special value as the argument: eval of it.
+        Some(_) => return None,
+        None => false,
+    };
+    let arg = if now {
+        None
+    } else {
+        let a = args.first()?;
+        let v = if is_temporal_name(cx, a) {
+            ir::ValExpr::Char(ir::CharExpr::Leaf(variable(cx, a, used)?))
+        } else if let Some(c) = char_expr(cx, a, used, vec![0]) {
+            ir::ValExpr::Char(c)
+        } else {
+            ir::ValExpr::Num(num_expr(cx, a, used, vec![0])?)
+        };
+        Some(Box::new(v))
+    };
+    let fmt = if now { None } else { special(args.get(1)) };
+    used.push(format!("temporal bif {b} dft {dft}"));
+    Some(ir::CharExpr::TemporalBif {
+        kind,
+        arg,
+        fmt,
+        dft,
+    })
 }

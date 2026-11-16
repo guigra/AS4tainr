@@ -1,0 +1,5 @@
+# Captures for stage 2, S2.54: %DATE, %TIME and %TIMESTAMP (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native55.txt -f tools/golden/native55
+n55_crt_bif|!system "CRTSQLRPGI OBJ(@LIB@/GN55BIF) SRCSTMF('@HOME@/gld/gn55bif.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n55_bif|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN55BIF)"; cat gn1.out; rm -f gn1.out
+n55_crt_dft|!system "CRTSQLRPGI OBJ(@LIB@/GN55DFT) SRCSTMF('@HOME@/gld/gn55dft.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"

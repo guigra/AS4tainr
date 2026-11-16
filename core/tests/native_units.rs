@@ -887,6 +887,34 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.54 (ADR 0007): %DATE, %TIME and %TIMESTAMP of character
+// values and numbers with a format, of dates and timestamps, %DATE(), and
+// an invalid date (status 112).
+// Source: golden capture tools/golden/native55.txt n55_bif (PUB400, IBM i 7.5, 2026-11-16)
+#[tokio::test]
+async fn native_unit_temporal_bifs() {
+    let _ = require_db!();
+    expect(
+        "NTBIF",
+        include_str!("native/NTBIF.rpgle"),
+        &[
+            "ISO 2026-11-16",
+            "MDY 2026-11-17",
+            "YMD NUM 2026-11-16",
+            "MDY NUM 2026-11-16",
+            "TIME DFT 10.11.12",
+            "TIME NUM 09.30.07",
+            "TS 2026-11-16-10.11.12.000001",
+            "DATE OF TS 2026-11-16",
+            "TIME OF TS 10.11.12",
+            "TS OF DATE 2026-11-16-00.00.00.000000",
+            "BAD ERROR 112",
+            "SYS AFTER 2026-01-01",
+        ],
+    )
+    .await;
+}
+
 // Stage 2, S2.53 (ADR 0007): %CHAR of date, time and timestamp fields:
 // the field's format, DATFMT and TIMFMT for fields with none, an explicit
 // format, *ISO0 of a timestamp.
