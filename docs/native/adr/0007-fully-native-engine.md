@@ -303,3 +303,11 @@ The native units have no calls between programs. The upstream suite's cross-prog
   - With CTL-OPT DATFMT(*EUR), IBM i takes date literals in *EUR form only, while the interpreter takes them in *ISO form only.
   - *LOVAL and *HIVAL assigned to a date are 0001-01-01 and 9999-12-31 on IBM i, while the interpreter fills the field with x'00' and x'FF' bytes. The native engine does as the interpreter does, and NDATEFIG checks the parity.
 - **Expected values.** From PUB400, tools/golden/native53.txt n53_date (the unit NDATE, with no literals, so both compile it).
+
+## S2.53: %CHAR and DSPLY of dates, times and timestamps (rpgcg 0.1.0+stage2.53)
+
+- **%CHAR.** %CHAR of a date, time or timestamp field, with no format or with a special value (*YMD, *JUL, *ISO0...), is lowered as `ir::CharExpr::TemporalChar`. The format is the one bifs.rs bif_override picks: the explicit one, or else the field's, or else the control specification's DATFMT or TIMFMT. It is known when the code is generated, and it goes into the layout lines, so into the fingerprint.
+- **The runtime.** `rpgrt::native::temporal_char` writes bif_override and bifs.rs `temporal` again: the value is parsed as `temporal` parses it, then shown in the format. A value that does not parse is %CHAR's generic form, the characters as they are. A timestamp is its text, or its digits only with *ISO0.
+- **Not lowered.** A format that does not parse, or a second argument that is not a special value, stays in the interpreter. The interpreter raises its error for it.
+- **DSPLY.** DSPLY of a date or time field is %CHAR of it, and of a timestamp field its value, as Stmt::Dsply does. The tripwire watches bif_override and temporal, and stmt_inner (DSPLY) already.
+- **Expected values.** From PUB400, tools/golden/native54.txt n54_chr (NTCHAR). DSPLY of a field is not captured: in a batch job its message goes to QSYSOPR, a queue that PUB400's users share. NTDSP checks it for parity between the engines.

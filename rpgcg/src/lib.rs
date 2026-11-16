@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.52");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.53");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -113,6 +113,16 @@ pub mod ir {
         Str(Vec<u8>),
         /// A figurative constant (S2.22), in comparisons only.
         Fig(FigOp),
+    }
+
+    /// How %CHAR shows a date, time or timestamp (S2.53): a date or time
+    /// format's name and separator, or *ISO0 (digits only) for a
+    /// timestamp.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum TemporalFmt {
+        Date(&'static str, Option<char>),
+        Time(&'static str, Option<char>),
+        Ts { iso0: bool },
     }
 
     /// The figurative constants lowered code takes (S2.22).
@@ -326,6 +336,12 @@ pub mod ir {
             start: Operand,
             len: Option<Operand>,
             path: Vec<u8>,
+        },
+        /// %CHAR of a date, time or timestamp field (S2.53), in the format
+        /// bif_override picks (`rpgrt::native::temporal_char`).
+        TemporalChar {
+            of: Operand,
+            fmt: TemporalFmt,
         },
         /// %CHAR of a numeric expression (S2.14), with the program's
         /// DECEDIT: the decimal point and whether a zero goes before it.
@@ -1854,6 +1870,20 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
                 value(start)
             );
             format!("{name}(rt)?")
+        }
+        ir::CharExpr::TemporalChar { of, fmt } => {
+            let f = match fmt {
+                ir::TemporalFmt::Date(n, sep) => format!(
+                    "rpgrt::native::TemporalFmt::Date(rpgrt::rpg::dates::DateFmt {{ name: {n:?}, sep: {sep:?} }})"
+                ),
+                ir::TemporalFmt::Time(n, sep) => format!(
+                    "rpgrt::native::TemporalFmt::Time(rpgrt::rpg::dates::TimeFmt {{ name: {n:?}, sep: {sep:?} }})"
+                ),
+                ir::TemporalFmt::Ts { iso0 } => {
+                    format!("rpgrt::native::TemporalFmt::Ts {{ iso0: {iso0} }}")
+                }
+            };
+            format!("rpgrt::native::temporal_char(&{}, {f})?", value(of))
         }
         ir::CharExpr::CharOfNum {
             inner,

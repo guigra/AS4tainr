@@ -887,6 +887,32 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.53 (ADR 0007): %CHAR of date, time and timestamp fields:
+// the field's format, DATFMT and TIMFMT for fields with none, an explicit
+// format, *ISO0 of a timestamp.
+// Source: golden capture tools/golden/native54.txt n54_chr (PUB400, IBM i 7.5, 2026-11-16)
+#[tokio::test]
+async fn native_unit_temporal_char() {
+    let _ = require_db!();
+    expect(
+        "NTCHAR",
+        include_str!("native/NTCHAR.rpgle"),
+        &[
+            "USA 11/16/2026",
+            "DFT 16/11/26",
+            "HMS 09:05:07",
+            "DFTT 09:05 AM",
+            "TS 2026-11-16-09.05.07.123456",
+            "YMD 26/11/16",
+            "JUL 26/320",
+            "ISO0 20261116",
+            "EUR 09.05.07",
+            "TS0 20261116090507123456",
+        ],
+    )
+    .await;
+}
+
 // Stage 2, S2.52 (ADR 0007): date, time and timestamp fields assigned
 // between formats and compared; DATFMT and TIMFMT for fields with no
 // format. (*LOVAL and *HIVAL are NDATEFIG in native_diff.rs: the

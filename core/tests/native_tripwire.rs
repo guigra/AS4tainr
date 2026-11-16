@@ -234,6 +234,13 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    pub(super) fn addr(&self, v: &Value, size: usize) -> Result<(usize, usize)> {",
             "    ",
         ),
+        // S2.53: %CHAR of dates, times and timestamps.
+        function(
+            BIFS,
+            "    pub(super) fn bif_override(&mut self, b: &str, args: &[Expr]) -> Result<Option<Value>> {",
+            "    ",
+        ),
+        function(BIFS, "pub(super) fn temporal(v: &Value) -> Option<Temporal> {", ""),
         // S2.50: heap storage.
         function(
             PTRS,
@@ -287,9 +294,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // again: calls, DSPLY's text, indicators, run_code and the error path;
     // S2.46 adds call_named_inner (prototypes), S2.47 ptrs.rs ptr_to and
     // addr, assign and room_for_based, S2.48 based_place, S2.49 ptr_arith,
-    // S2.50 alloc, realloc, dealloc and storage_op, S2.51 char_variable;
+    // S2.50 alloc, realloc, dealloc and storage_op, S2.51 char_variable,
+    // S2.53 bif_override and temporal;
     // upstream still dd47e28.
-    let reviewed = "9053b628d8b8324dd432b04e6073760a5f3d896dc9d1074d4f981820d73c2e59";
+    let reviewed = "4821eccc7789af78b12965c7a1c6ae7bf72225c55bb308ef2a09af924a9e4800";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

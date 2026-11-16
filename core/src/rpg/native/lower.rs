@@ -416,6 +416,18 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             response: None,
         }) => ir::Lowered::Dsply(match message {
             None => None,
+            // A date or time field shows in its format, %CHAR of it; a
+            // timestamp field as its value (Stmt::Dsply, S2.53).
+            Some(m @ Expr::Name { .. }) if is_temporal_name(cx, m) => {
+                let o = variable(cx, m, &mut used)?;
+                Some(ir::ValExpr::Char(match &o {
+                    ir::Operand::Var {
+                        ty: ir::Ty::Timestamp(_),
+                        ..
+                    } => ir::CharExpr::Leaf(o),
+                    _ => temporal_char(cx, std::slice::from_ref(m), &mut used)?,
+                }))
+            }
             Some(m) => Some(match char_expr(cx, m, &mut used, Vec::new()) {
                 Some(c) => ir::ValExpr::Char(c),
                 None => ir::ValExpr::Num(num_expr(cx, m, &mut used, Vec::new())?),
@@ -579,6 +591,11 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                 },
                 path,
             })
+        }
+        // %CHAR of a date, time or timestamp field (S2.53): bif_override's
+        // form, with the format it picks known now.
+        Expr::Bif(b, args) if b == "CHAR" && temporal_arg(cx, args) => {
+            temporal_char(cx, args, used)
         }
         // %CHAR of a numeric expression (S2.14). The program's DECEDIT is
         // part of the code, so it goes into the fingerprint's layout.
@@ -2291,4 +2308,67 @@ fn proto_why(cx: &Cx<'_>, name: &str) -> String {
     why.sort();
     why.dedup();
     why.join("+")
+}
+
+/// A date, time or timestamp field by name (S2.52).
+fn is_temporal_name(cx: &Cx<'_>, e: &Expr) -> bool {
+    match e {
+        Expr::Name { parts, .. } => matches!(
+            cx.syms.get(&parts.join(".")),
+            Some(Sym::Var(v)) if matches!(v.dtype, DType::Date(_) | DType::Time(_) | DType::Timestamp(_))
+        ),
+        _ => false,
+    }
+}
+
+/// %CHAR's arguments as bif_override takes them (S2.53): a date, time or
+/// timestamp field, and maybe a format.
+fn temporal_arg(cx: &Cx<'_>, args: &[Expr]) -> bool {
+    matches!(args.len(), 1 | 2) && args.first().is_some_and(|a| is_temporal_name(cx, a))
+}
+
+/// %CHAR of a date, time or timestamp field (S2.53), as bifs.rs
+/// bif_override: the explicit format (a special value, *MDY...), or the
+/// field's, or the control specification's DATFMT or TIMFMT. A format
+/// that does not parse, or a second argument that is not a special value,
+/// is not lowered.
+fn temporal_char(cx: &Cx<'_>, args: &[Expr], used: &mut Vec<String>) -> Option<ir::CharExpr> {
+    use rpgrt::rpg::dates::{DateFmt, TimeFmt};
+    let (x, explicit) = match args {
+        [x] => (x, None),
+        [x, Expr::Name { parts, args: None }] if parts.len() == 1 => {
+            let f = parts.first()?;
+            if !f.starts_with('*') {
+                return None;
+            }
+            (x, Some(f.clone()))
+        }
+        _ => return None,
+    };
+    let of = variable(cx, x, used)?;
+    let ir::Operand::Var { ty, .. } = &of else {
+        return None;
+    };
+    let fmt = match *ty {
+        ir::Ty::Date(name, sep) => {
+            let f = match &explicit {
+                Some(e) => DateFmt::parse(e).ok()?,
+                None => DateFmt { name, sep }.or(cx.prog.datfmt().ok()?),
+            };
+            ir::TemporalFmt::Date(f.name, f.sep)
+        }
+        ir::Ty::Time(name, sep) => {
+            let f = match &explicit {
+                Some(e) => TimeFmt::parse(e).ok()?,
+                None => TimeFmt { name, sep }.or(cx.prog.timfmt().ok()?),
+            };
+            ir::TemporalFmt::Time(f.name, f.sep)
+        }
+        ir::Ty::Timestamp(_) => ir::TemporalFmt::Ts {
+            iso0: explicit.as_deref() == Some("*ISO0"),
+        },
+        _ => return None,
+    };
+    used.push(format!("temporal char {fmt:?}"));
+    Some(ir::CharExpr::TemporalChar { of, fmt })
 }
