@@ -773,6 +773,70 @@ impl Runtime for Rt<'_, '_> {
         Ok((b, o))
     }
 
+    fn alloc(&mut self, n: &Dec) -> NResult<Value> {
+        // ptrs.rs alloc.
+        let n = n.to_i128()?;
+        if !(1..=16_776_704).contains(&n) {
+            anyhow::bail!("RNQ0425: {n} bytes cannot be allocated (1 to 16,776,704 bytes).");
+        }
+        let h = self.m.bufs.heap.alloc(usize::try_from(n)?);
+        let buf = rpgrt::rpg::mem::HEAP_BASE
+            .checked_add(h)
+            .ok_or_else(|| anyhow!("native: a heap address"))?;
+        Ok(self.addr_of(buf, 0))
+    }
+
+    fn realloc(&mut self, p: &Value, n: &Dec) -> NResult<Value> {
+        // ptrs.rs realloc.
+        use rpgrt::rpg::mem::{HEAP_BASE, LENT_BASE};
+        let n = n.to_i128()?;
+        if !(1..=16_776_704).contains(&n) {
+            anyhow::bail!("RNQ0425: {n} bytes cannot be allocated (1 to 16,776,704 bytes).");
+        }
+        let (buf, off) = self.addr_n(p, 0)?;
+        if !(HEAP_BASE..LENT_BASE).contains(&buf) || off != 0 {
+            anyhow::bail!(
+                "RNQ0426: the pointer for %REALLOC does not address heap storage from ALLOC or %ALLOC."
+            );
+        }
+        let n = usize::try_from(n)?;
+        self.m
+            .bufs
+            .get_mut(buf)
+            .ok_or_else(|| anyhow!("native: heap storage {buf}"))?
+            .resize(n, 0);
+        Ok(p.clone())
+    }
+
+    fn dealloc(&mut self, p: &Value) -> NResult<()> {
+        // ptrs.rs dealloc.
+        use rpgrt::rpg::mem::{HEAP_BASE, LENT_BASE};
+        if matches!(p, Value::Fig(data::Fig::Null)) {
+            return Ok(());
+        }
+        let (buf, off) = self.addr_n(p, 0)?;
+        if !(HEAP_BASE..LENT_BASE).contains(&buf) || off != 0 {
+            anyhow::bail!(
+                "RNQ0426: the pointer for DEALLOC does not address heap storage from ALLOC or %ALLOC."
+            );
+        }
+        let h = buf
+            .checked_sub(HEAP_BASE)
+            .ok_or_else(|| anyhow!("native: a heap address"))?;
+        let freed = self
+            .m
+            .bufs
+            .heap
+            .freed
+            .get_mut(h)
+            .ok_or_else(|| anyhow!("native: heap storage {h}"))?;
+        if *freed {
+            anyhow::bail!("RNQ0426: the heap storage for DEALLOC was already freed.");
+        }
+        *freed = true;
+        Ok(())
+    }
+
     fn pointer_set(&mut self, name: &str, v: &Value) {
         // interp.rs assign: a storage or heap pointer stored into a name.
         if let Value::Ptr(ptr) = v {
