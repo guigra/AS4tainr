@@ -195,3 +195,12 @@ Item 6 of the task file (an upstream PR for #18 from the x86 machine, then closi
   - S2.48: BASED variables, read and written through `addr` with its checks.
   - Then pointer arithmetic and %ALLOC/%REALLOC/DEALLOC.
 - PUB400: one connection at a time, captures batched (memory pub400-usage).
+
+## 2026-11-16 (early): S2.47 done, next is BASED (S2.48)
+
+- b0e8963 S2.47 (pointer fields, *NULL, %ADDR, room_for_based) was validated by a full section 7, split between x86_64 and the VM on snapshot 437b6f9, and pushed. Corpus coverage is 73.3% native.
+- Two native-diff findings during S2.47, both fixed in b0e8963:
+  - the pointer owner (an activation number) differs between runs, so the observation now clears it;
+  - room_for_based was missing in the native store of a pointer.
+- Lesson: never launch section 7 while a pre-check fails. The first S2.47 launch went out with a clippy error and had to be stopped.
+- Next, S2.48: BASED variables read and written through the pointer (`addr_n` with its MCH3601/MCH0601 checks), with a PUB400 capture in one batch. Redo the nested-%ABS capture in the same batch.
