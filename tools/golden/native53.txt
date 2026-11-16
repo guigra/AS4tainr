@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.52: date, time and timestamp fields (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native53.txt -f tools/golden/native53
+n53_crt_date|!system "CRTSQLRPGI OBJ(@LIB@/GN53DATE) SRCSTMF('@HOME@/gld/gn53date.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n53_date|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN53DATE)"; cat gn1.out; rm -f gn1.out

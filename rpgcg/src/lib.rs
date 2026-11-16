@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.51");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.52");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -80,6 +80,12 @@ pub mod ir {
         Varchar(u32),
         /// A pointer (S2.47): 16 bytes, rpgrt::rpg::mem::Ptr's encoding.
         Pointer,
+        /// A date, time or timestamp field (S2.52): its format's name and
+        /// separator (rpgrt::rpg::dates::DateFmt, TimeFmt), or a
+        /// timestamp's fractional digits. Its value is its *ISO text.
+        Date(&'static str, Option<char>),
+        Time(&'static str, Option<char>),
+        Timestamp(u8),
     }
 
     /// An operand of lowered code.
@@ -460,15 +466,17 @@ pub mod ir {
         /// %LOOKUP and %LOOKUPxx (S2.27): `x` searched in a global
         /// array (`buf`, `off`, `stride`, `dim`, element type), from
         /// `start` for `n` elements; `how` is "", LT, LE, GE or GT.
+        // The operands boxed (S2.52): an operand is large, with a date
+        // format in its type (clippy::large_enum_variant).
         Lookup {
-            x: Operand,
+            x: Box<Operand>,
             buf: usize,
             off: usize,
             stride: usize,
             dim: u32,
             ty: Ty,
-            start: Option<Operand>,
-            n: Option<Operand>,
+            start: Option<Box<Operand>>,
+            n: Option<Box<Operand>>,
             how: String,
         },
         /// %INT or %INTH (`half`) of a numeric expression (S2.14).
@@ -525,7 +533,8 @@ pub mod ir {
     pub enum IndValue {
         On,
         Off,
-        Cond(Cond),
+        /// Boxed (S2.52): a condition is large (clippy::large_enum_variant).
+        Cond(Box<Cond>),
     }
 
     /// A numeric or a character expression: a DSPLY message (S2.36), a
@@ -803,6 +812,13 @@ fn ty(t: &ir::Ty) -> String {
         Char(n) => format!("{p}::Char({n})"),
         Varchar(n) => format!("{p}::Varchar({n})"),
         Pointer => format!("{p}::Pointer"),
+        Date(n, sep) => {
+            format!("{p}::Date(rpgrt::rpg::dates::DateFmt {{ name: {n:?}, sep: {sep:?} }})")
+        }
+        Time(n, sep) => {
+            format!("{p}::Time(rpgrt::rpg::dates::TimeFmt {{ name: {n:?}, sep: {sep:?} }})")
+        }
+        Timestamp(n) => format!("{p}::Timestamp({n})"),
     }
 }
 
@@ -2152,7 +2168,7 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             n,
             how,
         } => {
-            let opt = |o: &Option<ir::Operand>| match o {
+            let opt = |o: &Option<Box<ir::Operand>>| match o {
                 Some(o) => format!("Some({})", value(o)),
                 None => "None".to_string(),
             };

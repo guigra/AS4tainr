@@ -284,8 +284,8 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             }
         }
         // MOVE and MOVEL with no date format and no result indicators
-        // (S2.11); eligible fields are never dates, so `move_temporal`
-        // does nothing for them.
+        // (S2.11), and no date, time or timestamp field (S2.52), so
+        // `move_temporal` does nothing for them.
         Ins::Stmt(Stmt::Move {
             left,
             pad,
@@ -299,11 +299,16 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             && !is_pointer_name(cx, to)
             && !is_pointer_name(cx, from) =>
         {
+            let from = any_operand(cx, from, &mut used)?;
+            let to = variable(cx, to, &mut used)?;
+            if is_temporal(&from) || is_temporal(&to) {
+                return None;
+            }
             ir::Lowered::Move {
                 left: *left,
                 pad: *pad,
-                from: any_operand(cx, from, &mut used)?,
-                to: variable(cx, to, &mut used)?,
+                from,
+                to,
             }
         }
         // %ELEM of a global varying-dimension array set (S2.45):
@@ -359,7 +364,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 _ => return None,
             };
             let base = variable(cx, base, &mut used)?;
-            if !is_char(&base) {
+            if !is_char(&base) || is_temporal(&base) {
                 return None;
             }
             let tp = rpgrt::native::TARGET_PATH;
@@ -387,7 +392,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             value: match value {
                 Expr::Fig(Fig::On) => ir::IndValue::On,
                 Expr::Fig(Fig::Off) => ir::IndValue::Off,
-                v => ir::IndValue::Cond(cond_at(cx, v, &mut used, Vec::new())?),
+                v => ir::IndValue::Cond(Box::new(cond_at(cx, v, &mut used, Vec::new())?)),
             },
         },
         // SETON / SETOFF (S2.39): Stmt::SetInd's `set_ind(i, on)` for each.
@@ -488,7 +493,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             if is_char(&target) {
                 ir::Lowered::EvalChar {
                     target,
-                    value: char_expr(cx, value, &mut used, Vec::new())?,
+                    value: char_value(cx, value, &mut used)?,
                     half_adjust: ext.half_adjust,
                     right: *right,
                 }
@@ -739,9 +744,22 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
         }
         _ => {
             let o = any_operand(cx, e, used)?;
-            is_char(&o).then_some(ir::CharExpr::Leaf(o))
+            (is_char(&o) && !is_temporal(&o)).then_some(ir::CharExpr::Leaf(o))
         }
     }
+}
+
+/// The value of a character EVAL (S2.52): a date, time or timestamp field
+/// as the whole value, or a character expression.
+fn char_value(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::CharExpr> {
+    if let Expr::Name { .. } = e {
+        if let Some(o) = variable(cx, e, used) {
+            if is_temporal(&o) {
+                return Some(ir::CharExpr::Leaf(o));
+            }
+        }
+    }
+    char_expr(cx, e, used, Vec::new())
 }
 
 /// A numeric expression of +, - and * over literals and eligible fields
@@ -914,18 +932,18 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 v.buf, v.off, v.stride, v.dim, v.dtype
             ));
             Some(ir::NumExpr::Lookup {
-                x,
+                x: Box::new(x),
                 buf: v.buf,
                 off: v.off,
                 stride: v.stride,
                 dim: v.dim,
                 ty,
                 start: match start {
-                    Some(s) => Some(operand(cx, s, used)?),
+                    Some(s) => Some(Box::new(operand(cx, s, used)?)),
                     None => None,
                 },
                 n: match n {
-                    Some(s) => Some(operand(cx, s, used)?),
+                    Some(s) => Some(Box::new(operand(cx, s, used)?)),
                     None => None,
                 },
                 how: b.get(6..).unwrap_or_default().to_string(),
@@ -1255,9 +1273,29 @@ fn is_char(o: &ir::Operand) -> bool {
         o,
         ir::Operand::Str(_)
             | ir::Operand::Var {
-                ty: ir::Ty::Char(_) | ir::Ty::Varchar(_),
+                ty: ir::Ty::Char(_)
+                    | ir::Ty::Varchar(_)
+                    | ir::Ty::Date(..)
+                    | ir::Ty::Time(..)
+                    | ir::Ty::Timestamp(_),
                 ..
             }
+    )
+}
+
+/// A date, time or timestamp field (S2.52). Its value is character data
+/// (its *ISO text, data::load), but the interpreter treats it apart in
+/// places: DSPLY shows it in its format (%CHAR), a date plus a time is a
+/// timestamp, MOVE converts. So it is lowered only as an EVAL's target
+/// or whole value and as a comparison's side, where eval, assign and
+/// data::compare treat it as the character data it loads as.
+fn is_temporal(o: &ir::Operand) -> bool {
+    matches!(
+        o,
+        ir::Operand::Var {
+            ty: ir::Ty::Date(..) | ir::Ty::Time(..) | ir::Ty::Timestamp(_),
+            ..
+        }
     )
 }
 
@@ -1394,6 +1432,11 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         // A pointer field (S2.47): only where a pointer is taken (EVAL of
         // a pointer, comparisons, %ADDR), never as a number (`operand`).
         DType::Pointer => ir::Ty::Pointer,
+        // A date, time or timestamp field (S2.52): only where `is_temporal`
+        // lets it (an EVAL target or a whole value, a comparison's side).
+        DType::Date(f) => ir::Ty::Date(f.name, f.sep),
+        DType::Time(f) => ir::Ty::Time(f.name, f.sep),
+        DType::Timestamp(n) => ir::Ty::Timestamp(n),
         _ => return None,
     };
     // A based field (S2.48), not an array: where its pointer points now.

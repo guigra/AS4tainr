@@ -887,6 +887,33 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.52 (ADR 0007): date, time and timestamp fields assigned
+// between formats and compared; DATFMT and TIMFMT for fields with no
+// format. (*LOVAL and *HIVAL are NDATEFIG in native_diff.rs: the
+// interpreter differs from IBM i there.)
+// Source: golden capture tools/golden/native53.txt n53_date (PUB400, IBM i 7.5, 2026-11-16)
+#[tokio::test]
+async fn native_unit_dates() {
+    let _ = require_db!();
+    expect(
+        "NDATE",
+        include_str!("native/NDATE.rpgle"),
+        &[
+            "USA 11/16/2026",
+            "EUR 16.11.2026",
+            "MDY 11/16/26",
+            "DFT 16.11.2026",
+            "BACK 2026-11-16",
+            "HMS 13:45:10",
+            "TS 2026-11-16-13.45.10.123456",
+            "EARLY BEFORE",
+            "USA EQ EUR",
+            "T1 NOT AFTER",
+        ],
+    )
+    .await;
+}
+
 // Stage 2, S2.51 (ADR 0007): pointer parameters by value (a field, %ADDR,
 // pointer arithmetic, *NULL) and by reference. The harness trims each
 // message: IBM i showed "SET NO " (a CHAR(3) return). The capture's

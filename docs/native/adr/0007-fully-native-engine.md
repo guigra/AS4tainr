@@ -288,3 +288,18 @@ The native units have no calls between programs. The upstream suite's cross-prog
 - **Expected values.** From PUB400, tools/golden/native52.txt n52_parm (NPARM, the pointer parameters). The capture's QCMDEXC with *VARSIZE needs a job, which the unit harness does not give. The suite's own *VARSIZE tests run in jobs, and native-diff level 2 compares them. The tripwire watches char_variable.
 - **room_for_based for VALUE parameters.** call_proc binds each VALUE or CONST value with `assign` once the frame is pushed, so a pointer passed by value makes room for the called procedure's based variables. `call_body` now does the same through `pointer_set`. native-diff's level 1 found it missing: NPARM's BUF was 2 bytes shorter under rust.
 - **The WHY diagnostic** now names what keeps a field out (local, array, based, occurs, type) and what keeps a prototype's call out (options, pointer parameters, C or CEE functions, procedure pointers, overloads, return types).
+
+## S2.52: date, time and timestamp fields (rpgcg 0.1.0+stage2.52)
+
+- **The type.** A date, time or timestamp field is lowered with its type: `ir::Ty::Date` and `Time`, with the format's name and separator, and `Timestamp` with its fractional digits. Its value is the character data `data::load` gives, its *ISO text. A store converts to the field's format, as `data::store` does for the interpreter's assign.
+- **Where it is lowered.** As an EVAL's target, with any character value. As the whole value of an EVAL (`char_value`). As a side of a comparison of operands: `data::compare`, as eval's comparison does.
+- **Where it is not.** The interpreter treats temporal fields apart in places, so they are not lowered there (`is_temporal`):
+  - in a character expression, because a date plus a time is a timestamp in eval;
+  - in DSPLY, which shows them in their format (%CHAR);
+  - in MOVE (move_temporal);
+  - in %SUBST, and as call arguments.
+  %CHAR, %DATE, %TIME, %DIFF and durations come later.
+- **Interpreter differences (fidelity.md)**, held for upstream:
+  - With CTL-OPT DATFMT(*EUR), IBM i takes date literals in *EUR form only, while the interpreter takes them in *ISO form only.
+  - *LOVAL and *HIVAL assigned to a date are 0001-01-01 and 9999-12-31 on IBM i, while the interpreter fills the field with x'00' and x'FF' bytes. The native engine does as the interpreter does, and NDATEFIG checks the parity.
+- **Expected values.** From PUB400, tools/golden/native53.txt n53_date (the unit NDATE, with no literals, so both compile it).
