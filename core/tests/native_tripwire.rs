@@ -241,6 +241,22 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    ",
         ),
         function(BIFS, "pub(super) fn temporal(v: &Value) -> Option<Temporal> {", ""),
+        // S2.54: %DATE, %TIME and %TIMESTAMP.
+        function(
+            BIFS,
+            "    pub(super) fn bif_more(&mut self, b: &str, args: &[Expr]) -> Result<Option<Value>> {",
+            "    ",
+        ),
+        function(
+            BIFS,
+            "    fn temporal_arg(&mut self, args: &[Expr]) -> Result<(Value, Option<String>)> {",
+            "    ",
+        ),
+        function(
+            BIFS,
+            "    pub(super) fn special_arg(&self, args: &[Expr], i: usize) -> Option<String> {",
+            "    ",
+        ),
         // S2.50: heap storage.
         function(
             PTRS,
@@ -295,9 +311,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // S2.46 adds call_named_inner (prototypes), S2.47 ptrs.rs ptr_to and
     // addr, assign and room_for_based, S2.48 based_place, S2.49 ptr_arith,
     // S2.50 alloc, realloc, dealloc and storage_op, S2.51 char_variable,
-    // S2.53 bif_override and temporal;
+    // S2.53 bif_override and temporal, S2.54 bif_more, temporal_arg and
+    // special_arg;
     // upstream still dd47e28.
-    let reviewed = "4821eccc7789af78b12965c7a1c6ae7bf72225c55bb308ef2a09af924a9e4800";
+    let reviewed = "f2939bf20e9e671de8a2d8a164cb78c0ad5ce3cd040a805327e529dde7431069";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

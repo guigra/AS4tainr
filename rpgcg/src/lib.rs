@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.53");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.54");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -113,6 +113,14 @@ pub mod ir {
         Str(Vec<u8>),
         /// A figurative constant (S2.22), in comparisons only.
         Fig(FigOp),
+    }
+
+    /// Which of %DATE, %TIME and %TIMESTAMP (S2.54).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum TemporalBifKind {
+        Date,
+        Time,
+        Ts,
     }
 
     /// How %CHAR shows a date, time or timestamp (S2.53): a date or time
@@ -342,6 +350,16 @@ pub mod ir {
         TemporalChar {
             of: Operand,
             fmt: TemporalFmt,
+        },
+        /// %DATE, %TIME or %TIMESTAMP (S2.54): the argument (none for
+        /// none, *SYS or *JOB), a special value given as the format, and
+        /// the control specification's DATFMT or TIMFMT code
+        /// (`rpgrt::native::temporal_bif`).
+        TemporalBif {
+            kind: TemporalBifKind,
+            arg: Option<Box<ValExpr>>,
+            fmt: Option<String>,
+            dft: String,
         },
         /// %CHAR of a numeric expression (S2.14), with the program's
         /// DECEDIT: the decimal point and whether a zero goes before it.
@@ -1870,6 +1888,33 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
                 value(start)
             );
             format!("{name}(rt)?")
+        }
+        ir::CharExpr::TemporalBif {
+            kind,
+            arg,
+            fmt,
+            dft,
+        } => {
+            let k = match kind {
+                ir::TemporalBifKind::Date => "Date",
+                ir::TemporalBifKind::Time => "Time",
+                ir::TemporalBifKind::Ts => "Ts",
+            };
+            let v = match arg.as_deref() {
+                None => "None".to_string(),
+                Some(ir::ValExpr::Num(e)) => format!(
+                    "Some(rpgrt::rpg::data::Value::Num({}))",
+                    num_expr(pc, e, helpers)
+                ),
+                Some(ir::ValExpr::Char(e)) => format!("Some({})", char_expr(pc, e, helpers)),
+            };
+            let f = match fmt {
+                Some(f) => format!("Some({f:?})"),
+                None => "None".to_string(),
+            };
+            format!(
+                "rpgrt::native::temporal_bif(rpgrt::native::TemporalBif::{k}, {v}, {f}, {dft:?})?"
+            )
         }
         ir::CharExpr::TemporalChar { of, fmt } => {
             let f = match fmt {

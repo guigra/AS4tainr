@@ -1253,6 +1253,120 @@ pub fn temporal_char(v: &Value, f: TemporalFmt) -> NResult<Value> {
     })
 }
 
+/// Stage 2 (S2.54): which of %DATE, %TIME and %TIMESTAMP.
+#[derive(Clone, Copy, Debug)]
+pub enum TemporalBif {
+    Date,
+    Time,
+    Ts,
+}
+
+/// Stage 2 (S2.54): %DATE, %TIME or %TIMESTAMP, as bifs.rs bif_more does.
+/// `v` is the argument's value, or None for none, *SYS or *JOB (the
+/// current date and time, dates::now). `fmt` is a special value given as
+/// the second argument. `dft` is the control specification's DATFMT or
+/// TIMFMT code (dates::DateFmt::code).
+pub fn temporal_bif(
+    kind: TemporalBif,
+    v: Option<Value>,
+    fmt: Option<&str>,
+    dft: &str,
+) -> NResult<Value> {
+    use crate::rpg::dates::{self, DateFmt, TimeFmt};
+    let date_text = |d: dates::Ymd| Value::str(&dates::format_date(d, &DateFmt::iso()));
+    let time_text = |t: dates::Hms| Value::str(&dates::format_time(t, &TimeFmt::iso()));
+    let Some(v) = v else {
+        let now = dates::now();
+        return Ok(match kind {
+            TemporalBif::Date => date_text(now.0),
+            TemporalBif::Time => time_text(now.1),
+            TemporalBif::Ts => Value::str(&dates::format_ts(&now, false)),
+        });
+    };
+    let parsed = temporal_kind(&v);
+    // A format with no separator for a number: its digits ("*MDY0").
+    let digits = |f: &str| format!("{}0", f.trim_end_matches('0'));
+    Ok(match kind {
+        TemporalBif::Date => {
+            if fmt.is_none() {
+                match parsed {
+                    Some(Parsed::Date(d)) => return Ok(date_text(d)),
+                    Some(Parsed::Ts(ts)) => return Ok(date_text(ts.0)),
+                    Some(Parsed::Time(_)) => anyhow::bail!("%DATE of a time is not valid"),
+                    None => {}
+                }
+            }
+            let f = fmt.map_or_else(|| dft.to_string(), str::to_string);
+            let d = match &v {
+                Value::Num(n) => dates::parse_date(
+                    &n.trunc().mantissa().to_string(),
+                    &DateFmt::parse(&digits(&f))?,
+                )?,
+                other => dates::parse_date(&data::a(&other.chars()?), &DateFmt::parse(&f)?)?,
+            };
+            date_text(d)
+        }
+        TemporalBif::Time => {
+            if fmt.is_none() {
+                match parsed {
+                    Some(Parsed::Time(h)) => return Ok(time_text(h)),
+                    Some(Parsed::Ts(ts)) => return Ok(time_text(ts.1)),
+                    Some(Parsed::Date(_)) => anyhow::bail!("%TIME of a date is not valid"),
+                    None => {}
+                }
+            }
+            let f = fmt.map_or_else(|| dft.to_string(), str::to_string);
+            let h = match &v {
+                Value::Num(n) => dates::parse_time(
+                    &n.trunc().mantissa().to_string(),
+                    &TimeFmt::parse(&digits(&f))?,
+                )?,
+                other => dates::parse_time(&data::a(&other.chars()?), &TimeFmt::parse(&f)?)?,
+            };
+            time_text(h)
+        }
+        TemporalBif::Ts => {
+            let ts = match parsed {
+                Some(Parsed::Date(d)) => (d, (0, 0, 0), 0),
+                Some(Parsed::Ts(t)) => t,
+                Some(Parsed::Time(_)) => anyhow::bail!("%TIMESTAMP of a time is not valid"),
+                None => match &v {
+                    Value::Num(n) => dates::parse_ts(&n.trunc().mantissa().to_string())?,
+                    other => dates::parse_ts(&data::a(&other.chars()?))?,
+                },
+            };
+            Value::str(&dates::format_ts(&ts, false))
+        }
+    })
+}
+
+/// What a value is as a date, time or timestamp (bifs.rs `temporal`).
+enum Parsed {
+    Date(crate::rpg::dates::Ymd),
+    Time(crate::rpg::dates::Hms),
+    Ts(crate::rpg::dates::Ts),
+}
+
+fn temporal_kind(v: &Value) -> Option<Parsed> {
+    use crate::rpg::dates::{self, DateFmt, TimeFmt};
+    let Value::Char(c) = v else { return None };
+    let t = data::a(c);
+    let b = t.as_bytes();
+    let at = |k: usize| b.get(k).copied();
+    match t.len() {
+        10 if at(4) == Some(b'-') && at(7) == Some(b'-') => dates::parse_date(&t, &DateFmt::iso())
+            .ok()
+            .map(Parsed::Date),
+        8 if at(2) == Some(b'.') && at(5) == Some(b'.') => dates::parse_time(&t, &TimeFmt::iso())
+            .ok()
+            .map(Parsed::Time),
+        19..=32 if at(4) == Some(b'-') && at(10) == Some(b'-') => {
+            dates::parse_ts(&t).ok().map(Parsed::Ts)
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

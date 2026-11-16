@@ -335,6 +335,11 @@ const CORPUS: &[Case] = &[
         args: &[],
     },
     Case {
+        name: "NTBIF",
+        source: include_str!("native/NTBIF.rpgle"),
+        args: &[],
+    },
+    Case {
         name: "NEDITW",
         source: include_str!("native/NEDITW.rpgle"),
         args: &[],

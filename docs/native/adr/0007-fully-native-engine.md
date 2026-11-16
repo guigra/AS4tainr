@@ -311,3 +311,21 @@ The native units have no calls between programs. The upstream suite's cross-prog
 - **Not lowered.** A format that does not parse, or a second argument that is not a special value, stays in the interpreter. The interpreter raises its error for it.
 - **DSPLY.** DSPLY of a date or time field is %CHAR of it, and of a timestamp field its value, as Stmt::Dsply does. The tripwire watches bif_override and temporal, and stmt_inner (DSPLY) already.
 - **Expected values.** From PUB400, tools/golden/native54.txt n54_chr (NTCHAR). DSPLY of a field is not captured: in a batch job its message goes to QSYSOPR, a queue that PUB400's users share. NTDSP checks it for parity between the engines.
+
+## S2.54: %DATE, %TIME and %TIMESTAMP (rpgcg 0.1.0+stage2.54)
+
+- **What is lowered.** %DATE, %TIME and %TIMESTAMP, as the whole value of an EVAL (`ir::CharExpr::TemporalBif`). Their result is a date, time or timestamp, and eval adds a date and a time into a timestamp, so they are not lowered inside character expressions.
+- **The forms.**
+  - With no argument, or *SYS (and *JOB for %DATE), the bif gives the current date and time, as dates::now.
+  - Otherwise the first argument's value: a date, time or timestamp field, a character expression or a numeric one.
+  - A special value as the second argument is the format. Any other second argument is not looked at, as special_arg gives none.
+  - The control specification's DATFMT or TIMFMT code is fixed when the code is generated, and goes into the layout lines.
+- **The runtime.** `rpgrt::native::temporal_bif` writes bifs.rs bif_more's arms again, with the same errors:
+  - an invalid value is the dates module's error, status 112 under MONITOR as on IBM i;
+  - "%DATE of a time is not valid" and the like.
+  The tripwire watches bif_more, temporal_arg and special_arg.
+- **Interpreter differences (fidelity.md).** Held for upstream:
+  - With no format, IBM i takes a character or numeric value in *ISO form, not DATFMT's (RNF7510 at compile time). The interpreter takes the DATFMT or TIMFMT form.
+  - %DATE(*SYS) is not valid on IBM i (RNF0605), and the interpreter takes it as the current date.
+  The native engine does as the interpreter does.
+- **Expected values.** From PUB400, tools/golden/native55.txt n55_bif (the unit NTBIF). n55_crt_dft is the compile of the forms IBM i rejects.
