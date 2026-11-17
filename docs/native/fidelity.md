@@ -72,6 +72,8 @@ The backend follows each fix since the rebase on upstream dd47e28 (2026-11-13). 
 
 ## Other upstream findings (to report)
 
+- **%OCCUR set to a literal out of range compiles.** IBM i's compiler refuses `%occur(rec) = 4` for a data structure of OCCURS(3): RNF7571 severity 30 (tools/golden/native64.txt n64_crt_occ, first run, PUB400 IBM i 7.5, 2026-11-17). as4tainr's compiler accepts it, and both engines raise RNQ0122 when it runs. The check belongs in the front end, upstream.
+
 - **A key literal of another length than the key field compiles.** IBM i's compiler refuses `setll 1 GN58PF` when the first key field is zoned 3,0: RNF7078 severity 30, "Length of Factor 1 is not the same as the first key field" (tools/golden/native58.txt n58_crt_r, first run, PUB400 IBM i 7.5, 2026-11-17). as4tainr's compiler accepts it, and both engines then search with the literal's value. The native engine reproduces the interpreter; the check belongs in the front end, upstream.
 
 - **A panic in `rpgrt/src/rpg/data.rs:184`** (code moved unchanged from upstream). Fixed-form MOVE with a float field (OpenRPG's test corpus, `tests/test194_fixed_cspec_err_move_float.rpgle`) panics with "zero fits" in both engines, where the RPG error path is expected. Found by `scripts/native-corpus.sh` on 2026-11-12. On IBM i the program does not compile: RNF7547, severity 30, on the MOVE (golden capture tools/golden/native10.txt n10_crt_mvf, PUB400, IBM i 7.5, 2026-11-12).

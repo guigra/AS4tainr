@@ -519,3 +519,14 @@ Not lowered:
 - a local data structure array;
 - a recursive call whose own array stays apart from its caller's;
 - an index out of range under MONITOR, which gives 00121.
+
+## S2.64: multiple-occurrence data structures
+
+A scalar subfield of a global multiple-occurrence data structure is now lowered in its current occurrence. Machine::sym adds (occurrence - 1) times the occurrence's size, so lowering makes it an element indexed by the current occurrence: `Operand::Occur`, which `Runtime::occurrence` gives. These are written again from ops.rs:
+- **%OCCUR(ds)** reads the current occurrence (occurrence).
+- **EVAL %OCCUR(ds) = n** sets it (`Runtime::set_occurrence`, ops.rs set_occurrence): a whole number from 1 to the occurrences, RNQ0122 otherwise.
+- **OCCUR** sets the occurrence from factor 1, a number or another multiple-occurrence data structure's current occurrence, then puts it in the result field with the strict fit (occur_op). This is lowered only with no error indicator.
+
+A subfield that is an array, a based or local one, and the whole data structure as a field stay in the interpreter.
+
+**Verified by** the native unit NOCCUR, under both engines. The program captured on PUB400 (tools/golden/native64.txt n64_occ) writes the three occurrences, reads them through %OCCUR and OCCUR, totals them, and gets 00122 under MONITOR for occurrence 4. The first capture found that IBM i refuses a literal out of range there at compile time (RNF7571), which as4tainr accepts (fidelity.md, upstream findings).

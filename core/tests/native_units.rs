@@ -1628,3 +1628,23 @@ async fn native_unit_lowered_local_arrays() {
     )
     .await;
 }
+
+// Stage 2, S2.64: a multiple-occurrence data structure lowered to Rust:
+// subfields in the current occurrence, %OCCUR read and set, OCCUR with
+// factor 1 and a result field, RNQ0122 (status 00122) under MONITOR.
+// Source: golden capture tools/golden/native64 n64_occ (PUB400, IBM i 7.5, 2026-11-17)
+#[tokio::test]
+async fn native_unit_lowered_occurs() {
+    let _ = require_db!();
+    expect(
+        "NOCCUR",
+        include_str!("native/NOCCUR.rpgle"),
+        &[
+            "OCC2 C2  200 AT 2",
+            "OCC1 C1  100 CUR 1",
+            "TOTAL 600 AT 1",
+            "RANGE 122 AT 1",
+        ],
+    )
+    .await;
+}

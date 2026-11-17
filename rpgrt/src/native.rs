@@ -232,6 +232,13 @@ pub trait Runtime {
         keys: Option<Vec<KeyArg>>,
         rec: NResult<Vec<Option<String>>>,
     ) -> NResult<()>;
+    /// Stage 2 (S2.64): the current occurrence of the multiple-occurrence
+    /// data structure in buffer `buf` (ops.rs occurrence).
+    fn occurrence(&self, buf: usize) -> NResult<Dec>;
+    /// Stage 2 (S2.64): make occurrence `n` of that data structure the
+    /// current one (ops.rs set_occurrence: a whole number, 1 to its
+    /// occurrences, RNQ0122 otherwise).
+    fn set_occurrence(&mut self, buf: usize, n: &Dec) -> NResult<()>;
     /// Stage 2 (S2.58): %EOF, %FOUND or %EQUAL of the file named (as the
     /// running procedure finds it), or of the last file operation.
     fn file_status(&mut self, bit: FileBit, file: Option<&str>) -> NResult<bool>;
