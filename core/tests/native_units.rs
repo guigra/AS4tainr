@@ -1594,3 +1594,23 @@ async fn native_unit_lowered_ds_arguments() {
     )
     .await;
 }
+
+// Stage 2, S2.61: procedures that use the module's global fields lowered
+// to Rust. The capture's second line ends "LAST NEG  " (stats.last is
+// char(5)); DSPLY's text has its trailing blanks removed.
+// Source: golden capture tools/golden/native61 n61_glb (PUB400, IBM i 7.5, 2026-11-17)
+#[tokio::test]
+async fn native_unit_lowered_globals_in_procedures() {
+    let _ = require_db!();
+    expect(
+        "NGLOBAL",
+        include_str!("native/NGLOBAL.rpgle"),
+        &[
+            "CALLS 3 TOTAL 11.75",
+            "LABEL [after 3] COUNT 3 LAST NEG",
+            "HITS 2 0 1",
+            "SHADOW 7 LOCAL 71",
+        ],
+    )
+    .await;
+}

@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.61: procedures and the module's global fields (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native61.txt -f tools/golden/native61
+n61_crt_glb|!system "CRTSQLRPGI OBJ(@LIB@/GN61GLB) SRCSTMF('@HOME@/gld/gn61glb.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n61_glb|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN61GLB)"; cat gn1.out; rm -f gn1.out
