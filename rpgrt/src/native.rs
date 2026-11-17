@@ -200,6 +200,76 @@ pub trait Runtime {
     fn elems(&self, name: &str) -> u32;
     /// Stage 2 (S2.45): set them.
     fn set_elem_count(&mut self, name: &str, n: u32);
+    /// Stage 2 (S2.58): the database file read at `pc` (CHAIN, READ,
+    /// READE, READP, READPE, SETLL, SETGT) with its key's values: the
+    /// interpreter's file_op up to the moves of the record into the
+    /// program. The record's fields as external text, by their place in
+    /// the record format (`None` for one the record does not have), when
+    /// a record was read. An error of the operation comes back with the
+    /// file's status, the counters and the file information data
+    /// structure already set, as file_op leaves them.
+    fn file_read(
+        &mut self,
+        pc: usize,
+        keys: Option<Vec<KeyArg>>,
+    ) -> NResult<Option<Vec<Option<String>>>>;
+    /// Stage 2 (S2.58): the rest of the file operation at `pc` once its
+    /// fields are moved (`moved`, or the error of a move): the status,
+    /// %EOF/%FOUND/%EQUAL, the result indicators, the counters and the
+    /// file information data structure.
+    fn file_done(&mut self, pc: usize, moved: NResult<()>) -> NResult<()>;
+    /// Stage 2 (S2.58): %EOF, %FOUND or %EQUAL of the file named (as the
+    /// running procedure finds it), or of the last file operation.
+    fn file_status(&mut self, bit: FileBit, file: Option<&str>) -> NResult<bool>;
+}
+
+/// A key value of a file operation (S2.58), as the interpreter's
+/// key_values evaluates it: a number, or characters.
+#[derive(Clone, Debug)]
+pub enum KeyArg {
+    Num(Dec),
+    Char(Vec<u8>),
+}
+
+/// %EOF, %FOUND or %EQUAL (S2.58).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileBit {
+    Eof,
+    Found,
+    Equal,
+}
+
+/// How a field read becomes a value (S2.58).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MoveKind {
+    Num,
+    Char,
+    Hex,
+}
+
+/// A field of a record read as the value the program gets, as the
+/// interpreter's fill_fields makes it: a number parsed exactly, the text
+/// as characters, or for a hexadecimal field two digits a byte (a pair
+/// that is not two hexadecimal digits gives 0, an odd last digit is left
+/// out).
+pub fn field_value(text: &str, kind: MoveKind) -> NResult<Value> {
+    Ok(match kind {
+        MoveKind::Num => Value::Num(Dec::parse(text)?),
+        MoveKind::Char => Value::str(text),
+        MoveKind::Hex => Value::Char(
+            text.as_bytes()
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|pair| {
+                    std::str::from_utf8(pair.as_slice())
+                        .ok()
+                        .and_then(|d| u8::from_str_radix(d, 16).ok())
+                        .unwrap_or(0)
+                })
+                .collect(),
+        ),
+    })
 }
 
 /// An argument of a native procedure call (S2.35): the caller's storage

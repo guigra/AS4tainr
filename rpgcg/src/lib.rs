@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.55");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.58");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -193,6 +193,36 @@ pub mod ir {
         Chain(bool, Vec<Cond>),
         /// NOT of a condition (S2.39).
         Not(Box<Cond>),
+        /// %EOF, %FOUND or %EQUAL (S2.58): of the file named, or of the
+        /// last file operation.
+        FileStatus(FileBit, Option<String>),
+    }
+
+    /// Which part of a file's status a built-in function gives (S2.58).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum FileBit {
+        Eof,
+        Found,
+        Equal,
+    }
+
+    /// A field of a record read moved into the program (S2.58): the
+    /// field's place in the file's record format, the program field, and
+    /// how its external text becomes a value.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct FieldMove {
+        pub col: usize,
+        pub target: Operand,
+        pub kind: MoveKind,
+    }
+
+    /// The value of a field read (S2.58): a number, characters, or
+    /// hexadecimal (the text gives two digits a byte).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum MoveKind {
+        Num,
+        Char,
+        Hex,
     }
 
     /// One side of a comparison: a numeric expression with no
@@ -261,6 +291,14 @@ pub mod ir {
         },
         /// DSPLY with no response field (S2.36): the message, if any.
         Dsply(Option<ValExpr>),
+        /// A read of a database file (S2.58): CHAIN, READ, READE, READP,
+        /// READPE, SETLL, SETGT. The key's values (none for *LOVAL,
+        /// *HIVAL, *START, *END or no key), then the record's fields into
+        /// the program.
+        FileRead {
+            keys: Option<Vec<ValExpr>>,
+            moves: Vec<FieldMove>,
+        },
         /// RETURN (S2.38): the value, if any.
         Return(Option<ValExpr>),
         /// EVAL of a pointer field (S2.47): another pointer field, or the
@@ -1180,6 +1218,16 @@ fn cond_fns(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usize) 
         ir::Cond::Ind(name) => {
             let _ = writeln!(out, "    Ok(rt.ind({}))\n}}", json_str(name));
         }
+        ir::Cond::FileStatus(bit, file) => {
+            let f = match file {
+                Some(f) => format!("Some({})", json_str(f)),
+                None => "None".to_string(),
+            };
+            let _ = writeln!(
+                out,
+                "    rt.file_status(rpgrt::native::FileBit::{bit:?}, {f})\n}}"
+            );
+        }
         ir::Cond::Not(x) => {
             *n = n.saturating_add(1);
             let xi = format!("c{pc}_{n}");
@@ -1421,6 +1469,71 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("dy{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::FileRead { keys, moves }) => {
+            // The interpreter's file_op: the key's values (key_values),
+            // the operation (rt.file_read), the record's fields into the
+            // program (fill_fields), then the status, the indicators and
+            // the file information data structure (rt.file_done), which
+            // also takes an error of the moves.
+            let mut body = String::new();
+            match keys {
+                None => body.push_str("    let keys = None;\n"),
+                Some(ks) => {
+                    body.push_str("    let keys = Some(vec![\n");
+                    for k in ks {
+                        let v = match k {
+                            ir::ValExpr::Num(e) => {
+                                format!("rpgrt::native::KeyArg::Num({})", num_expr(pc, e, helpers))
+                            }
+                            ir::ValExpr::Char(e) => format!(
+                                "rpgrt::native::KeyArg::Char({}.chars()?)",
+                                char_expr(pc, e, helpers)
+                            ),
+                        };
+                        let _ = writeln!(body, "        {v},");
+                    }
+                    body.push_str("    ]);\n");
+                }
+            }
+            body.push_str("    let rec = rt.file_read(");
+            let _ = writeln!(body, "{pc}, keys)?;");
+            if moves.is_empty() {
+                body.push_str("    let _ = rec;\n    let moved = Ok(());\n");
+            } else {
+                // The moves in a function of their own, so that an error
+                // of one comes back to file_done.
+                let mut mv_fn = format!(
+                    "\nfn fm{pc}(rt: &mut dyn Runtime, rec: Option<Vec<Option<String>>>) -> NResult<()> {{\n    let Some(rec) = rec else {{ return Ok(()) }};\n"
+                );
+                for mv in moves {
+                    let ir::Operand::Var { ty: t, .. } = &mv.target else {
+                        return Err(bad());
+                    };
+                    let (prelude, sb, so) = place_of(&mv.target).ok_or_else(bad)?;
+                    let get = match mv.col {
+                        0 => "rec.first()".to_string(),
+                        c => format!("rec.get({c})"),
+                    };
+                    let _ = writeln!(
+                        mv_fn,
+                        "    if let Some(text) = {get}.and_then(|t| t.as_deref()) {{\n        let v = rpgrt::native::field_value(text, rpgrt::native::MoveKind::{:?})?;\n{prelude}        rpgrt::native::store(\n            rt.mem(),\n            {sb},\n            {so},\n            {},\n            &v,\n            rpgrt::rpg::data::Fit::Strict {{ half_adjust: false }},\n            false,\n        )?;\n    }}",
+                        mv.kind,
+                        ty(t)
+                    );
+                }
+                mv_fn.push_str("    Ok(())\n}\n");
+                helpers.push_str(&mv_fn);
+                let _ = writeln!(body, "    let moved = fm{pc}(rt, rec);");
+            }
+            let _ = writeln!(
+                helpers,
+                "\nfn fr{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    rt.file_done({pc}, moved)\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("fr{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::EvalInd { name, value }) => {

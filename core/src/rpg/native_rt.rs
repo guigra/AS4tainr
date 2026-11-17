@@ -21,7 +21,7 @@
     clippy::arithmetic_side_effects
 )]
 
-use super::super::ast::{BinOp, Expr};
+use super::super::ast::{BinOp, Expr, FileOp};
 use super::super::code::{Code, Ins, I};
 use super::super::data::{self, a, Fit, Value};
 use super::super::dec::Dec;
@@ -29,7 +29,7 @@ use super::super::native::{self, Engine};
 use super::errors;
 use super::{Flow, GotoSignal, LeaveSrSignal, Machine, ReturnPointSignal, ReturnSignal};
 use anyhow::{anyhow, Result};
-use rpgrt::native::{CallArg, MonitorStack, NResult, Runtime, Settled};
+use rpgrt::native::{CallArg, FileBit, KeyArg, MonitorStack, NResult, Runtime, Settled};
 use std::cmp::Ordering;
 use std::io::Write as _;
 
@@ -110,7 +110,12 @@ pub(super) fn dispatch(m: &mut Machine<'_>, code: &Code, start: usize) -> Option
             ),
         );
     }
-    let mut rt = Rt { m, code, ok };
+    let mut rt = Rt {
+        m,
+        code,
+        ok,
+        pending: None,
+    };
     Some(run(&mut rt, start).map(|f| match f {
         rpgrt::native::Flow::Normal => Flow::Normal,
         rpgrt::native::Flow::Return(v) => Flow::Return(v),
@@ -134,6 +139,17 @@ struct Rt<'r, 'a> {
     code: &'r Code,
     /// Lowered code may run here (`Runtime::native_ok`).
     ok: bool,
+    /// A file read between `file_read` and `file_done` (S2.58).
+    pending: Option<PendingRead>,
+}
+
+/// What `file_read` leaves for `file_done` (S2.58): the file, the
+/// operation, and what it read.
+struct PendingRead {
+    file: usize,
+    found: bool,
+    eof: bool,
+    has_record: bool,
 }
 
 /// The instruction at `pc` (borrowing only the routine, not the machine).
@@ -933,6 +949,41 @@ impl Runtime for Rt<'_, '_> {
         self.m.var_elems.insert(name.to_string(), n);
     }
 
+    fn file_read(
+        &mut self,
+        pc: usize,
+        keys: Option<Vec<KeyArg>>,
+    ) -> NResult<Option<Vec<Option<String>>>> {
+        self.file_read_n(pc, keys)
+    }
+
+    fn file_done(&mut self, pc: usize, moved: NResult<()>) -> NResult<()> {
+        self.file_done_n(pc, moved)
+    }
+
+    fn file_status(&mut self, bit: FileBit, file: Option<&str>) -> NResult<bool> {
+        // interp.rs bif "EOF"/"FOUND"/"EQUAL" and file_status.
+        let st = match file {
+            None => &self.m.last,
+            Some(n) => {
+                let i = self
+                    .file_idx_n(n)
+                    .ok_or_else(|| anyhow!("{n} is not a file"))?;
+                &self
+                    .m
+                    .files
+                    .get(i)
+                    .ok_or_else(|| anyhow!("native: no file {i}"))?
+                    .status
+            }
+        };
+        Ok(match bit {
+            FileBit::Eof => st.eof,
+            FileBit::Found => st.found,
+            FileBit::Equal => st.equal,
+        })
+    }
+
     fn dsply(&mut self, text: String) {
         // Stmt::Dsply with no response: `messages.push(text.trim_end())`.
         self.m.messages.push(text.trim_end().to_string());
@@ -1513,5 +1564,454 @@ impl Rt<'_, '_> {
                 b.resize(want, 0);
             }
         }
+    }
+}
+
+// ---- reads of database files (S2.58, ADR 0007) -------------------------
+//
+// Written again from the interpreter's errors.rs (file_op, file_failed,
+// file_idx, opcode_name) and interp.rs (file_op_inner's reads,
+// key_values' text of a value, fill_fields' null values), in their order;
+// native_tripwire.rs watches them. The record operations themselves are
+// `rla`'s, which the interpreter calls too. Lowering lets through only
+// externally described DISK files with no INFDS, no result data
+// structure or field list, no E extender and no error indicator, read
+// with no input specifications; the moves of the fields into the program
+// are generated code.
+impl Rt<'_, '_> {
+    /// errors.rs file_idx: the file a name refers to, one declared in the
+    /// running procedure first, then the program's.
+    fn file_idx_n(&self, name: &str) -> Option<usize> {
+        if let Some(i) = self.m.frames.last().and_then(|f| f.files.get(name)) {
+            return Some(*i);
+        }
+        let files = &self.m.prog.files;
+        let proc = self.m.frames.last().map(|f| f.proc.name.as_str());
+        let local = |f: &super::super::program::FileInfo| f.decl.proc.as_deref() == proc;
+        files
+            .iter()
+            .position(|f| local(f) && f.decl.name == name)
+            .or_else(|| files.iter().position(|f| local(f) && f.format == name))
+            .or_else(|| {
+                files.iter().position(|f| {
+                    f.decl.proc.is_none() && (f.decl.name == name || f.format == name)
+                })
+            })
+            .or_else(|| self.m.prog.file_index(name))
+    }
+
+    /// The file statement at `pc`.
+    fn file_stmt(&self, pc: usize) -> NResult<FileStmt<'_>> {
+        match &at(self.code, pc)?.ins {
+            Ins::Stmt(super::super::ast::Stmt::File {
+                op,
+                file,
+                key,
+                ext,
+                ind,
+                ..
+            }) => Ok((*op, file.as_str(), key, ext, ind)),
+            _ => Err(mismatch(pc, "a file operation")),
+        }
+    }
+
+    fn file_n(&mut self, i: usize) -> NResult<&mut super::FileState> {
+        self.m
+            .files
+            .get_mut(i)
+            .ok_or_else(|| anyhow!("native: no file {i}"))
+    }
+
+    /// errors.rs file_op's start (E is refused by lowering): the error
+    /// flag off, and a file under commitment control in a savepoint of
+    /// the unit of work. Then file_op_inner's read, and fill_fields' null
+    /// values. An error ends the operation here (file_op's end).
+    fn file_read_n(
+        &mut self,
+        pc: usize,
+        keys: Option<Vec<KeyArg>>,
+    ) -> NResult<Option<Vec<Option<String>>>> {
+        let (op, file, key, ext, _) = self.file_stmt(pc)?;
+        let file = file.to_string();
+        let no_lock = ext.no_lock;
+        // *LOVAL/*START and *HIVAL/*END positioning.
+        let special = match key.as_deref() {
+            Some([Expr::Fig(super::super::data::Fig::LoVal)]) => Some(false),
+            Some([Expr::Fig(super::super::data::Fig::HiVal)]) => Some(true),
+            Some([Expr::Name { parts, .. }]) if parts.first().is_some_and(|p| p == "*START") => {
+                Some(false)
+            }
+            Some([Expr::Name { parts, .. }]) if parts.first().is_some_and(|p| p == "*END") => {
+                Some(true)
+            }
+            _ => None,
+        };
+        let i = self
+            .file_idx_n(&file)
+            .ok_or_else(|| anyhow!("{file} is not a file of this program"))?;
+        self.file_n(i)?.status.error = false;
+        let cmt = self.file_n(i)?.cmt.clone();
+        if let Some(d) = &cmt {
+            self.m.block(async {
+                d.client
+                    .batch_execute("SAVEPOINT as4tainr_rla")
+                    .await
+                    .map_err(anyhow::Error::from)
+            })?;
+        }
+        let read = self.read_inner_n(i, op, &file, special, keys, no_lock, cmt.as_deref());
+        let read = read.and_then(|r| {
+            let rec = match &r.record {
+                Some(rec) => Some(self.fields_read_n(i, rec)?),
+                None => None,
+            };
+            Ok((r, rec))
+        });
+        match read {
+            Ok((r, rec)) => {
+                self.pending = Some(PendingRead {
+                    file: i,
+                    found: r.found,
+                    eof: r.eof,
+                    has_record: r.record.is_some(),
+                });
+                Ok(rec)
+            }
+            Err(err) => {
+                self.pending = None;
+                self.file_end_n(i, op, &file, cmt.as_deref(), Err(&err))?;
+                Err(err)
+            }
+        }
+    }
+
+    /// interp.rs file_op_inner for a read of a DISK file.
+    #[allow(clippy::too_many_arguments)] // file_op_inner's own inputs, one by one.
+    fn read_inner_n(
+        &mut self,
+        i: usize,
+        op: FileOp,
+        file: &str,
+        special: Option<bool>,
+        keys: Option<Vec<KeyArg>>,
+        no_lock: bool,
+        cmt: Option<&crate::cmtctl::Definition>,
+    ) -> NResult<crate::rla::ReadResult> {
+        if self.file_n(i)?.open.is_none() {
+            return Err(anyhow!("CPF4135: File {file} is not open."));
+        }
+        let lock = !no_lock;
+        let client: &tokio_postgres::Client = match cmt {
+            Some(d) => &d.client,
+            None => self.m.io.data.unwrap_or(self.m.io.client),
+        };
+        let job = self.m.io.job_number;
+        // key_values: a number as its text, characters as text.
+        let keys: Option<Vec<String>> = match special {
+            Some(_) => None,
+            None => keys.map(|ks| {
+                ks.into_iter()
+                    .map(|k| match k {
+                        KeyArg::Num(d) => d.to_string(),
+                        KeyArg::Char(c) => a(&c),
+                    })
+                    .collect()
+            }),
+        };
+        let rt = self.m.io.rt.clone();
+        let f = self
+            .m
+            .files
+            .get_mut(i)
+            .and_then(|f| f.open.as_mut())
+            .ok_or_else(|| anyhow!("file not open"))?;
+        let given = keys.as_deref();
+        let keys = given.unwrap_or(&[]);
+        Ok(match op {
+            FileOp::SetLL | FileOp::SetGT => {
+                let eq = match (op, special) {
+                    (FileOp::SetLL, Some(false)) => rt.block_on(f.setll(client, &[]))?,
+                    (FileOp::SetGT, Some(true)) | (FileOp::SetLL, Some(true)) => {
+                        rt.block_on(f.setgt(client, &[]))?;
+                        false
+                    }
+                    (FileOp::SetGT, Some(false)) => rt.block_on(f.setll(client, &[]))?,
+                    (FileOp::SetLL, None) => rt.block_on(f.setll(client, keys))?,
+                    _ => rt.block_on(f.setgt(client, keys))?,
+                };
+                crate::rla::ReadResult {
+                    found: eq,
+                    eof: false,
+                    record: None,
+                    rrn: None,
+                }
+            }
+            FileOp::Chain => {
+                let r = rt.block_on(f.chain(client, keys))?;
+                rt.block_on(f.lock_after_read(client, r, lock, job))?
+            }
+            FileOp::Read | FileOp::ReadP | FileOp::ReadE | FileOp::ReadPE => {
+                // READE/READPE: the key's values, None with no key or a
+                // *LOVAL/*HIVAL/*START/*END one.
+                let r = match op {
+                    FileOp::Read => rt.block_on(f.read(client))?,
+                    FileOp::ReadP => rt.block_on(f.read_previous(client))?,
+                    FileOp::ReadE => rt.block_on(f.read_equal(client, given))?,
+                    _ => rt.block_on(f.read_previous_equal(client, given))?,
+                };
+                rt.block_on(f.lock_after_read(client, r, lock, job))?
+            }
+            _ => return Err(anyhow!("native: {op:?} is not a read")),
+        })
+    }
+
+    /// interp.rs fill_fields up to the moves: null values (ALWNULL(*NO):
+    /// a data mapping error; *USRCTL: the null indicators), then the
+    /// record's fields by their place in the record format.
+    fn fields_read_n(
+        &mut self,
+        i: usize,
+        rec: &crate::rla::Record,
+    ) -> NResult<Vec<Option<String>>> {
+        let prog: &super::super::program::Program = self.m.prog;
+        let fi = prog
+            .files
+            .get(i)
+            .ok_or_else(|| anyhow!("native: no file {i}"))?;
+        let fref = fi
+            .fref
+            .as_ref()
+            .ok_or_else(|| anyhow!("native: file {} has no description", fi.decl.name))?;
+        let nulls: Vec<String> = crate::rla::null_fields(rec)
+            .into_iter()
+            .filter(|n| {
+                fref.file
+                    .fields
+                    .iter()
+                    .any(|f| &f.name == n && !f.data_type.is_lob())
+            })
+            .collect();
+        if let (Some(first), super::AlwNull::No) = (nulls.first(), self.m.alwnull) {
+            return Err(anyhow!(
+                "CPF5035: Data mapping error on file {}: field {} has the null value, and the program does not allow null values (ALWNULL(*NO)).",
+                fref.file.name,
+                first
+            ));
+        }
+        if self.m.alwnull == super::AlwNull::UsrCtl {
+            for (fd, pname) in fref.file.fields.iter().zip(&fi.fields) {
+                if fd.null_capable {
+                    if nulls.contains(&fd.name) {
+                        self.m.nullind.insert(pname.clone());
+                    } else {
+                        self.m.nullind.remove(pname);
+                    }
+                }
+            }
+        }
+        Ok(fref
+            .file
+            .fields
+            .iter()
+            .map(|fd| rec.get(&fd.name).cloned())
+            .collect())
+    }
+
+    /// The rest of file_op_inner (the status and the result indicators)
+    /// and file_op's end, after the moves.
+    fn file_done_n(&mut self, pc: usize, moved: NResult<()>) -> NResult<()> {
+        let (op, file, _, _, ind) = self.file_stmt(pc)?;
+        let file = file.to_string();
+        let ind = ind.clone();
+        let p = self
+            .pending
+            .take()
+            .ok_or_else(|| anyhow!("native: {op:?} {file} ended with no read"))?;
+        let i = p.file;
+        let cmt = self.file_n(i)?.cmt.clone();
+        if let Err(err) = moved {
+            self.file_end_n(i, op, &file, cmt.as_deref(), Err(&err))?;
+            return Err(err);
+        }
+        match op {
+            FileOp::SetLL | FileOp::SetGT => {
+                let st = super::Status {
+                    found: p.found,
+                    equal: op == FileOp::SetLL && p.found,
+                    eof: false,
+                    error: false,
+                    ..super::Status::default()
+                };
+                self.file_n(i)?.status = st.clone();
+                self.m.last = st;
+                if let Some(eq) = &ind.eq {
+                    self.m.set_ind(eq, p.found && op == FileOp::SetLL);
+                }
+            }
+            _ => {
+                let st = if op == FileOp::Chain {
+                    super::Status {
+                        found: p.found,
+                        eof: false,
+                        equal: false,
+                        error: false,
+                        ..super::Status::default()
+                    }
+                } else {
+                    super::Status {
+                        found: p.has_record,
+                        eof: p.eof,
+                        equal: false,
+                        error: false,
+                        ..super::Status::default()
+                    }
+                };
+                self.file_n(i)?.status = st.clone();
+                self.m.last = st;
+                if op == FileOp::Chain {
+                    if let Some(hi) = &ind.hi {
+                        self.m.set_ind(hi, !p.found);
+                    }
+                } else if let Some(eq) = &ind.eq {
+                    self.m.set_ind(eq, p.eof);
+                }
+            }
+        }
+        self.file_end_n(i, op, &file, cmt.as_deref(), Ok(()))
+    }
+
+    /// errors.rs file_op after file_op_inner: the savepoint released (or
+    /// rolled back to), the counters, the status code (00011 end of file,
+    /// 00012 not found) or the error's (file_failed), the operation and
+    /// record names. The file has no INFDS (lowering), so infds_update
+    /// has nothing to do.
+    fn file_end_n(
+        &mut self,
+        i: usize,
+        op: FileOp,
+        file: &str,
+        cmt: Option<&crate::cmtctl::Definition>,
+        r: Result<(), &anyhow::Error>,
+    ) -> NResult<()> {
+        if let Some(d) = cmt {
+            self.m.block(async {
+                if d.client
+                    .batch_execute("RELEASE SAVEPOINT as4tainr_rla")
+                    .await
+                    .is_err()
+                {
+                    d.client
+                        .batch_execute("ROLLBACK TO SAVEPOINT as4tainr_rla")
+                        .await?;
+                }
+                Ok::<(), anyhow::Error>(())
+            })?;
+        }
+        let prog: &super::super::program::Program = self.m.prog;
+        let fi = prog
+            .files
+            .get(i)
+            .ok_or_else(|| anyhow!("native: no file {i}"))?;
+        let by_name = fi.decl.name == file;
+        let record = if fi.fref.is_some() || fi.display.is_some() {
+            if by_name {
+                fi.format.clone()
+            } else {
+                file.to_string()
+            }
+        } else {
+            String::new()
+        };
+        let f = self.file_n(i)?;
+        match op {
+            FileOp::Write => f.writes = f.writes.saturating_add(1),
+            FileOp::Read
+            | FileOp::ReadE
+            | FileOp::ReadP
+            | FileOp::ReadPE
+            | FileOp::Chain
+            | FileOp::ReadC
+            | FileOp::Exfmt => f.reads = f.reads.saturating_add(1),
+            _ => f.others = f.others.saturating_add(1),
+        }
+        match r {
+            Err(err) if !errors::is_signal(err) => {
+                // errors.rs file_failed.
+                let code = errors::status_code(err);
+                let st = &mut self.file_n(i)?.status;
+                st.error = true;
+                st.code = code;
+                st.msgid = errors::message_id(err);
+                self.m.err_file = Some(i);
+                self.m.last = super::Status {
+                    error: true,
+                    code,
+                    ..super::Status::default()
+                };
+            }
+            Err(_) => {}
+            Ok(()) if self.file_n(i)?.status.error => {}
+            Ok(()) => {
+                let st = &self.file_n(i)?.status;
+                let code = match op {
+                    FileOp::Read
+                    | FileOp::ReadE
+                    | FileOp::ReadP
+                    | FileOp::ReadPE
+                    | FileOp::ReadC
+                        if st.eof =>
+                    {
+                        11
+                    }
+                    FileOp::Chain | FileOp::SetLL | FileOp::SetGT if !st.found => 12,
+                    _ => 0,
+                };
+                let st = &mut self.file_n(i)?.status;
+                st.code = code;
+                st.msgid.clear();
+                self.m.last.code = code;
+            }
+        }
+        let st = &mut self.file_n(i)?.status;
+        st.opcode = format!(
+            "{:<5}{}",
+            opcode_name_n(op),
+            if by_name { 'F' } else { 'R' }
+        );
+        st.record = record;
+        Ok(())
+    }
+}
+
+/// A file statement's operation, file name, key, extenders and result
+/// indicators (S2.58).
+type FileStmt<'s> = (
+    FileOp,
+    &'s str,
+    &'s Option<Vec<Expr>>,
+    &'s super::super::ast::Ext,
+    &'s super::super::ast::ResultInd,
+);
+
+/// errors.rs opcode_name: the operation name an INFDS shows (ILE RPG
+/// Reference, "File Feedback Information", *OPCODE).
+fn opcode_name_n(op: FileOp) -> &'static str {
+    match op {
+        FileOp::Read => "READ",
+        FileOp::ReadE => "READE",
+        FileOp::ReadP => "READP",
+        FileOp::ReadPE => "REDPE",
+        FileOp::Chain => "CHAIN",
+        FileOp::SetLL => "SETLL",
+        FileOp::SetGT => "SETGT",
+        FileOp::Write => "WRITE",
+        FileOp::Update => "UPDAT",
+        FileOp::Delete => "DELET",
+        FileOp::Open => "OPEN",
+        FileOp::Close => "CLOSE",
+        FileOp::Unlock => "UNLCK",
+        FileOp::Feod => "FEOD",
+        FileOp::Exfmt => "EXFMT",
+        FileOp::ReadC => "READC",
     }
 }

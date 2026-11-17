@@ -1,0 +1,9 @@
+# Captures for stage 2, S2.58: reads of a database file (one batch).
+# The first run took key literals: RNF7078 (n58_crt_r), so the source
+# now uses key fields; the file and its rows are made again.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native58.txt -f tools/golden/native58
+n58_src|!system -q "DLTF FILE(@LIB@/GN58PF)"; system -q "CRTSRCPF FILE(@LIB@/GN58SRC) RCDLEN(92)"; system -q "ADDPFM FILE(@LIB@/GN58SRC) MBR(GN58PF) SRCTYPE(PF)"; system "CPYFRMSTMF FROMSTMF('@HOME@/gld/gn58pf.pf') TOMBR('/QSYS.LIB/@LIB@.LIB/GN58SRC.FILE/GN58PF.MBR') MBROPT(*REPLACE)"
+n58_crtpf|!system -s "CRTPF FILE(@LIB@/GN58PF) SRCFILE(@LIB@/GN58SRC)"
+n58_rows|RUNSQL SQL('INSERT INTO @LIB@/GN58PF VALUES(1, 2, ''Beta'', -3.25, X''0000''), (2, 1, ''Delta'', 99999.99, X''C1C2''), (1, 1, ''Alpha'', 10.50, X''C1C2''), (3, 1, ''Echo'', 1, X''4040''), (1, 3, ''Gamma'', 0, X''FFFF'')') COMMIT(*NONE)
+n58_crt_r|!system "CRTSQLRPGI OBJ(@LIB@/GN58R) SRCSTMF('@HOME@/gld/gn58r.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n58_r|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN58R)"; cat gn1.out; rm -f gn1.out

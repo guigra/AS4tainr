@@ -1,0 +1,97 @@
+**FREE
+// Stage 2, S2.58: reads of a database file. SETLL, SETGT, CHAIN, READ,
+// READE, READP, READPE with key literals, key lists and *LOVAL/*HIVAL;
+// %EOF, %FOUND and %EQUAL; zoned, packed, character and hexadecimal
+// fields. Captured on PUB400 (tools/golden/native58.txt n58_r) for the
+// native unit NFREAD. The keys are fields of the key fields' types: a
+// literal of another length is RNF7078 on IBM i (first capture).
+ctl-opt dftactgrp(*no);
+dcl-f GN58PF keyed;
+dcl-s kOrd zoned(3 : 0);
+dcl-s kLin packed(3 : 0);
+kOrd = 1;
+setll kOrd GN58PF;
+if %equal;
+  say('SETLL1 EQUAL');
+endif;
+if %found;
+  say('SETLL1 FOUND');
+endif;
+reade kOrd GN58PF;
+dow not %eof(GN58PF);
+  say('RE ' + %char(ORD) + ' ' + %char(LIN) + ' ' + %trim(NAME) + ' ' + %char(AMT));
+  if HX = x'C1C2';
+    say('HX C1C2');
+  endif;
+  reade kOrd GN58PF;
+enddo;
+readpe kOrd GN58PF;
+if %eof;
+  say('RPE1 EOF');
+else;
+  say('RPE1 ' + %char(LIN));
+endif;
+setgt kOrd GN58PF;
+read GN58PF;
+say('GT1 READ ' + %char(ORD) + ' ' + %char(LIN));
+readp GN58PF;
+say('READP ' + %char(ORD) + ' ' + %char(LIN));
+kOrd = 9;
+kLin = 9;
+chain (kOrd : kLin) GN58PF;
+if not %found(GN58PF);
+  say('CH99 NOT FOUND');
+endif;
+kOrd = 2;
+kLin = 1;
+chain (kOrd : kLin) GN58PF;
+if %found;
+  say('CH21 ' + %trim(NAME) + ' ' + %char(AMT));
+endif;
+setll *loval GN58PF;
+read GN58PF;
+say('LOVAL READ ' + %char(ORD) + ' ' + %char(LIN));
+setll *hival GN58PF;
+readp GN58PF;
+say('HIVAL READP ' + %char(ORD) + ' ' + %char(LIN));
+read GN58PF;
+if %eof(GN58PF);
+  say('HIVAL READ EOF');
+endif;
+kOrd = 5;
+setll kOrd GN58PF;
+if not %equal and not %found;
+  say('SETLL5 NEITHER');
+endif;
+kOrd = 1;
+kLin = 2;
+setll (kOrd : kLin) GN58PF;
+if %equal;
+  say('SETLL12 EQUAL');
+endif;
+reade (kOrd : kLin) GN58PF;
+say('RE12 ' + %trim(NAME));
+reade (kOrd : kLin) GN58PF;
+if %eof;
+  say('RE12 AGAIN EOF');
+endif;
+kOrd = 2;
+setll kOrd GN58PF;
+readpe kOrd GN58PF;
+if %eof;
+  say('RPE2 EOF');
+endif;
+setgt kOrd GN58PF;
+readpe kOrd GN58PF;
+say('GT2 RPE2 ' + %trim(NAME));
+*inlr = *on;
+
+dcl-proc say;
+  dcl-pi *n;
+    text varchar(200) const;
+  end-pi;
+  dcl-s line varchar(200);
+  line = text;
+  exec sql call qsys2.ifs_write_utf8(path_name => 'gn1.out', line => :line,
+                                     overwrite => 'APPEND', end_of_line => 'LF');
+end-proc;

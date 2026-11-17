@@ -9,7 +9,7 @@
 //! Needs a PostgreSQL database (AS4TAINR_TEST_DATABASE_URL); without it
 //! the tests say they are skipped.
 
-use as4tainr_core::{catalog, rpg, runtime};
+use as4tainr_core::{catalog, dds, rla, rpg, runtime};
 
 fn db_url() -> Option<String> {
     std::env::var("AS4TAINR_TEST_DATABASE_URL").ok()
@@ -1434,6 +1434,99 @@ async fn native_unit_lowered_ds_array_subfields() {
             "DSA COND YES",
             "DSA COPY [C3]",
             "DSA PAST ERR 121",
+        ],
+    )
+    .await;
+}
+
+// Stage 2, S2.58: reads of a database file lowered to Rust. SETLL, SETGT,
+// CHAIN, READ, READE, READP, READPE with key fields and *LOVAL/*HIVAL;
+// %EOF, %FOUND, %EQUAL; zoned, packed, character and hexadecimal fields.
+// The file is the one captured on PUB400 (the same DDS and rows), made in
+// QGPL as NFR58PF.
+// Source: golden capture tools/golden/native58 n58_r (PUB400, IBM i 7.5, 2026-11-17)
+#[tokio::test]
+async fn native_unit_lowered_file_reads() {
+    let url = require_db!();
+    let mut client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    catalog::init(&client)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    let libl = ["QGPL".to_string()];
+    if catalog::resolve_file(&client, &libl, "NFR58PF")
+        .await
+        .is_err()
+    {
+        let pf = dds::parse_pf(
+            "NFR58PF",
+            include_str!("../../tools/golden/native58/gn58pf.pf"),
+        )
+        .unwrap_or_else(|e| panic!("{e:#}"));
+        catalog::create_physical_file(&mut client, "QGPL", &pf)
+            .await
+            .unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    client
+        .batch_execute(&format!(
+            "DELETE FROM {}.{}",
+            catalog::ident("QGPL"),
+            catalog::ident("NFR58PF")
+        ))
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    let f = catalog::resolve_file(&client, &libl, "NFR58PF")
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    let mut of = rla::OpenFile::new(f);
+    // The rows of tools/golden/native58.txt n58_rows, in its order.
+    for (ord, lin, name, amt, hx) in [
+        ("1", "2", "Beta", "-3.25", "0000"),
+        ("2", "1", "Delta", "99999.99", "C1C2"),
+        ("1", "1", "Alpha", "10.50", "C1C2"),
+        ("3", "1", "Echo", "1", "4040"),
+        ("1", "3", "Gamma", "0", "FFFF"),
+    ] {
+        let rec: rla::Record = [
+            ("ORD", ord),
+            ("LIN", lin),
+            ("NAME", name),
+            ("AMT", amt),
+            ("HX", hx),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        of.write(&client, &rec)
+            .await
+            .unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    expect(
+        "NFREAD",
+        include_str!("native/NFREAD.rpgle"),
+        &[
+            "SETLL1 EQUAL",
+            "SETLL1 FOUND",
+            "RE 1 1 Alpha 10.50",
+            "HX C1C2",
+            "RE 1 2 Beta -3.25",
+            "RE 1 3 Gamma .00",
+            // n58_r's "RPE1 EOF" is not checked: the program leaves that
+            // READPE out (NFREAD.rpgle; fidelity.md, interpreter defects).
+            "GT1 READ 2 1",
+            "READP 1 3",
+            "CH99 NOT FOUND",
+            "CH21 Delta 99999.99",
+            "LOVAL READ 1 1",
+            "HIVAL READP 3 1",
+            "HIVAL READ EOF",
+            "SETLL5 NEITHER",
+            "SETLL12 EQUAL",
+            "RE12 Beta",
+            "RE12 AGAIN EOF",
+            "RPE2 EOF",
+            "GT2 RPE2 Delta",
         ],
     )
     .await;

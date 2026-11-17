@@ -374,3 +374,65 @@ The native units have no calls between programs. The upstream suite's cross-prog
   - EVAL of a hexadecimal literal to an integer or unsigned field, where Stmt::Eval takes its bytes as an unsigned number. That needs a numeric operand, and lowering gives none for a hexadecimal literal.
   - An integer argument, which value_arg refuses for a hexadecimal literal.
 - **Expected values.** From PUB400: NCFUNC's `x'00'` terminators (tools/golden/native57.txt n57_c: strlen gives 5 and atoi 123). NCFUNC now has 2 instructions in the interpreter, down from 4.
+
+## Plan: record I/O on database files (S2.58 and on)
+
+About 150 of the corpus's instructions still in the interpreter are file operations: READ 45, WRITE 33, CHAIN 21, EXCEPT 20, SETLL 8, OPEN 8, UPDATE 7, CLOSE 7. In the interpreter they go through file_op_inner, which leans on:
+- key_values (KLIST, %KDS);
+- move_input and record_of (fields to and from the record, null maps under ALWNULL);
+- record_change (writes: authority, triggers, the journal);
+- file_failed (status and INFDS);
+- commitment control and record locks.
+
+**The runtime library is shared, the orchestration is ours.** The record operations themselves are `rla` (setll, chain, read, read_equal, lock_after_read, record changes), a runtime module the interpreter also calls, not interpreter code. The native engine calls rla directly. What file_op_inner does around rla is written again in native_rt, under the tripwire, as phase A asks:
+- the order of steps;
+- the status and %EOF/%FOUND/%EQUAL;
+- the result indicators;
+- the error path.
+Renaming the interpreter's statement dispatch is not an option: it would count as native and is not.
+
+**Steps, each a block with its own PUB400 captures and section 7:**
+1. **S2.58: reads on externally described database files**, with no result data structure and no field list:
+   - SETLL and SETGT, with keys, *LOVAL/*HIVAL and *START/*END;
+   - CHAIN, READ, READP, READE and READPE;
+   - keys from fields and literals, and KLIST;
+   - result indicators, and the E extender (file_failed's status);
+   - move_input written again (fields from the record, ALWNULL rules).
+2. **S2.59: WRITE, UPDATE and DELETE**: record_of, record_change's authority check, commitment control's `changed`.
+3. **S2.60: OPEN and CLOSE** (USROPN), UNLOCK and FEOD, %KDS, and the result data structure and field list forms.
+4. **Then printer files (WRITE, EXCEPT) and display files (EXFMT, READC, subfiles).** These are their own blocks, after the database ones.
+
+Each step keeps the interpreter as the reference (native-diff), and records any difference from IBM i in fidelity.md, as before.
+
+## S2.58: reads of database files
+
+SETLL, SETGT, CHAIN, READ, READE, READP and READPE of a database file, and %EOF, %FOUND and %EQUAL, run in Rust. The work is split three ways.
+
+**Generated code:**
+- evaluates the key's values;
+- calls `Runtime::file_read`;
+- moves the record's fields into the program fields of the same names, as fill_fields does: a number parsed exactly, characters, or hexadecimal digits two to a byte, stored with the strict fit;
+- calls `Runtime::file_done` with the result of the moves.
+
+**`native_rt`** writes again errors.rs file_op (with file_failed, file_idx and opcode_name) and the reads of interp.rs file_op_inner, in their order:
+- the error flag off, and the savepoint of a file under commitment control;
+- the `rla` operation, with its record lock;
+- fill_fields' null values: ALWNULL(*NO) gives CPF5035, *USRCTL sets the null indicators;
+- after the moves: the status, %EOF/%FOUND/%EQUAL, the result indicators, the counters, the status code (00011, 00012) and the operation and record names.
+
+An error, of the operation or of a move, ends the operation as file_op does and goes on to the error path. native_tripwire.rs watches the copied functions. `rla` is the runtime library both engines call.
+
+**What lowering lets through:**
+- an externally described DISK file of the main program (no file declared in a procedure and no LIKEFILE parameter, so a name finds the same file wherever it runs);
+- no INFDS, so infds_update has nothing to do;
+- no input specifications for the file, no result data structure and no field list;
+- no E extender and no error indicator;
+- keys of fields and literals, a KLIST of them, or *LOVAL, *HIVAL, *START or *END alone. A field or a literal cannot fail, so evaluating the key before the operation starts, rather than inside it as key_values does, makes no difference;
+- record fields that are numbers, characters or hexadecimal, into numeric, character or varying character program fields.
+
+Everything else stays in the interpreter, for later steps.
+
+**Verified by:**
+- The native unit NFREAD, under both engines. Its DDS file, its rows, its program and every expected line come from PUB400 (tools/golden/native58.txt n58_r).
+- On IBM i, a READPE right after READE reached end of file is end of file too; as4tainr's `rla` reads the key's last record again in both engines (fidelity.md, interpreter defects), so NFREAD leaves that READPE out.
+- The first capture found that IBM i refuses a key literal of another length than the key field (RNF7078). as4tainr accepts it: fidelity.md, upstream findings.
