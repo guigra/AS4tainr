@@ -2503,12 +2503,13 @@ fn ptr_val(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
                 [x, Expr::Name { parts, args: None }] if parts.as_slice() == ["*DATA"] => (x, true),
                 _ => return None,
             };
+            // A global field, or (S2.65) a procedure's local one: ptr_to of
+            // the place Machine::sym gives it, the frame's buffer (or the
+            // caller's storage for a parameter passed by reference), which
+            // generated code asks `rt.local` for. Not a based field.
             let of = variable(cx, of, used)?;
             let ir::Operand::Var {
-                local: false,
-                based: None,
-                ty,
-                ..
+                based: None, ty, ..
             } = &of
             else {
                 return None;

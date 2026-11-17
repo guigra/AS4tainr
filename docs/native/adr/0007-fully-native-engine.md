@@ -530,3 +530,12 @@ A scalar subfield of a global multiple-occurrence data structure is now lowered 
 A subfield that is an array, a based or local one, and the whole data structure as a field stay in the interpreter.
 
 **Verified by** the native unit NOCCUR, under both engines. The program captured on PUB400 (tools/golden/native64.txt n64_occ) writes the three occurrences, reads them through %OCCUR and OCCUR, totals them, and gets 00122 under MONITOR for occurrence 4. The first capture found that IBM i refuses a literal out of range there at compile time (RNF7571), which as4tainr accepts (fidelity.md, upstream findings).
+
+## S2.65: %ADDR of a procedure's local fields
+
+%ADDR of a procedure's local field (not based) is now lowered. ptrs.rs ptr_to of the place that Machine::sym gives the field is the frame's buffer, or the caller's storage for a parameter passed by reference. Generated code gets that place from `rt.local`, then `rt.addr_of`. An element of a local array (S2.63) is placed the same way. `pointer_set` already found the variables based on a local pointer among the frame's based fields (room_for_based).
+
+**Verified by** the native unit NLOCADR, under both engines. The program captured on PUB400 (tools/golden/native65.txt n65_adr) does three things:
+- changes a local through a based field;
+- walks a local array with pointer arithmetic;
+- writes into the caller's storage through the address of a parameter passed by reference.

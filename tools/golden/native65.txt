@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.65: %ADDR of a procedure's local fields (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native65.txt -f tools/golden/native65
+n65_crt_adr|!system "CRTSQLRPGI OBJ(@LIB@/GN65ADR) SRCSTMF('@HOME@/gld/gn65adr.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n65_adr|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN65ADR)"; cat gn1.out; rm -f gn1.out
