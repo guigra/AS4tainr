@@ -1648,3 +1648,16 @@ async fn native_unit_lowered_occurs() {
     )
     .await;
 }
+
+// Stage 2, S2.65: %ADDR of a procedure's local fields lowered to Rust.
+// Source: golden capture tools/golden/native65 n65_adr (PUB400, IBM i 7.5, 2026-11-17)
+#[tokio::test]
+async fn native_unit_lowered_addr_of_locals() {
+    let _ = require_db!();
+    expect(
+        "NLOCADR",
+        include_str!("native/NLOCADR.rpgle"),
+        &["VIA Jello", "WALK 94", "POKE ABzDEF"],
+    )
+    .await;
+}
