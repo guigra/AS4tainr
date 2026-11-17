@@ -21,7 +21,7 @@ const UNITS: &[(&str, &str, usize)] = &[
     ("FOREACH", include_str!("native/FOREACH.rpgle"), 2),
     ("GOTOTAG", include_str!("native/GOTOTAG.rpgle"), 2),
     ("NABS", include_str!("native/NABS.rpgle"), 0),
-    ("NARITH", include_str!("native/NARITH.rpgle"), 4),
+    ("NARITH", include_str!("native/NARITH.rpgle"), 0),
     ("NARR", include_str!("native/NARR.rpgle"), 0),
     ("NARRV", include_str!("native/NARRV.rpgle"), 0),
     ("NBIF", include_str!("native/NBIF.rpgle"), 0),

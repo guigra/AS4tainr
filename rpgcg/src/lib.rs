@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.59");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.62");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -371,6 +371,9 @@ pub mod ir {
     /// concatenation with `+`.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum CharExpr {
+        /// An indicator as a part of a concatenation (S2.62): character
+        /// data of length 1, '1' or '0' (Value::Ind's chars).
+        Ind(String),
         Leaf(Operand),
         /// A chain of concatenations down the left operands (S2.41): the
         /// parts in order.
@@ -2044,6 +2047,10 @@ fn path_arg(path: &[u8]) -> String {
 fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
     match e {
         ir::CharExpr::Leaf(o) => value(o),
+        ir::CharExpr::Ind(name) => format!(
+            "rpgrt::rpg::data::Value::Char(vec![if rt.ind({}) {{ 0xF1 }} else {{ 0xF0 }}])",
+            json_str(name)
+        ),
         ir::CharExpr::Call(c) => returned(call_fn(pc, c, helpers), &c.proc),
         ir::CharExpr::Chain { parts, path } => {
             // Each part evaluated in order and appended (the interpreter's
