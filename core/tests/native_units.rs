@@ -1572,3 +1572,25 @@ async fn native_unit_lowered_file_writes() {
     )
     .await;
 }
+
+// Stage 2, S2.60: whole data structures and hexadecimal literals as
+// arguments of program calls (the user space APIs with the error code
+// structure and a receiver data structure).
+// Source: golden capture tools/golden/native60 n60_api (PUB400, IBM i 7.5, 2026-11-17)
+#[tokio::test]
+async fn native_unit_lowered_ds_arguments() {
+    let _ = require_db!();
+    expect(
+        "NCALLDS",
+        include_str!("native/NCALLDS.rpgle"),
+        &[
+            "CRT AVAIL 0",
+            "CHG AVAIL 0",
+            "RTV [ABCDAB  ] 0",
+            "FIRST [ABCD] SECOND [AB  ]",
+            "DLT AVAIL 0",
+            "GONE AVAIL 1 CPF9801",
+        ],
+    )
+    .await;
+}
