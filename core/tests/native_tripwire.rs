@@ -343,6 +343,19 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    pub(super) fn move_input(&mut self, i: usize, rec: &Record) -> Result<()> {",
             "    ",
         ),
+        // S2.59: WRITE, UPDATE and DELETE.
+        function(
+            INTERP,
+            "    fn record_of(&mut self, i: usize) -> Result<Record> {",
+            "    ",
+        ),
+        function(INTERP, "    pub(super) fn record_change(\n", "    "),
+        function(INTERP, "    fn rla_change(\n", "    "),
+        function(
+            INTERP,
+            "    fn fref_of(&self, i: usize) -> Result<crate::catalog::FileRef> {",
+            "    ",
+        ),
     ];
     let hash = sha256(&watched.concat());
     // Reviewed on 2026-11-15 against native_rt.rs and the stage 2
@@ -356,9 +369,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // S2.53 bif_override and temporal, S2.54 bif_more, temporal_arg and
     // special_arg, S2.55 date_arith and as_ts, S2.58 file_op,
     // file_failed, file_idx, opcode_name, file_op_inner, key_values,
-    // fill_fields, file_status and move_input;
+    // fill_fields, file_status and move_input, S2.59 record_of,
+    // record_change, rla_change and fref_of;
     // upstream still dd47e28.
-    let reviewed = "ded5f9fd8d00b15ac2d9be400e339369781ade98b072ae918d7894be2623e2b6";
+    let reviewed = "42c1967dff7caeddd51d83c4b31695e9e16c62806c2b93403538ccb1d6932b0e";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

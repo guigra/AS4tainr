@@ -961,6 +961,19 @@ impl Runtime for Rt<'_, '_> {
         self.file_done_n(pc, moved)
     }
 
+    fn file_change_start(&mut self, pc: usize) -> NResult<()> {
+        self.file_change_start_n(pc)
+    }
+
+    fn file_change(
+        &mut self,
+        pc: usize,
+        keys: Option<Vec<KeyArg>>,
+        rec: NResult<Vec<Option<String>>>,
+    ) -> NResult<()> {
+        self.file_change_n(pc, keys, rec)
+    }
+
     fn file_status(&mut self, bit: FileBit, file: Option<&str>) -> NResult<bool> {
         // interp.rs bif "EOF"/"FOUND"/"EQUAL" and file_status.
         let st = match file {
@@ -1980,6 +1993,260 @@ impl Rt<'_, '_> {
         );
         st.record = record;
         Ok(())
+    }
+}
+
+// ---- WRITE, UPDATE and DELETE of database files (S2.59, ADR 0007) -----
+//
+// Written again from errors.rs file_op and interp.rs file_op_inner (the
+// change arm), record_of's null values, record_change and rla_change, in
+// their order; native_tripwire.rs watches them. A file with trigger
+// programs goes to the interpreter's triggered_change, which calls them:
+// an external program call, as the other calls of programs (the user's
+// choice, 2026-11-16), to be written again in phase B. Lowering lets
+// through what it lets through for reads (S2.58).
+impl Rt<'_, '_> {
+    /// file_op's start, file_op_inner's open check, and the authority
+    /// check of the change arm (*CHANGE on the file). An error ends the
+    /// operation (file_op's end).
+    fn file_change_start_n(&mut self, pc: usize) -> NResult<()> {
+        let (op, file, _, _, _) = self.file_stmt(pc)?;
+        let file = file.to_string();
+        let i = self
+            .file_idx_n(&file)
+            .ok_or_else(|| anyhow!("{file} is not a file of this program"))?;
+        self.file_n(i)?.status.error = false;
+        let cmt = self.file_n(i)?.cmt.clone();
+        if let Some(d) = &cmt {
+            self.m.block(async {
+                d.client
+                    .batch_execute("SAVEPOINT as4tainr_rla")
+                    .await
+                    .map_err(anyhow::Error::from)
+            })?;
+        }
+        let r = (|| -> NResult<()> {
+            if self.file_n(i)?.open.is_none() {
+                return Err(anyhow!("CPF4135: File {file} is not open."));
+            }
+            let fref = self.fref_n(i)?;
+            self.m.block(crate::authority::check(
+                self.m.io.client,
+                &self.m.io.user,
+                &fref.library,
+                &fref.file.name,
+                "*FILE",
+                crate::authority::Aut::Change,
+            ))
+        })();
+        match r {
+            Ok(()) => {
+                self.pending = Some(PendingRead {
+                    file: i,
+                    found: false,
+                    eof: false,
+                    has_record: false,
+                });
+                Ok(())
+            }
+            Err(err) => {
+                self.pending = None;
+                self.file_end_n(i, op, &file, cmt.as_deref(), Err(&err))?;
+                Err(err)
+            }
+        }
+    }
+
+    /// interp.rs fref_of: the file as it was opened, or as compiled.
+    fn fref_n(&self, i: usize) -> NResult<crate::catalog::FileRef> {
+        let f = self
+            .m
+            .files
+            .get(i)
+            .ok_or_else(|| anyhow!("native: no file {i}"))?;
+        let fi = self
+            .m
+            .prog
+            .files
+            .get(i)
+            .ok_or_else(|| anyhow!("native: no file {i}"))?;
+        f.open
+            .as_ref()
+            .map(|o| o.file.clone())
+            .or_else(|| fi.fref.clone())
+            .ok_or_else(|| anyhow!("CPF4101: File {} is not open.", fi.decl.name))
+    }
+
+    /// The change arm of file_op_inner after the record is made: the
+    /// record (record_of's fields and null values; none for DELETE), the
+    /// change (record_change), %ERROR's status on success, then
+    /// file_op's end.
+    fn file_change_n(
+        &mut self,
+        pc: usize,
+        keys: Option<Vec<KeyArg>>,
+        rec: NResult<Vec<Option<String>>>,
+    ) -> NResult<()> {
+        let (op, file, key, _, _) = self.file_stmt(pc)?;
+        let file = file.to_string();
+        // *START/*END as a DELETE key: no key (file_op_inner's special).
+        let special = matches!(
+            key.as_deref(),
+            Some([Expr::Name { parts, .. }])
+                if parts.first().is_some_and(|p| p == "*START" || p == "*END")
+        );
+        let p = self
+            .pending
+            .take()
+            .ok_or_else(|| anyhow!("native: {op:?} {file} with no start"))?;
+        let i = p.file;
+        let cmt = self.file_n(i)?.cmt.clone();
+        let keys: Option<Vec<String>> = match special {
+            true => None,
+            false => keys.map(|ks| {
+                ks.into_iter()
+                    .map(|k| match k {
+                        KeyArg::Num(d) => d.to_string(),
+                        KeyArg::Char(c) => a(&c),
+                    })
+                    .collect()
+            }),
+        };
+        let made = rec.and_then(|cols| self.record_n(i, op, cols));
+        let r = made.and_then(|rec| self.record_change_n(i, op, &rec, &keys, cmt.as_deref()));
+        match r {
+            Ok(()) => {
+                if let Some(d) = &cmt {
+                    d.changed();
+                }
+                self.m.last = super::Status {
+                    found: true,
+                    ..super::Status::default()
+                };
+                self.file_end_n(i, op, &file, cmt.as_deref(), Ok(()))
+            }
+            Err(err) => {
+                self.file_end_n(i, op, &file, cmt.as_deref(), Err(&err))?;
+                Err(err)
+            }
+        }
+    }
+
+    /// record_of: the record format's fields by name, with the null
+    /// values under ALWNULL(*USRCTL); DELETE takes an empty record.
+    fn record_n(
+        &self,
+        i: usize,
+        op: FileOp,
+        cols: Vec<Option<String>>,
+    ) -> NResult<crate::rla::Record> {
+        let mut rec = crate::rla::Record::new();
+        if op == FileOp::Delete {
+            return Ok(rec);
+        }
+        let prog: &super::super::program::Program = self.m.prog;
+        let fi = prog
+            .files
+            .get(i)
+            .ok_or_else(|| anyhow!("native: no file {i}"))?;
+        let fref = fi
+            .fref
+            .as_ref()
+            .ok_or_else(|| anyhow!("{} is not a database file", fi.decl.name))?;
+        for (fd, text) in fref.file.fields.iter().zip(cols) {
+            if let Some(t) = text {
+                rec.insert(fd.name.clone(), t);
+            }
+        }
+        if self.m.alwnull == super::AlwNull::UsrCtl {
+            let nulls: Vec<String> = fref
+                .file
+                .fields
+                .iter()
+                .zip(&fi.fields)
+                .filter(|(fd, p)| fd.null_capable && self.m.nullind.contains(*p))
+                .map(|(fd, _)| fd.name.clone())
+                .collect();
+            if !nulls.is_empty() {
+                rec.insert(crate::rla::NULLS.to_string(), nulls.join(","));
+            }
+        }
+        Ok(rec)
+    }
+
+    /// interp.rs record_change: trigger programs or not (asked once),
+    /// the change, and the record lock released after UPDATE and DELETE.
+    fn record_change_n(
+        &mut self,
+        i: usize,
+        op: FileOp,
+        rec: &crate::rla::Record,
+        keys: &Option<Vec<String>>,
+        cmt: Option<&crate::cmtctl::Definition>,
+    ) -> NResult<()> {
+        let rt = self.m.io.rt.clone();
+        let client: &tokio_postgres::Client = match cmt {
+            Some(d) => &d.client,
+            None => self.m.io.data.unwrap_or(self.m.io.client),
+        };
+        let fref = self.fref_n(i)?;
+        let triggered = match self.file_n(i)?.pftrg {
+            Some(t) => t,
+            None => {
+                let t: bool = rt
+                    .block_on(client.query_one(
+                        "SELECT as4tainr_svc.has_pftrg($1, $2)",
+                        &[&fref.library, &fref.file.name],
+                    ))
+                    .map(|r| r.get(0))
+                    .unwrap_or(false);
+                self.file_n(i)?.pftrg = Some(t);
+                t
+            }
+        };
+        if triggered {
+            // Trigger programs: the interpreter's record_change, which
+            // calls them (above).
+            return self.m.record_change(i, op, rec, keys);
+        }
+        let r = self.rla_change_n(i, op, rec, keys, client);
+        if r.is_ok() && matches!(op, FileOp::Update | FileOp::Delete) {
+            if let Some(f) = self.file_n(i)?.open.as_mut() {
+                rt.block_on(f.release(client))?;
+            }
+        }
+        r
+    }
+
+    /// interp.rs rla_change: WRITE, UPDATE, or DELETE (of the record a
+    /// key finds, CPF5013 if none, or of the record last read).
+    fn rla_change_n(
+        &mut self,
+        i: usize,
+        op: FileOp,
+        rec: &crate::rla::Record,
+        keys: &Option<Vec<String>>,
+        client: &tokio_postgres::Client,
+    ) -> NResult<()> {
+        let rt = self.m.io.rt.clone();
+        let f = self
+            .file_n(i)?
+            .open
+            .as_mut()
+            .ok_or_else(|| anyhow!("file not open"))?;
+        match op {
+            FileOp::Write => rt.block_on(f.write(client, rec)).map(|_| ()),
+            FileOp::Update => rt.block_on(f.update(client, rec)),
+            _ => rt.block_on(async {
+                if let Some(k) = keys {
+                    let r = f.chain(client, k).await?;
+                    if !r.found {
+                        return Err(anyhow!("CPF5013: The record to delete was not found."));
+                    }
+                }
+                f.delete(client).await
+            }),
+        }
     }
 }
 

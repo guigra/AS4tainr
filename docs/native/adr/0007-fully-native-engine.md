@@ -436,3 +436,34 @@ Everything else stays in the interpreter, for later steps.
 - The native unit NFREAD, under both engines. Its DDS file, its rows, its program and every expected line come from PUB400 (tools/golden/native58.txt n58_r).
 - On IBM i, a READPE right after READE reached end of file is end of file too; as4tainr's `rla` reads the key's last record again in both engines (fidelity.md, interpreter defects), so NFREAD leaves that READPE out.
 - The first capture found that IBM i refuses a key literal of another length than the key field (RNF7078). as4tainr accepts it: fidelity.md, upstream findings.
+
+## S2.59: WRITE, UPDATE and DELETE of database files
+
+WRITE, UPDATE and DELETE of a database file run in Rust, under the same conditions as S2.58's reads, with these additions:
+- WRITE and UPDATE take no key;
+- DELETE takes a key of fields and literals, or none (the record last read).
+
+The work is split in the order of the interpreter's file_op.
+
+**`Runtime::file_change_start`:**
+- the error flag off, and the savepoint of a file under commitment control;
+- the open check;
+- the authority check: *CHANGE on the file, CPF9802.
+
+**Generated code:** makes the record from the program fields of the same names, as record_of does:
+- a number with the record field's decimal places (an error if it does not fit them);
+- hexadecimal bytes as two capital digits;
+- characters as text.
+
+**`Runtime::file_change`:**
+- the record, with record_of's null values under ALWNULL(*USRCTL);
+- record_change: WRITE, UPDATE, or DELETE (of the record a key finds, CPF5013 if none);
+- the record lock released after UPDATE and DELETE;
+- the commitment definition told of the change;
+- %ERROR's status, and file_op's end.
+
+**Trigger programs.** A file with trigger programs goes to the interpreter's record_change, which calls them. This is an external program call, like the other program calls kept for now (the user's choice, 2026-11-16), to be written again in phase B.
+
+**Watched.** native_tripwire.rs watches record_of, record_change, rla_change and fref_of.
+
+**Verified by** the native unit NFWRITE, under both engines. Its DDS file, its program and its expected lines are those captured on PUB400 (tools/golden/native59.txt n59_w).
