@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.54");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.55");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -351,6 +351,16 @@ pub mod ir {
             of: Operand,
             fmt: TemporalFmt,
         },
+        /// A date, time or timestamp plus or minus a duration (S2.55):
+        /// `unit` is rpgrt::rpg::data::DurUnit's variant; `dur_first` when
+        /// the duration is the left operand (evaluated first).
+        TemporalAdd {
+            base: Box<CharExpr>,
+            unit: &'static str,
+            n: Box<NumExpr>,
+            minus: bool,
+            dur_first: bool,
+        },
         /// %DATE, %TIME or %TIMESTAMP (S2.54): the argument (none for
         /// none, *SYS or *JOB), a special value given as the format, and
         /// the control specification's DATFMT or TIMFMT code
@@ -444,6 +454,17 @@ pub mod ir {
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum NumExpr {
         Leaf(Operand),
+        /// %DIFF(x : y : unit) and %SUBDT(x : unit) (S2.55): temporal
+        /// values, and rpgrt::rpg::data::DurUnit's variant.
+        TemporalDiff {
+            x: Box<CharExpr>,
+            y: Box<CharExpr>,
+            unit: &'static str,
+        },
+        TemporalSubdt {
+            x: Box<CharExpr>,
+            unit: &'static str,
+        },
         /// An operation, and its place in the statement's expression (0
         /// left, 1 right from the root): where the runtime finds it to give
         /// its precision.
@@ -1889,6 +1910,24 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
             );
             format!("{name}(rt)?")
         }
+        ir::CharExpr::TemporalAdd {
+            base,
+            unit,
+            n,
+            minus,
+            dur_first,
+        } => {
+            let b = char_expr(pc, base, helpers);
+            let k = num_expr(pc, n, helpers);
+            let lets = if *dur_first {
+                format!("let n = {k};\n    let b = {b};")
+            } else {
+                format!("let b = {b};\n    let n = {k};")
+            };
+            format!(
+                "{{\n    {lets}\n    rpgrt::native::temporal_add(&b, rpgrt::rpg::data::DurUnit::{unit}, &n, {minus})?\n    }}"
+            )
+        }
         ir::CharExpr::TemporalBif {
             kind,
             arg,
@@ -2087,6 +2126,19 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
 fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
     match e {
         ir::NumExpr::Leaf(o) => number(o),
+        ir::NumExpr::TemporalDiff { x, y, unit } => {
+            let a = char_expr(pc, x, helpers);
+            let b = char_expr(pc, y, helpers);
+            format!(
+                "{{\n    let x = {a};\n    let y = {b};\n    rpgrt::native::temporal_diff(&x, &y, rpgrt::rpg::data::DurUnit::{unit})?\n    }}"
+            )
+        }
+        ir::NumExpr::TemporalSubdt { x, unit } => {
+            let a = char_expr(pc, x, helpers);
+            format!(
+                "{{\n    let x = {a};\n    rpgrt::native::temporal_subdt(&x, rpgrt::rpg::data::DurUnit::{unit})?\n    }}"
+            )
+        }
         ir::NumExpr::Chain { first, steps, path } => {
             // Straight-line code: the running value, then each operation
             // with its own precision (as each Bin node's helper does).

@@ -241,6 +241,13 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    ",
         ),
         function(BIFS, "pub(super) fn temporal(v: &Value) -> Option<Temporal> {", ""),
+        // S2.55: durations, %DIFF and %SUBDT (bif_more, above).
+        function(
+            BIFS,
+            "    pub(super) fn date_arith(&mut self, op: BinOp, x: Value, y: Value) -> Result<Value> {",
+            "    ",
+        ),
+        function(BIFS, "fn as_ts(t: Temporal) -> dates::Ts {", ""),
         // S2.54: %DATE, %TIME and %TIMESTAMP.
         function(
             BIFS,
@@ -312,9 +319,9 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // addr, assign and room_for_based, S2.48 based_place, S2.49 ptr_arith,
     // S2.50 alloc, realloc, dealloc and storage_op, S2.51 char_variable,
     // S2.53 bif_override and temporal, S2.54 bif_more, temporal_arg and
-    // special_arg;
+    // special_arg, S2.55 date_arith and as_ts;
     // upstream still dd47e28.
-    let reviewed = "f2939bf20e9e671de8a2d8a164cb78c0ad5ce3cd040a805327e529dde7431069";
+    let reviewed = "45df6dd3897e3ca723d439e37538adf979d8449411e51a3c76248cbb06d39a14";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

@@ -769,10 +769,11 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
 /// The value of a character EVAL (S2.52): a date, time or timestamp field
 /// as the whole value, or a character expression.
 fn char_value(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::CharExpr> {
-    // %DATE, %TIME and %TIMESTAMP as the whole value (S2.54).
-    if let Expr::Bif(b, args) = e {
-        if matches!(b.as_str(), "DATE" | "TIME" | "TIMESTAMP") {
-            return temporal_bif(cx, b, args, used);
+    // %DATE, %TIME and %TIMESTAMP (S2.54), and date arithmetic with
+    // durations (S2.55), as the whole value.
+    if matches!(e, Expr::Bif(..) | Expr::Bin(..)) {
+        if let Some(t) = temporal_value(cx, e, used, Vec::new()) {
+            return Some(t);
         }
     }
     if let Expr::Name { .. } = e {
@@ -789,6 +790,33 @@ fn char_value(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::CharE
 /// (S2.2), each operation with its place in the statement's expression.
 fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::NumExpr> {
     match e {
+        // %DIFF and %SUBDT of temporal values (S2.55), as bif_more: the
+        // arguments in order, the unit a special value.
+        Expr::Bif(b, args) if b == "DIFF" || b == "SUBDT" => {
+            let at = |k: u8| {
+                let mut p = path.clone();
+                p.push(k);
+                p
+            };
+            match (b.as_str(), args.as_slice()) {
+                ("DIFF", [x, y, u]) => {
+                    let unit = dur_unit(u)?;
+                    Some(ir::NumExpr::TemporalDiff {
+                        x: Box::new(temporal_value(cx, x, used, at(0))?),
+                        y: Box::new(temporal_value(cx, y, used, at(1))?),
+                        unit,
+                    })
+                }
+                ("SUBDT", [x, u]) => {
+                    let unit = dur_unit(u)?;
+                    Some(ir::NumExpr::TemporalSubdt {
+                        x: Box::new(temporal_value(cx, x, used, at(0))?),
+                        unit,
+                    })
+                }
+                _ => None,
+            }
+        }
         // %ELEM of a global varying-dimension array (S2.45): its elements
         // in use, bifs.rs bif_override "ELEM".
         Expr::Bif(b, args) if b == "ELEM" && args.len() == 1 => {
@@ -1146,6 +1174,21 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
         BinOp::Ge => ir::CmpOp::Ge,
         _ => return None,
     };
+    // Temporal values on both sides, not both fields (S2.55): a date,
+    // time or timestamp bif or date arithmetic, compared as the character
+    // data they are (data::compare).
+    if !(operand_only(l) && operand_only(r)) {
+        if let (Some(a), Some(b)) = (
+            temporal_value(cx, l, used, child(0)),
+            temporal_value(cx, r, used, child(1)),
+        ) {
+            return Some(ir::Cond::CmpExpr(
+                cmp,
+                Box::new(ir::CmpSide::Char(a)),
+                Box::new(ir::CmpSide::Char(b)),
+            ));
+        }
+    }
     if operand_only(l) && operand_only(r) {
         let (a, b) = (any_operand(cx, l, used)?, any_operand(cx, r, used)?);
         // A figurative constant compares with either class (data::compare).
@@ -2390,7 +2433,10 @@ fn temporal_bif(
     b: &str,
     args: &[Expr],
     used: &mut Vec<String>,
+    path: Vec<u8>,
 ) -> Option<ir::CharExpr> {
+    let mut ap = path;
+    ap.push(0);
     let special = |e: Option<&Expr>| match e {
         Some(Expr::Name { parts, args: None }) if parts.len() == 1 => {
             parts.first().filter(|p| p.starts_with('*')).cloned()
@@ -2416,10 +2462,10 @@ fn temporal_bif(
         let a = args.first()?;
         let v = if is_temporal_name(cx, a) {
             ir::ValExpr::Char(ir::CharExpr::Leaf(variable(cx, a, used)?))
-        } else if let Some(c) = char_expr(cx, a, used, vec![0]) {
+        } else if let Some(c) = char_expr(cx, a, used, ap.clone()) {
             ir::ValExpr::Char(c)
         } else {
-            ir::ValExpr::Num(num_expr(cx, a, used, vec![0])?)
+            ir::ValExpr::Num(num_expr(cx, a, used, ap)?)
         };
         Some(Box::new(v))
     };
@@ -2431,4 +2477,95 @@ fn temporal_bif(
         fmt,
         dft,
     })
+}
+
+/// The rpgrt::rpg::data::DurUnit variant a special value names (S2.55):
+/// *YEARS or *Y ... *MSECONDS or *MS (DurUnit::parse).
+fn dur_unit(e: &Expr) -> Option<&'static str> {
+    let Expr::Name { parts, args: None } = e else {
+        return None;
+    };
+    let [p] = parts.as_slice() else {
+        return None;
+    };
+    unit_name(rpgrt::rpg::data::DurUnit::parse(p)?)
+}
+
+fn unit_name(u: rpgrt::rpg::data::DurUnit) -> Option<&'static str> {
+    use rpgrt::rpg::data::DurUnit as U;
+    Some(match u {
+        U::Years => "Years",
+        U::Months => "Months",
+        U::Days => "Days",
+        U::Hours => "Hours",
+        U::Minutes => "Minutes",
+        U::Seconds => "Seconds",
+        U::MSeconds => "MSeconds",
+    })
+}
+
+/// A duration bif, %YEARS ... %MSECONDS of one number (S2.55): its unit,
+/// as bif_more's `DurUnit::parse(&format!("*{b}"))`.
+fn duration(e: &Expr) -> Option<(&'static str, &Expr)> {
+    let Expr::Bif(b, args) = e else {
+        return None;
+    };
+    if !matches!(
+        b.as_str(),
+        "YEARS" | "MONTHS" | "DAYS" | "HOURS" | "MINUTES" | "SECONDS" | "MSECONDS"
+    ) {
+        return None;
+    }
+    let [n] = args.as_slice() else {
+        return None;
+    };
+    Some((
+        unit_name(rpgrt::rpg::data::DurUnit::parse(&format!("*{b}"))?)?,
+        n,
+    ))
+}
+
+/// A temporal value (S2.55): a date, time or timestamp field, %DATE,
+/// %TIME or %TIMESTAMP, or one of these plus or minus a duration (eval's
+/// date_arith: a duration on either side of +, on the right of -).
+fn temporal_value(
+    cx: &Cx<'_>,
+    e: &Expr,
+    used: &mut Vec<String>,
+    path: Vec<u8>,
+) -> Option<ir::CharExpr> {
+    let at = |k: u8| {
+        let mut p = path.clone();
+        p.push(k);
+        p
+    };
+    match e {
+        Expr::Name { .. } if is_temporal_name(cx, e) => {
+            Some(ir::CharExpr::Leaf(variable(cx, e, used)?))
+        }
+        Expr::Bif(b, args) if matches!(b.as_str(), "DATE" | "TIME" | "TIMESTAMP") => {
+            temporal_bif(cx, b, args, used, path)
+        }
+        Expr::Bin(op @ (BinOp::Add | BinOp::Sub), l, r) => {
+            let (base, dur, dur_first) = match (duration(l), duration(r)) {
+                (None, Some(d)) => (&**l, d, false),
+                (Some(d), None) if *op == BinOp::Add => (&**r, d, true),
+                _ => return None,
+            };
+            let (unit, n) = dur;
+            let (bp, np) = if dur_first {
+                (at(1), at(0))
+            } else {
+                (at(0), at(1))
+            };
+            Some(ir::CharExpr::TemporalAdd {
+                base: Box::new(temporal_value(cx, base, used, bp)?),
+                unit,
+                n: Box::new(num_expr(cx, n, used, np)?),
+                minus: *op == BinOp::Sub,
+                dur_first,
+            })
+        }
+        _ => None,
+    }
 }

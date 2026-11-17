@@ -1367,6 +1367,60 @@ fn temporal_kind(v: &Value) -> Option<Parsed> {
     }
 }
 
+/// A value as bifs.rs `as_ts` makes it a timestamp (S2.55).
+fn temporal_ts(v: &Value, what: &str) -> NResult<crate::rpg::dates::Ts> {
+    Ok(match temporal_kind(v) {
+        Some(Parsed::Date(d)) => (d, (0, 0, 0), 0),
+        Some(Parsed::Time(h)) => ((1, 1, 1), h, 0),
+        Some(Parsed::Ts(t)) => t,
+        None => anyhow::bail!("{what}: {} is not a date, time or timestamp", v.describe()),
+    })
+}
+
+/// Stage 2 (S2.55): %DIFF(x : y : unit), as bifs.rs bif_more.
+pub fn temporal_diff(x: &Value, y: &Value, unit: data::DurUnit) -> NResult<Dec> {
+    let a = temporal_ts(x, "%DIFF")?;
+    let b = temporal_ts(y, "%DIFF")?;
+    Ok(Dec::new(crate::rpg::dates::diff(&a, &b, unit), 0))
+}
+
+/// Stage 2 (S2.55): %SUBDT(x : unit), as bifs.rs bif_more.
+pub fn temporal_subdt(x: &Value, unit: data::DurUnit) -> NResult<Dec> {
+    let t = temporal_ts(x, "%SUBDT")?;
+    Ok(Dec::new(i128::from(crate::rpg::dates::subdt(&t, unit)), 0))
+}
+
+/// Stage 2 (S2.55): a date, time or timestamp plus or minus a duration
+/// (%YEARS ... %MSECONDS of `n`), as bifs.rs date_arith. The duration's
+/// number is taken as int_arg takes it: whole, and modulo 2^64 as the
+/// interpreter's `as i64`.
+pub fn temporal_add(base: &Value, unit: data::DurUnit, n: &Dec, minus: bool) -> NResult<Value> {
+    use crate::rpg::dates::{self, DateFmt, TimeFmt};
+    let whole = n.to_i128()?;
+    let wrapped = u64::try_from(whole.rem_euclid(1i128 << 64))?;
+    let n = i64::from_ne_bytes(wrapped.to_ne_bytes());
+    let n = if minus {
+        n.checked_neg()
+            .ok_or_else(|| anyhow::anyhow!("native: a duration of {n} cannot be negated"))?
+    } else {
+        n
+    };
+    Ok(match temporal_kind(base) {
+        Some(Parsed::Date(d)) => Value::str(&dates::format_date(
+            dates::add_to_date(d, unit, n)?,
+            &DateFmt::iso(),
+        )),
+        Some(Parsed::Time(h)) => Value::str(&dates::format_time(
+            dates::add_to_time(h, unit, n)?,
+            &TimeFmt::iso(),
+        )),
+        Some(Parsed::Ts(t)) => {
+            Value::str(&dates::format_ts(&dates::add_to_ts(&t, unit, n)?, false))
+        }
+        None => anyhow::bail!("{} is not a date, time or timestamp", base.describe()),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

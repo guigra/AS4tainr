@@ -329,3 +329,24 @@ The native units have no calls between programs. The upstream suite's cross-prog
   - %DATE(*SYS) is not valid on IBM i (RNF0605), and the interpreter takes it as the current date.
   The native engine does as the interpreter does.
 - **Expected values.** From PUB400, tools/golden/native55.txt n55_bif (the unit NTBIF). n55_crt_dft is the compile of the forms IBM i rejects.
+
+## S2.55: %DIFF, %SUBDT and durations (rpgcg 0.1.0+stage2.55)
+
+- **A temporal value.** It is one of these (`temporal_value`):
+  - a date, time or timestamp field;
+  - %DATE, %TIME or %TIMESTAMP;
+  - one of them plus or minus a duration (%YEARS ... %MSECONDS of a number).
+  The duration can be on either side of +, as bifs.rs date_arith takes it, and only on the right of -. The operands are evaluated in the order eval evaluates them (`dur_first`).
+- **Where a temporal value is lowered:**
+  - as the whole value of an EVAL;
+  - as an argument of %DIFF and %SUBDT, which are numeric expressions (`NumExpr::TemporalDiff`, `TemporalSubdt`);
+  - on both sides of a comparison, when not both are fields (`Cond::CmpExpr` of character sides, data::compare).
+- **The runtime.** `rpgrt::native::temporal_diff`, `temporal_subdt` and `temporal_add` write bif_more's %DIFF and %SUBDT and date_arith again, over the dates module, with the same errors.
+  - A duration's number is taken whole and modulo 2^64, as int_arg's `as i64`.
+  - A duration that cannot be negated is an error where the interpreter wraps.
+  The tripwire watches date_arith and as_ts. temporal_bif now takes the statement's path for its argument's helpers, so two bifs in one statement do not share one name.
+- **Interpreter differences (fidelity.md).** Held for upstream:
+  - IBM i does not compile a duration on the left of + (RNF7421, n56_crt_first).
+  - A date past 9999-12-31 is status 113 on IBM i and 112 in the interpreter.
+  The native engine does as the interpreter does, and NTDURF checks the parity.
+- **Expected values.** From PUB400, tools/golden/native56.txt n56_dur (the unit NTDUR). NTBIF, NTDUR and NTDURF are fully native.

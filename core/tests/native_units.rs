@@ -887,6 +887,39 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.55 (ADR 0007): %DIFF and %SUBDT, dates, times and timestamps
+// plus or minus durations, comparisons of temporal expressions. (A date
+// past 9999-12-31 is NTDURF in native_diff.rs: IBM i gives status 113, the
+// interpreter 112.)
+// Source: golden capture tools/golden/native56.txt n56_dur (PUB400, IBM i 7.5, 2026-11-16)
+#[tokio::test]
+async fn native_unit_durations() {
+    let _ = require_db!();
+    expect(
+        "NTDUR",
+        include_str!("native/NTDUR.rpgle"),
+        &[
+            "DAYS 440",
+            "MONTHS 14",
+            "YEARS 1",
+            "HOURS 25",
+            "SECONDS 91784",
+            "NEG DAYS -440",
+            "SUBDT M 3",
+            "SUBDT MS 500000",
+            "MINUS MONTH 2026-02-28",
+            "PLUS DAY 2026-04-01",
+            "CHAIN 2026-03-30",
+            "TIME WRAP 00.30.00",
+            "TS MS 2026-11-16-10.00.00.001500",
+            "TS MIN 2026-11-16-08.30.00.000000",
+            "D1 AFTER",
+            "NEXT DAY APRIL",
+        ],
+    )
+    .await;
+}
+
 // Stage 2, S2.54 (ADR 0007): %DATE, %TIME and %TIMESTAMP of character
 // values and numbers with a format, of dates and timestamps, %DATE(), and
 // an invalid date (status 112).
