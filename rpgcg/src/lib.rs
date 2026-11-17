@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.58");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.59");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -214,6 +214,9 @@ pub mod ir {
         pub col: usize,
         pub target: Operand,
         pub kind: MoveKind,
+        /// The record field's decimal places (S2.59: a number written
+        /// takes them).
+        pub decimals: u8,
     }
 
     /// The value of a field read (S2.58): a number, characters, or
@@ -298,6 +301,14 @@ pub mod ir {
         FileRead {
             keys: Option<Vec<ValExpr>>,
             moves: Vec<FieldMove>,
+        },
+        /// WRITE, UPDATE or DELETE of a database file (S2.59): a DELETE's
+        /// key, the program fields that make the record (none for
+        /// DELETE), and how many fields the record format has.
+        FileChange {
+            keys: Option<Vec<ValExpr>>,
+            fields: Vec<FieldMove>,
+            width: usize,
         },
         /// RETURN (S2.38): the value, if any.
         Return(Option<ValExpr>),
@@ -1469,6 +1480,68 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("dy{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::FileChange {
+                keys,
+                fields,
+                width,
+            },
+        ) => {
+            // The interpreter's file_op for WRITE, UPDATE and DELETE: the
+            // start and the authority check (rt.file_change_start), the
+            // record from the program's fields (record_of), the key, then
+            // the change and the end (rt.file_change).
+            // DELETE fills none of the fields: no `mut` (unused_mut).
+            let m = if fields.is_empty() { "" } else { "mut " };
+            let mut rec_fn = format!(
+                "\nfn fw{pc}(rt: &mut dyn Runtime) -> NResult<Vec<Option<String>>> {{\n    let {m}rec: Vec<Option<String>> = vec![None; {width}];\n"
+            );
+            for f in fields {
+                let ir::Operand::Var { ty: t, .. } = &f.target else {
+                    return Err(bad());
+                };
+                let (prelude, sb, so) = place_of(&f.target).ok_or_else(bad)?;
+                let _ = writeln!(
+                    rec_fn,
+                    "{prelude}    let v = rpgrt::native::load(rt.mem(), {sb}, {so}, {})?;\n    if let Some(slot) = rec.get_mut({}) {{\n        *slot = Some(rpgrt::native::field_text(&v, rpgrt::native::MoveKind::{:?}, {})?);\n    }}",
+                    ty(t),
+                    f.col,
+                    f.kind,
+                    f.decimals
+                );
+            }
+            rec_fn.push_str("    Ok(rec)\n}\n");
+            helpers.push_str(&rec_fn);
+            let mut body = format!("    rt.file_change_start({pc})?;\n    let rec = fw{pc}(rt);\n");
+            match keys {
+                None => body.push_str("    let keys = None;\n"),
+                Some(ks) => {
+                    body.push_str("    let keys = Some(vec![\n");
+                    for k in ks {
+                        let v = match k {
+                            ir::ValExpr::Num(e) => {
+                                format!("rpgrt::native::KeyArg::Num({})", num_expr(pc, e, helpers))
+                            }
+                            ir::ValExpr::Char(e) => format!(
+                                "rpgrt::native::KeyArg::Char({}.chars()?)",
+                                char_expr(pc, e, helpers)
+                            ),
+                        };
+                        let _ = writeln!(body, "        {v},");
+                    }
+                    body.push_str("    ]);\n");
+                }
+            }
+            let _ = writeln!(
+                helpers,
+                "\nfn fc{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    rt.file_change({pc}, keys, rec)\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("fc{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::FileRead { keys, moves }) => {

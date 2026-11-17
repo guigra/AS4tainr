@@ -218,6 +218,20 @@ pub trait Runtime {
     /// %EOF/%FOUND/%EQUAL, the result indicators, the counters and the
     /// file information data structure.
     fn file_done(&mut self, pc: usize, moved: NResult<()>) -> NResult<()>;
+    /// Stage 2 (S2.59): the start of the WRITE, UPDATE or DELETE at `pc`
+    /// (errors.rs file_op's start, file_op_inner's open check and the
+    /// authority check), before the record is made from the program's
+    /// fields. An error comes back with file_op's end done.
+    fn file_change_start(&mut self, pc: usize) -> NResult<()>;
+    /// Stage 2 (S2.59): the change itself, with the record's fields as
+    /// external text by their place in the record format (or the error of
+    /// making them) and a DELETE's key, then file_op's end.
+    fn file_change(
+        &mut self,
+        pc: usize,
+        keys: Option<Vec<KeyArg>>,
+        rec: NResult<Vec<Option<String>>>,
+    ) -> NResult<()>;
     /// Stage 2 (S2.58): %EOF, %FOUND or %EQUAL of the file named (as the
     /// running procedure finds it), or of the last file operation.
     fn file_status(&mut self, bit: FileBit, file: Option<&str>) -> NResult<bool>;
@@ -245,6 +259,18 @@ pub enum MoveKind {
     Num,
     Char,
     Hex,
+}
+
+/// A program field's value as the external text of a record field, as the
+/// interpreter's record_of makes it (S2.59): a number with the field's
+/// decimal places (an error if it does not fit them), hexadecimal bytes
+/// as two capital digits each, characters as text.
+pub fn field_text(v: &Value, kind: MoveKind, decimals: u8) -> NResult<String> {
+    Ok(match kind {
+        MoveKind::Num => v.num()?.rescale(decimals, false)?.to_string(),
+        MoveKind::Hex => v.chars()?.iter().map(|b| format!("{b:02X}")).collect(),
+        MoveKind::Char => data::a(&v.chars()?),
+    })
 }
 
 /// A field of a record read as the value the program gets, as the

@@ -1531,3 +1531,44 @@ async fn native_unit_lowered_file_reads() {
     )
     .await;
 }
+
+// Stage 2, S2.59: WRITE, UPDATE and DELETE of a database file lowered to
+// Rust. The file is the one captured on PUB400 (the same DDS, record
+// format renamed), made empty in QGPL as NFW59PF.
+// Source: golden capture tools/golden/native59 n59_w (PUB400, IBM i 7.5, 2026-11-17)
+#[tokio::test]
+async fn native_unit_lowered_file_writes() {
+    let url = require_db!();
+    let mut client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    catalog::init(&client)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    let libl = ["QGPL".to_string()];
+    if catalog::resolve_file(&client, &libl, "NFW59PF")
+        .await
+        .is_err()
+    {
+        let dds =
+            include_str!("../../tools/golden/native59/gn59pf.pf").replace("GN59FMT", "NFW59FMT");
+        let pf = dds::parse_pf("NFW59PF", &dds).unwrap_or_else(|e| panic!("{e:#}"));
+        catalog::create_physical_file(&mut client, "QGPL", &pf)
+            .await
+            .unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    client
+        .batch_execute(&format!(
+            "DELETE FROM {}.{}",
+            catalog::ident("QGPL"),
+            catalog::ident("NFW59PF")
+        ))
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    expect(
+        "NFWRITE",
+        include_str!("native/NFWRITE.rpgle"),
+        &["ROW 1 1 Alpha 10.50", "HX C1C2", "ROW 1 2 Beta2 -6.50"],
+    )
+    .await;
+}

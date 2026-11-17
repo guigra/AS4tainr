@@ -2662,16 +2662,27 @@ fn file_read(
     key: Option<&[Expr]>,
     used: &mut Vec<String>,
 ) -> Option<ir::Lowered> {
-    if !matches!(
-        op,
-        FileOp::Chain
-            | FileOp::Read
-            | FileOp::ReadE
-            | FileOp::ReadP
-            | FileOp::ReadPE
-            | FileOp::SetLL
-            | FileOp::SetGT
-    ) {
+    let change = matches!(op, FileOp::Write | FileOp::Update | FileOp::Delete);
+    if !change
+        && !matches!(
+            op,
+            FileOp::Chain
+                | FileOp::Read
+                | FileOp::ReadE
+                | FileOp::ReadP
+                | FileOp::ReadPE
+                | FileOp::SetLL
+                | FileOp::SetGT
+        )
+    {
+        return None;
+    }
+    // WRITE and UPDATE take no key; DELETE's is a key or none (the record
+    // last read). *LOVAL and the like are no DELETE key.
+    if matches!(op, FileOp::Write | FileOp::Update) && key.is_some() {
+        return None;
+    }
+    if op == FileOp::Delete && matches!(key, Some([Expr::Fig(_)])) {
         return None;
     }
     let prog = cx.prog;
@@ -2750,7 +2761,13 @@ fn file_read(
     let mut moves = Vec::new();
     if matches!(
         op,
-        FileOp::Chain | FileOp::Read | FileOp::ReadE | FileOp::ReadP | FileOp::ReadPE
+        FileOp::Chain
+            | FileOp::Read
+            | FileOp::ReadE
+            | FileOp::ReadP
+            | FileOp::ReadPE
+            | FileOp::Write
+            | FileOp::Update
     ) {
         for (col, (fd, pname)) in fref.file.fields.iter().zip(&fi.fields).enumerate() {
             if pname.is_empty() {
@@ -2792,8 +2809,22 @@ fn file_read(
             if (kind == ir::MoveKind::Num) == is_char(&target) {
                 return None;
             }
-            moves.push(ir::FieldMove { col, target, kind });
+            let decimals = u8::try_from(fd.decimals).ok()?;
+            moves.push(ir::FieldMove {
+                col,
+                target,
+                kind,
+                decimals,
+            });
         }
+    }
+    if change {
+        used.push(format!("file change {op:?} {file} {i}"));
+        return Some(ir::Lowered::FileChange {
+            keys,
+            fields: moves,
+            width: fref.file.fields.len(),
+        });
     }
     used.push(format!("file read {op:?} {file} {i}"));
     Some(ir::Lowered::FileRead { keys, moves })

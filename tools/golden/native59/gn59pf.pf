@@ -1,0 +1,10 @@
+     A* Stage 2, S2.59: a keyed physical file for writes (native unit NFWRITE).
+     A                                      UNIQUE
+     A          R GN59FMT
+     A            ORD            3S 0
+     A            LIN            3P 0
+     A            NAME          10A
+     A            AMT            7P 2
+     A            HX             2H
+     A          K ORD
+     A          K LIN
