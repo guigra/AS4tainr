@@ -409,6 +409,18 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 None => ir::ValExpr::Num(num_expr(cx, x, &mut used, Vec::new())?),
             }),
         }),
+        // A read of a database file (S2.58).
+        Ins::Stmt(Stmt::File {
+            op,
+            file,
+            key,
+            ds: None,
+            fields: None,
+            ext,
+            ind,
+        }) if !ext.error && ext.other.is_empty() && ind.lo.is_none() => {
+            file_read(cx, *op, file, key.as_deref(), &mut used)?
+        }
         // DSPLY with no response field (S2.36): Stmt::Dsply's batch path.
         // A float, date or time message is not an eligible expression.
         Ins::Stmt(Stmt::Dsply {
@@ -1117,6 +1129,22 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
     // `Value::Ind(self.ind(n))` and `Value::Ind(!v.truth()?)`.
     match e {
         Expr::Ind(n) => return Some(ir::Cond::Ind(n.clone())),
+        // %EOF, %FOUND, %EQUAL (S2.58): interp.rs bif's file_status, of
+        // the file named or of the last file operation.
+        Expr::Bif(b, args) if matches!(b.as_str(), "EOF" | "FOUND" | "EQUAL") => {
+            let bit = match b.as_str() {
+                "EOF" => ir::FileBit::Eof,
+                "FOUND" => ir::FileBit::Found,
+                _ => ir::FileBit::Equal,
+            };
+            let file = match args.as_slice() {
+                [] => None,
+                [Expr::Name { parts, args: None }] => Some(parts.join(".")),
+                _ => return None,
+            };
+            used.push(format!("file status {b} {file:?}"));
+            return Some(ir::Cond::FileStatus(bit, file));
+        }
         Expr::Unary(super::super::ast::UnOp::Not, x) => {
             let mut p = path.clone();
             p.push(0);
@@ -2616,4 +2644,157 @@ fn temporal_value(
         }
         _ => None,
     }
+}
+
+/// A read of a database file (S2.58, ADR 0007): CHAIN, READ, READE,
+/// READP, READPE, SETLL or SETGT of an externally described DISK file of
+/// the main program (no file declared in a procedure or passed with
+/// LIKEFILE, so the name finds the same file wherever it runs), with no
+/// INFDS, no input specifications for it, and a key of fields and
+/// literals (or a KLIST of them, or *LOVAL, *HIVAL, *START, *END alone).
+/// The fields of its record format go into the program fields of the
+/// same names as fill_fields moves them: a number, characters or
+/// hexadecimal, never a date, time, timestamp, float or graphic field.
+fn file_read(
+    cx: &Cx<'_>,
+    op: FileOp,
+    file: &str,
+    key: Option<&[Expr]>,
+    used: &mut Vec<String>,
+) -> Option<ir::Lowered> {
+    if !matches!(
+        op,
+        FileOp::Chain
+            | FileOp::Read
+            | FileOp::ReadE
+            | FileOp::ReadP
+            | FileOp::ReadPE
+            | FileOp::SetLL
+            | FileOp::SetGT
+    ) {
+        return None;
+    }
+    let prog = cx.prog;
+    // No file of a procedure and no LIKEFILE parameter anywhere: file_idx
+    // then finds a name among the program's files only.
+    if prog.files.iter().any(|f| f.decl.proc.is_some())
+        || prog.procs.values().any(|p| p.params.iter().any(|q| q.file))
+        || prog
+            .protos
+            .values()
+            .any(|p| p.params.iter().any(|q| q.file))
+    {
+        return None;
+    }
+    let i = prog
+        .files
+        .iter()
+        .position(|f| f.decl.name == file || f.format == file)
+        .or_else(|| prog.file_index(file))?;
+    let fi = prog.files.get(i)?;
+    let fref = fi.fref.as_ref()?;
+    if fi.decl.device != "DISK"
+        || fi.program_described
+        || !fi.inputs.is_empty()
+        || fi
+            .decl
+            .keywords
+            .iter()
+            .any(|k| k.name.eq_ignore_ascii_case("INFDS"))
+    {
+        return None;
+    }
+    // The key: *LOVAL/*HIVAL/*START/*END alone (no values), a KLIST's
+    // fields, or fields and literals.
+    let keys = match key {
+        None => None,
+        Some([Expr::Fig(Fig::LoVal | Fig::HiVal)]) => None,
+        Some([Expr::Name { parts, .. }])
+            if parts.first().is_some_and(|p| p == "*START" || p == "*END") =>
+        {
+            None
+        }
+        Some(k) => {
+            let list: Vec<Expr> = match k {
+                [Expr::Name { parts, args: None }] => match cx.syms.get(&parts.join(".")) {
+                    Some(Sym::Klist(l)) => l.clone(),
+                    _ => k.to_vec(),
+                },
+                _ => k.to_vec(),
+            };
+            let mut vals = Vec::with_capacity(list.len());
+            for e in &list {
+                // A field or a literal only: its value cannot fail, so it
+                // makes no difference that it is taken before the
+                // operation starts rather than inside it (key_values).
+                if !matches!(
+                    e,
+                    Expr::Name { .. } | Expr::Num(_) | Expr::Str(_) | Expr::Hex(_)
+                ) || is_temporal_name(cx, e)
+                {
+                    return None;
+                }
+                let o = any_operand(cx, e, used)?;
+                if is_pointer(&o) || matches!(o, ir::Operand::Fig(_)) {
+                    return None;
+                }
+                vals.push(if is_char(&o) {
+                    ir::ValExpr::Char(ir::CharExpr::Leaf(o))
+                } else {
+                    ir::ValExpr::Num(ir::NumExpr::Leaf(o))
+                });
+            }
+            Some(vals)
+        }
+    };
+    let mut moves = Vec::new();
+    if matches!(
+        op,
+        FileOp::Chain | FileOp::Read | FileOp::ReadE | FileOp::ReadP | FileOp::ReadPE
+    ) {
+        for (col, (fd, pname)) in fref.file.fields.iter().zip(&fi.fields).enumerate() {
+            if pname.is_empty() {
+                continue;
+            }
+            let target = variable(cx, &Expr::name(pname), used)?;
+            let ir::Operand::Var { ty, index, .. } = &target else {
+                return None;
+            };
+            if index.is_some()
+                || !matches!(
+                    ty,
+                    ir::Ty::Packed(..)
+                        | ir::Ty::Zoned(..)
+                        | ir::Ty::Binary(..)
+                        | ir::Ty::Int(_)
+                        | ir::Ty::Uns(_)
+                        | ir::Ty::Char(_)
+                        | ir::Ty::Varchar(_)
+                )
+            {
+                return None;
+            }
+            let kind = if fd.data_type.is_numeric() {
+                ir::MoveKind::Num
+            } else if fd.data_type == crate::dds::DataType::Hex {
+                ir::MoveKind::Hex
+            } else if matches!(
+                fd.data_type,
+                crate::dds::DataType::Char | crate::dds::DataType::Hex
+            ) {
+                ir::MoveKind::Char
+            } else {
+                return None;
+            };
+            // A number into a character field, or characters into a
+            // numeric one, is not a move fill_fields makes for fields of
+            // the file's own definition.
+            if (kind == ir::MoveKind::Num) == is_char(&target) {
+                return None;
+            }
+            moves.push(ir::FieldMove { col, target, kind });
+        }
+    }
+    used.push(format!("file read {op:?} {file} {i}"));
+    Some(ir::Lowered::FileRead { keys, moves })
 }

@@ -12,6 +12,7 @@ const INTERP: &str = include_str!("../src/rpg/interp.rs");
 const ERRORS: &str = include_str!("../src/rpg/errors.rs");
 const BIFS: &str = include_str!("../src/rpg/bifs.rs");
 const PTRS: &str = include_str!("../src/rpg/ptrs.rs");
+const CYCLE: &str = include_str!("../src/rpg/cycle.rs");
 
 /// The text of a function, from its signature to its closing brace at
 /// the same indentation.
@@ -308,6 +309,40 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    pub(super) fn sender(&self) -> crate::pgmmsg::Sender {",
             "    ",
         ),
+        // S2.58: reads of database files.
+        function(ERRORS, "    pub(super) fn file_op(\n", "    "),
+        function(
+            ERRORS,
+            "    pub(super) fn file_failed(&mut self, i: usize, err: &anyhow::Error) {",
+            "    ",
+        ),
+        function(
+            ERRORS,
+            "    pub(super) fn file_idx(&self, name: &str) -> Option<usize> {",
+            "    ",
+        ),
+        function(ERRORS, "fn opcode_name(op: FileOp) -> &'static str {", ""),
+        function(INTERP, "    fn file_op_inner(\n", "    "),
+        function(
+            INTERP,
+            "    fn key_values(&mut self, key: &[Expr]) -> Result<Vec<String>> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn fill_fields(&mut self, i: usize, rec: &Record) -> Result<()> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn file_status(&self, args: &[Expr]) -> Result<Status> {",
+            "    ",
+        ),
+        function(
+            CYCLE,
+            "    pub(super) fn move_input(&mut self, i: usize, rec: &Record) -> Result<()> {",
+            "    ",
+        ),
     ];
     let hash = sha256(&watched.concat());
     // Reviewed on 2026-11-15 against native_rt.rs and the stage 2
@@ -319,9 +354,11 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // addr, assign and room_for_based, S2.48 based_place, S2.49 ptr_arith,
     // S2.50 alloc, realloc, dealloc and storage_op, S2.51 char_variable,
     // S2.53 bif_override and temporal, S2.54 bif_more, temporal_arg and
-    // special_arg, S2.55 date_arith and as_ts;
+    // special_arg, S2.55 date_arith and as_ts, S2.58 file_op,
+    // file_failed, file_idx, opcode_name, file_op_inner, key_values,
+    // fill_fields, file_status and move_input;
     // upstream still dd47e28.
-    let reviewed = "45df6dd3897e3ca723d439e37538adf979d8449411e51a3c76248cbb06d39a14";
+    let reviewed = "ded5f9fd8d00b15ac2d9be400e339369781ade98b072ae918d7894be2623e2b6";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"
