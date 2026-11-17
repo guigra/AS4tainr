@@ -1818,19 +1818,29 @@ fn call_of(
                     None
                 }
                 None => {
+                    // call_named_inner's order (S2.56): this module's
+                    // procedure, unless EXTPROC written in lower case names
+                    // the system's C function; the binder's, a CEE API or a
+                    // C function are the runtime's choice (call_proto).
                     let target = pr.extproc.clone().unwrap_or_else(|| name.clone());
-                    let up = target.to_ascii_uppercase();
-                    if super::super::interp::crt::C_FUNCTIONS.contains(&up.as_str())
-                        || super::super::interp::cee::CEE_APIS.contains(&up.as_str())
-                    {
-                        return None;
+                    let system_named = pr
+                        .written
+                        .as_deref()
+                        .is_some_and(|w| w != w.to_ascii_uppercase())
+                        && super::super::interp::crt::C_FUNCTIONS.contains(&target.as_str());
+                    if system_named {
+                        None
+                    } else {
+                        prog.procs.get(&target)
                     }
-                    prog.procs.get(&target)
                 }
             };
             let _ = std::fmt::Write::write_fmt(
                 &mut layout,
-                format_args!(" proto extpgm={:?} extproc={:?}", pr.extpgm, pr.extproc),
+                format_args!(
+                    " proto extpgm={:?} extproc={:?} written={:?}",
+                    pr.extpgm, pr.extproc, pr.written
+                ),
             );
             (&pr.params, local)
         }
@@ -1847,7 +1857,22 @@ fn call_of(
             return None;
         }
     }
-    if args.len() > params.len() || params.iter().skip(args.len()).any(|p| !p.nopass) {
+    // A C function takes arguments past its prototype's, as values
+    // (call_named_inner: printf's list); S2.56.
+    let c_extra = local.is_none()
+        && !prog.procs.contains_key(&name)
+        && proto(cx, &name).is_some_and(|pr| {
+            pr.extpgm.is_none()
+                && super::super::interp::crt::C_FUNCTIONS.contains(
+                    &pr.extproc
+                        .clone()
+                        .unwrap_or_else(|| name.clone())
+                        .to_ascii_uppercase()
+                        .as_str(),
+                )
+        });
+    if (args.len() > params.len() && !c_extra) || params.iter().skip(args.len()).any(|p| !p.nopass)
+    {
         return None;
     }
     let mut out = Vec::with_capacity(args.len());
@@ -1909,6 +1934,22 @@ fn call_of(
         } else {
             out.push(value_arg(cx, &ty, a, used, ap)?);
         }
+    }
+    for (k, a) in args.iter().enumerate().skip(params.len()) {
+        let mut ap = path.clone();
+        ap.push(u8::try_from(k).ok()?);
+        if matches!(a, Expr::Hex(_) | Expr::Omit) {
+            return None;
+        }
+        let v = if let Some(c) = char_expr(cx, a, used, ap.clone()) {
+            ir::CallArg::Char(c)
+        } else if let Some(n) = num_expr(cx, a, used, ap.clone()) {
+            ir::CallArg::Num(n)
+        } else {
+            ir::CallArg::Ptr(ptr_val(cx, a, used, ap)?)
+        };
+        let _ = std::fmt::Write::write_fmt(&mut layout, format_args!(" extra{k}"));
+        out.push(v);
     }
     used.push(layout);
     Some(ir::Call {

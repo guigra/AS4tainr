@@ -350,3 +350,19 @@ The native units have no calls between programs. The upstream suite's cross-prog
   - A date past 9999-12-31 is status 113 on IBM i and 112 in the interpreter.
   The native engine does as the interpreter does, and NTDURF checks the parity.
 - **Expected values.** From PUB400, tools/golden/native56.txt n56_dur (the unit NTDUR). NTBIF, NTDUR and NTDURF are fully native.
+
+## S2.56: C runtime functions and CEE APIs through prototypes
+
+- **What is lowered.** A call through a prototype to a C runtime function or a CEE API, which lowering refused until now. The prototype must have no EXTPGM, and its parameters no OPTIONS other than *VARSIZE and *NOPASS. The call goes through `call_proto` in call_named_inner's order:
+  1. the module's own procedure, unless the EXTPROC is written in lower case and names a C function (`system_named`);
+  2. a procedure the binder found;
+  3. a CEE API (`Machine::cee_call`);
+  4. a C function (`Machine::c_call`);
+  5. otherwise CPD5D02.
+- **The C arguments.** As call_named_inner passes them:
+  - the prototype's arguments as args_for gives them;
+  - a CONST argument passed by reference goes as its value, or as its address when it is an output buffer (`C_OUT_BUFFERS`);
+  - arguments past the prototype's go as values (printf's list), lowered as character, numeric or pointer values.
+- **Too many arguments.** Only a C function takes more arguments than its prototype has. Elsewhere it is args_for's error, which the native call raises too.
+- **A phase B dependency.** c_call and cee_call are interpreter services, as call_program and call_bound are (the user's choice, 2026-11-15: use them now, write them again in rpgrt later). The tripwire already watches call_named_inner.
+- **Expected values.** From PUB400, tools/golden/native57.txt n57_c (the unit NCFUNC), and the interpreter gives the same. IBM i's C runtime is EBCDIC: toupper(97) is 97 (x'61' is '/'), and 55 (x'37') is not a digit.

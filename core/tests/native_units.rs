@@ -887,6 +887,30 @@ async fn native_unit_lowered_scanrpl() {
     .await;
 }
 
+// Stage 2, S2.56 (ADR 0007): C runtime functions (strlen, toupper, isdigit,
+// memset, memcpy, strcmp, atoi) and a CEE API (CEEDYWK) through
+// prototypes. IBM i's C runtime is EBCDIC: toupper(97) is 97 (x'61' is
+// '/'), and 55 (x'37') is no digit.
+// Source: golden capture tools/golden/native57.txt n57_c (PUB400, IBM i 7.5, 2026-11-16)
+#[tokio::test]
+async fn native_unit_c_functions() {
+    let _ = require_db!();
+    expect(
+        "NCFUNC",
+        include_str!("native/NCFUNC.rpgle"),
+        &[
+            "STRLEN 5",
+            "TOUPPER 97",
+            "ISDIGIT A NO",
+            "MEMCPY [hello]",
+            "STRCMP 0",
+            "ATOI 123",
+            "CEEDYWK 2",
+        ],
+    )
+    .await;
+}
+
 // Stage 2, S2.55 (ADR 0007): %DIFF and %SUBDT, dates, times and timestamps
 // plus or minus durations, comparisons of temporal expressions. (A date
 // past 9999-12-31 is NTDURF in native_diff.rs: IBM i gives status 113, the
