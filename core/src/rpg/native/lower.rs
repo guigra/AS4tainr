@@ -551,6 +551,23 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
 
 /// A character expression (S2.4): character literals and eligible
 /// character fields, joined with `+`.
+/// A part of a concatenation (S2.62): a character expression, or an
+/// indicator (*INxx, *INLR...), which the interpreter's + takes as
+/// character data of length 1 ('1' or '0') next to characters or another
+/// indicator (ILE RPG Reference, "Indicator Data Type"; interp.rs eval's
+/// BinOp::Add). Every other part of a lowered concatenation is character
+/// data, so the + is always a concatenation; an indicator plus a number,
+/// a numeric sum, is not lowered here.
+fn cat_part(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::CharExpr> {
+    match e {
+        Expr::Ind(n) => {
+            used.push(format!("ind {n}"));
+            Some(ir::CharExpr::Ind(n.clone()))
+        }
+        _ => char_expr(cx, e, used, path),
+    }
+}
+
 fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::CharExpr> {
     match e {
         // A procedure of this module returning a character value (S2.35).
@@ -580,9 +597,9 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                 p.push(0);
             }
             let mut parts = Vec::with_capacity(rev.len().saturating_add(1));
-            parts.push(char_expr(cx, cur, used, p)?);
+            parts.push(cat_part(cx, cur, used, p)?);
             for (r, rp) in rev.into_iter().rev() {
-                parts.push(char_expr(cx, r, used, rp)?);
+                parts.push(cat_part(cx, r, used, rp)?);
             }
             Some(ir::CharExpr::Chain { parts, path })
         }
@@ -592,8 +609,8 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
             let mut rp = path.clone();
             rp.push(1);
             Some(ir::CharExpr::Cat {
-                left: Box::new(char_expr(cx, l, used, lp)?),
-                right: Box::new(char_expr(cx, r, used, rp)?),
+                left: Box::new(cat_part(cx, l, used, lp)?),
+                right: Box::new(cat_part(cx, r, used, rp)?),
                 path,
             })
         }

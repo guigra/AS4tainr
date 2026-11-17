@@ -498,3 +498,9 @@ Lowering now does the same (`sym`):
 A local of the same name as a global still hides it.
 
 **Verified by** the native unit NGLOBAL, under both engines. The program captured on PUB400 (tools/golden/native61.txt n61_glb) has procedures that change a global counter, a packed total, a data structure subfield, array elements and a character field, and a local that hides a global.
+
+## S2.62: indicators in concatenations
+
+An indicator (*INxx, *INLR...) is character data of length 1 (ILE RPG Reference, "Indicator Data Type"). The interpreter's + concatenates it with characters or with another indicator, and adds it as a number to a number. Lowering now takes an indicator as a part of a concatenation (`cat_part`): its value is '1' or '0' (Value::Ind's chars, X'F1' or X'F0'). Every other part of a lowered concatenation is character data, so the + is always a concatenation. An indicator on its own, or added to a number, is not lowered.
+
+This was the most frequent form left in the corpus pass: DSPLY ('ARITH SUB ' + %char(r) + ' ' + *in50 + *in51 + *in52) in NARITH, whose expected lines come from PUB400 (tools/golden/native3.txt). NARITH's coverage ceiling goes from 4 instructions in the interpreter to 0.
