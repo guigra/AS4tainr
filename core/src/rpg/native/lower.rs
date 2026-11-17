@@ -427,6 +427,52 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 None => ir::ValExpr::Num(num_expr(cx, x, &mut used, Vec::new())?),
             }),
         }),
+        // EVAL %OCCUR(ds) = n (S2.64): interp.rs assign's "OCCUR" arm,
+        // set_occurrence with the value's whole number.
+        Ins::Stmt(Stmt::Eval {
+            target: Expr::Bif(b, args),
+            value,
+            ext,
+            ..
+        }) if b == "OCCUR" && args.len() == 1 && !ext.error && ext.other.is_empty() => {
+            let ir::Operand::Occur { buf, .. } = occurs_ds(cx, args.first()?, &mut used)? else {
+                return None;
+            };
+            ir::Lowered::SetOccur {
+                buf,
+                to: Some(num_expr(cx, value, &mut used, Vec::new())?),
+                result: None,
+            }
+        }
+        // OCCUR (S2.64): ops.rs occur_op. Factor 1 (a number, or another
+        // multiple-occurrence data structure's current occurrence) sets
+        // the occurrence; the result field gets it. No error indicator.
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1,
+            f2: Some(ds),
+            result,
+            ext,
+            ind,
+        }) if code == "OCCUR" && !ext.error && ext.other.is_empty() && ind.is_empty() => {
+            let ir::Operand::Occur { buf, .. } = occurs_ds(cx, ds, &mut used)? else {
+                return None;
+            };
+            let to = match f1 {
+                None => None,
+                Some(e @ Expr::Name { parts, args: None })
+                    if matches!(sym(cx, &parts.join(".")), Some(Sym::Ds(_))) =>
+                {
+                    Some(ir::NumExpr::Leaf(occurs_ds(cx, e, &mut used)?))
+                }
+                Some(e) => Some(num_expr(cx, e, &mut used, Vec::new())?),
+            };
+            let result = match result {
+                None => None,
+                Some(r) => Some(num_variable(cx, r, &mut used)?),
+            };
+            ir::Lowered::SetOccur { buf, to, result }
+        }
         // A read of a database file (S2.58).
         Ins::Stmt(Stmt::File {
             op,
@@ -964,6 +1010,11 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
         // %STATUS with no file (S2.31): the code the interpreter's
         // bifs.rs "STATUS" arm gives, `Dec::new(code, 0)`.
         Expr::Bif(b, args) if b == "STATUS" && args.is_empty() => Some(ir::NumExpr::Status),
+        // %OCCUR(ds) (S2.64): the current occurrence, as bifs.rs's
+        // `num(self.occurrence(&args[0])? as i128)`.
+        Expr::Bif(b, args) if b == "OCCUR" && args.len() == 1 => {
+            occurs_ds(cx, args.first()?, used).map(ir::NumExpr::Leaf)
+        }
         // %LEN of a varying-length field (S2.20): its current length, as
         // the interpreter's `(Some(DType::Varchar(_)), Value::Char(c))`
         // arm gives it.
@@ -1554,6 +1605,27 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         }
         _ => return None,
     };
+    // A scalar subfield of a global multiple-occurrence data structure
+    // (S2.64): in the current occurrence, as Machine::sym adds
+    // (occurrence - 1) times the occurrence's size.
+    let occurs = (!v.local && v.dim == 0)
+        .then(|| cx.prog.occurs.iter().find(|o| o.buf == v.buf))
+        .flatten();
+    if let Some(o) = occurs {
+        used.push(format!(
+            "occurs {} size {} count {}",
+            o.name, o.size, o.count
+        ));
+        index = Some(Box::new(ir::Index {
+            of: ir::Operand::Occur {
+                buf: o.buf,
+                name: o.name.clone(),
+            },
+            stride: o.size,
+            dim: o.count,
+            vary: None,
+        }));
+    }
     let off = match elem {
         Some(k) => v
             .off
@@ -1625,7 +1697,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         (v.dim != 0) != elem.is_some() || cx.based.is_none()
     } else {
         (v.dim != 0) != elem.is_some()
-            || prog.occurs.iter().any(|o| o.buf == v.buf)
+            || (occurs.is_none() && prog.occurs.iter().any(|o| o.buf == v.buf))
             // A varying-dimension array's elements only with a run-time
             // index (S2.45).
             || (prog.varying.contains_key(name) && index.is_none())
@@ -1662,6 +1734,25 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         local: v.local,
         index,
         based,
+    })
+}
+
+/// A global multiple-occurrence data structure by name (S2.64), as ops.rs
+/// occurs_of finds it among the program's names: its current occurrence
+/// as an operand.
+fn occurs_ds(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    let Expr::Name { parts, args: None } = e else {
+        return None;
+    };
+    let name = parts.join(".");
+    let Some(Sym::Ds(d)) = cx.prog.syms.get(&name) else {
+        return None;
+    };
+    let o = cx.prog.occurs.iter().find(|o| o.buf == d.buf)?;
+    used.push(format!("occurrence of {} buf {}", o.name, o.buf));
+    Some(ir::Operand::Occur {
+        buf: o.buf,
+        name: o.name.clone(),
     })
 }
 

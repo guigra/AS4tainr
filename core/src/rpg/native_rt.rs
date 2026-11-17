@@ -974,6 +974,31 @@ impl Runtime for Rt<'_, '_> {
         self.file_change_n(pc, keys, rec)
     }
 
+    fn occurrence(&self, buf: usize) -> NResult<Dec> {
+        // ops.rs occurrence: the current occurrence of the data
+        // structure (occurs_of's buffer; lowering names only those).
+        let (_, _, cur) = self.m.occur.get(&buf).ok_or_else(|| {
+            anyhow!("native: buffer {buf} is not a multiple-occurrence data structure")
+        })?;
+        Ok(Dec::from_i64(i64::from(*cur)))
+    }
+
+    fn set_occurrence(&mut self, buf: usize, n: &Dec) -> NResult<()> {
+        // ops.rs set_occurrence, with the number as its callers take it
+        // (`num()?.to_i128()?`: a whole number).
+        let n = n.to_i128()?;
+        let (_, count, cur) = self.m.occur.get_mut(&buf).ok_or_else(|| {
+            anyhow!("native: buffer {buf} is not a multiple-occurrence data structure")
+        })?;
+        if n < 1 || n > i128::from(*count) {
+            return Err(anyhow!(
+                "RNQ0122: The occurrence {n} is outside the data structure ({count} occurrences)."
+            ));
+        }
+        *cur = u32::try_from(n)?;
+        Ok(())
+    }
+
     fn file_status(&mut self, bit: FileBit, file: Option<&str>) -> NResult<bool> {
         // interp.rs bif "EOF"/"FOUND"/"EQUAL" and file_status.
         let st = match file {

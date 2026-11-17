@@ -1,0 +1,6 @@
+# Captures for stage 2, S2.64: a multiple-occurrence data structure (one batch).
+# The first run set %OCCUR to the literal 4 (RNF7571 at compile time) and named
+# a field out (an operation code); a field holds the 4 now, and the other is txt.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native64.txt -f tools/golden/native64
+n64_crt_occ|!system "CRTSQLRPGI OBJ(@LIB@/GN64OCC) SRCSTMF('@HOME@/gld/gn64occ.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n64_occ|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN64OCC)"; cat gn1.out; rm -f gn1.out

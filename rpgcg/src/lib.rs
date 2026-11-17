@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.63");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.64");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -113,6 +113,10 @@ pub mod ir {
         Str(Vec<u8>),
         /// A figurative constant (S2.22), in comparisons only.
         Fig(FigOp),
+        /// The current occurrence of the multiple-occurrence data
+        /// structure in buffer `buf` (S2.64): %OCCUR's value, and the
+        /// "index" of its subfields.
+        Occur { buf: usize, name: String },
     }
 
     /// Which of %DATE, %TIME and %TIMESTAMP (S2.54).
@@ -318,6 +322,15 @@ pub mod ir {
         /// DEALLOC (S2.50): the heap storage a pointer field addresses
         /// freed, and with (N) the field set to *NULL.
         Dealloc { target: Operand, null: bool },
+        /// EVAL %OCCUR(ds) = n, and OCCUR (S2.64): set the current
+        /// occurrence of the data structure in `buf` (from a number, or
+        /// from another one's current occurrence), then put it in a
+        /// result field.
+        SetOccur {
+            buf: usize,
+            to: Option<NumExpr>,
+            result: Option<Operand>,
+        },
         /// %ELEM of a varying-dimension array set (S2.45).
         SetElems {
             name: String,
@@ -1095,6 +1108,9 @@ fn value(o: &ir::Operand) -> String {
         }
         ir::Operand::Str(b) => format!("rpgrt::rpg::data::Value::Char(vec!{b:?})"),
         ir::Operand::Fig(f) => fig(f),
+        ir::Operand::Occur { buf, .. } => {
+            format!("rpgrt::rpg::data::Value::Num(rt.occurrence({buf})?)")
+        }
     }
 }
 
@@ -1197,6 +1213,7 @@ fn number(o: &ir::Operand) -> String {
         // Never in a numeric place either (the lowering checks); as in the
         // interpreter, its number is `Value::num`'s.
         ir::Operand::Fig(f) => format!("{}.num()?", fig(f)),
+        ir::Operand::Occur { buf, .. } => format!("rt.occurrence({buf})?"),
     }
 }
 
@@ -1206,6 +1223,7 @@ fn name_of(o: &ir::Operand) -> String {
         ir::Operand::Num { m, s } => format!("{m}e-{s}"),
         ir::Operand::Str(b) => format!("a character literal of {} bytes", b.len()),
         ir::Operand::Fig(f) => format!("{f:?}"),
+        ir::Operand::Occur { name, .. } => format!("%OCCUR({})", comment(name)),
     }
 }
 
@@ -1705,6 +1723,35 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("se{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::SetOccur { buf, to, result }) => {
+            // ops.rs set_occurrence (EVAL %OCCUR(ds) = n, OCCUR's factor
+            // 1) through Runtime::set_occurrence, then OCCUR's result
+            // field gets the current occurrence (strict fit).
+            let mut body = String::new();
+            if let Some(n) = to {
+                let v = num_expr(pc, n, helpers);
+                let _ = writeln!(body, "    let n = {v};\n    rt.set_occurrence({buf}, &n)?;");
+            }
+            if let Some(r) = result {
+                let ir::Operand::Var { ty: t, .. } = r else {
+                    return Err(bad());
+                };
+                let (prelude, sb, so) = place_of(r).ok_or_else(bad)?;
+                let _ = writeln!(
+                    body,
+                    "    let cur = rt.occurrence({buf})?;\n{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        {},\n        &rpgrt::rpg::data::Value::Num(cur),\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: false }},\n        false,\n    )?;",
+                    ty(t)
+                );
+            }
+            let _ = writeln!(
+                helpers,
+                "\nfn oc{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("oc{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::Dealloc { target, null }) => {
