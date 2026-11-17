@@ -1614,3 +1614,17 @@ async fn native_unit_lowered_globals_in_procedures() {
     )
     .await;
 }
+
+// Stage 2, S2.63: arrays of a procedure's own storage lowered to Rust. The
+// capture's third line ends in a blank that DSPLY's text drops.
+// Source: golden capture tools/golden/native63 n63_loc (PUB400, IBM i 7.5, 2026-11-17)
+#[tokio::test]
+async fn native_unit_lowered_local_arrays() {
+    let _ = require_db!();
+    expect(
+        "NLOCARR",
+        include_str!("native/NLOCARR.rpgle"),
+        &["SUM 107", "DEPTH 606", "DS K1=11 K2=99 K3=33", "RANGE 121"],
+    )
+    .await;
+}

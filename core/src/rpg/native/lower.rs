@@ -22,12 +22,14 @@ pub fn lower(prog: &Program, place: &Place, code: &Code) -> (Vec<ir::Ins>, Vec<S
             syms: &prog.syms,
             based: None,
             protos: None,
+            params: None,
         }),
         Place::Proc(name, _) => prog.procs.get(name).map(|pi| Cx {
             prog,
             syms: &pi.syms,
             based: Some(&pi.based),
             protos: Some(&pi.protos),
+            params: Some(&pi.params),
         }),
     };
     let mut layout = Vec::new();
@@ -65,6 +67,9 @@ struct Cx<'p> {
     /// A procedure's own prototypes (S2.46), looked up before the
     /// program's, as the interpreter's `proto`.
     protos: Option<&'p std::collections::HashMap<String, super::super::program::Proto>>,
+    /// A procedure's parameters (S2.63: an array passed by reference is
+    /// the caller's storage, which is not lowered as a local array).
+    params: Option<&'p [super::super::program::ParamInfo]>,
 }
 
 /// A name as the interpreter's `Machine::sym` finds it (S2.61): in a
@@ -549,8 +554,6 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
     Some(l)
 }
 
-/// A character expression (S2.4): character literals and eligible
-/// character fields, joined with `+`.
 /// A part of a concatenation (S2.62): a character expression, or an
 /// indicator (*INxx, *INLR...), which the interpreter's + takes as
 /// character data of length 1 ('1' or '0') next to characters or another
@@ -568,6 +571,8 @@ fn cat_part(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
     }
 }
 
+/// A character expression (S2.4): character literals and eligible
+/// character fields, joined with `+`.
 fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::CharExpr> {
     match e {
         // A procedure of this module returning a character value (S2.35).
@@ -1519,7 +1524,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         // the run-time path below.
         Some([Expr::Num(k)])
             if v.dim > 0
-                && !v.local
+                && local_array_ok(cx, v)
                 && !name.starts_with("TAB")
                 && !cx.prog.varying.contains_key(name) =>
         {
@@ -1529,9 +1534,13 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
             }
             Some(usize::try_from(k).ok()?)
         }
-        Some([ix]) if v.dim > 0 && !v.local && !name.starts_with("TAB") => {
+        Some([ix]) if v.dim > 0 && local_array_ok(cx, v) && !name.starts_with("TAB") => {
             let of = operand(cx, ix, used)?;
             let vary = cx.prog.varying.get(name).map(|k| (name.clone(), *k == 'A'));
+            // A local varying-dimension array is not lowered (S2.63).
+            if v.local && vary.is_some() {
+                return None;
+            }
             if let Some((n, auto)) = &vary {
                 used.push(format!("vary {n} auto={auto}"));
             }
@@ -1611,8 +1620,9 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         None => None,
     };
     let excluded = if v.local {
-        // A procedure local (S2.8): only in a procedure (based ones above).
-        v.dim != 0 || cx.based.is_none()
+        // A procedure local (S2.8): only in a procedure (based ones above);
+        // an array only by an element (S2.63, `local_array_ok`).
+        (v.dim != 0) != elem.is_some() || cx.based.is_none()
     } else {
         (v.dim != 0) != elem.is_some()
             || prog.occurs.iter().any(|o| o.buf == v.buf)
@@ -1655,8 +1665,24 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
     })
 }
 
-/// A scalar subfield of an element of a global data structure array,
-/// `ds(i).field` (S2.30): the interpreter's `path_sym` adds (i - 1) times
+/// An array that lowering may index (S2.63): a global one, or a local one
+/// of the procedure's own storage that is neither based nor a parameter
+/// (one passed by reference is the caller's storage, where the
+/// interpreter's `elem_off` also checks that the element is there,
+/// MCH0601).
+fn local_array_ok(cx: &Cx<'_>, v: &super::super::program::VarInfo) -> bool {
+    if !v.local {
+        return true;
+    }
+    cx.based.is_some_and(|b| !b.contains_key(&v.buf))
+        && cx
+            .params
+            .is_some_and(|ps| ps.iter().all(|p| p.buf != Some(v.buf)))
+}
+
+/// A scalar subfield of an element of a data structure array, global
+/// (S2.30) or a procedure's own (S2.63), `ds(i).field`: the
+/// interpreter's `path_sym` adds (i - 1) times
 /// the data structure's size to the subfield's place, after the same
 /// index check as an array element's (RNQ0121), so it is an element with
 /// the data structure's size as its stride.
@@ -1679,10 +1705,17 @@ fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::O
     let Some(Sym::Ds(d)) = sym(cx, ds) else {
         return None;
     };
-    if d.local
+    // A local one (S2.63): of the procedure's own storage, not based and
+    // not a parameter (`local_array_ok`).
+    let local_ok = !d.local
+        || (cx.based.is_some_and(|b| !b.contains_key(&d.buf))
+            && cx
+                .params
+                .is_some_and(|ps| ps.iter().all(|p| p.buf != Some(d.buf))));
+    if !local_ok
         || d.dim == 0
-        || prog.based.contains_key(&d.buf)
-        || prog.occurs.iter().any(|o| o.buf == d.buf)
+        || (!d.local && prog.based.contains_key(&d.buf))
+        || (!d.local && prog.occurs.iter().any(|o| o.buf == d.buf))
     {
         return None;
     }
@@ -1690,7 +1723,7 @@ fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::O
     let Some(Sym::Var(v)) = sym(cx, &name) else {
         return None;
     };
-    if v.local || v.dim != 0 || v.buf != d.buf || prog.varying.contains_key(&name) {
+    if v.local != d.local || v.dim != 0 || v.buf != d.buf || prog.varying.contains_key(&name) {
         return None;
     }
     let ty = match v.dtype {
@@ -1714,15 +1747,18 @@ fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::O
         d.dim
     );
     used.push(format!(
-        "layout {shown} {} {} {:?} global",
-        v.buf, v.off, v.dtype
+        "layout {shown} {} {} {:?} {}",
+        v.buf,
+        v.off,
+        v.dtype,
+        if v.local { "local" } else { "global" }
     ));
     Some(ir::Operand::Var {
         name: shown,
         buf: v.buf,
         off: v.off,
         ty,
-        local: false,
+        local: v.local,
         index: Some(Box::new(ir::Index {
             of,
             stride: d.size,
