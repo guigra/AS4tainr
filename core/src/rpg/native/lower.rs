@@ -38,7 +38,7 @@ pub fn lower(prog: &Program, place: &Place, code: &Code) -> (Vec<ir::Ins>, Vec<S
             let lowered = cx.as_ref().and_then(|cx| lowered(cx, &i.ins, &mut layout));
             if lowered.is_none() {
                 if let Some(cx) = &cx {
-                    note_why(cx, &i.ins);
+                    note_why(cx, &i.ins, i.line);
                 }
             }
             ir::Ins {
@@ -65,6 +65,19 @@ struct Cx<'p> {
     /// A procedure's own prototypes (S2.46), looked up before the
     /// program's, as the interpreter's `proto`.
     protos: Option<&'p std::collections::HashMap<String, super::super::program::Proto>>,
+}
+
+/// A name as the interpreter's `Machine::sym` finds it (S2.61): in a
+/// procedure, its own names first (locals, parameters, its prototypes'
+/// names), then the module's globals; in the main program, the
+/// program's. Based globals and subfields of multiple-occurrence data
+/// structures are found here as declared; `variable` places them (or
+/// refuses them) as it does in the main program.
+fn sym<'c>(cx: &Cx<'c>, name: &str) -> Option<&'c Sym> {
+    cx.syms.get(name).or_else(|| match cx.based {
+        Some(_) => cx.prog.syms.get(name),
+        None => None,
+    })
 }
 
 /// IBM i's limit on levels of nesting in an expression: "Maximum of 100"
@@ -257,7 +270,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                     let [name] = parts.as_slice() else {
                         return None;
                     };
-                    let Some(Sym::Var(v)) = cx.syms.get(name) else {
+                    let Some(Sym::Var(v)) = sym(cx, name) else {
                         return None;
                     };
                     ir::FixOp::Div {
@@ -323,7 +336,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 return None;
             };
             let name = parts.join(".");
-            let Some(Sym::Var(v)) = cx.syms.get(&name) else {
+            let Some(Sym::Var(v)) = sym(cx, &name) else {
                 return None;
             };
             let prog = cx.prog;
@@ -836,7 +849,7 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 return None;
             };
             let name = parts.join(".");
-            match cx.syms.get(&name) {
+            match sym(cx, &name) {
                 Some(Sym::Var(v))
                     if !v.local && v.dim > 0 && cx.prog.varying.contains_key(&name) =>
                 {
@@ -961,7 +974,7 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 return None;
             };
             let name = parts.join(".");
-            let Some(Sym::Var(v)) = cx.syms.get(&name) else {
+            let Some(Sym::Var(v)) = sym(cx, &name) else {
                 return None;
             };
             let prog = cx.prog;
@@ -1293,10 +1306,10 @@ fn any_operand(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Oper
         // source) must not share generated code (rla_test
         // include_search_order_follows_source_kind under native-diff).
         Expr::Name { parts, args: None }
-            if matches!(cx.syms.get(&parts.join(".")), Some(Sym::Const(_))) =>
+            if matches!(sym(cx, &parts.join(".")), Some(Sym::Const(_))) =>
         {
             let name = parts.join(".");
-            let op = match cx.syms.get(&name) {
+            let op = match sym(cx, &name) {
                 Some(Sym::Const(Value::Char(b))) => ir::Operand::Str(b.clone()),
                 Some(Sym::Const(Value::Num(d))) => {
                     let m: i128 = d.mantissa().to_string().parse().ok()?;
@@ -1319,7 +1332,7 @@ fn any_operand(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Oper
                 return None;
             };
             let name = parts.join(".");
-            let n: i128 = match (b.as_str(), cx.syms.get(&name)?) {
+            let n: i128 = match (b.as_str(), sym(cx, &name)?) {
                 ("SIZE", Sym::Var(v)) => {
                     let k = if args.len() > 1 { v.dim.max(1) } else { 1 };
                     i128::try_from(v.dtype.size())
@@ -1442,7 +1455,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
     if parts.is_empty() {
         return None;
     }
-    let v = match cx.syms.get(name) {
+    let v = match sym(cx, name) {
         Some(Sym::Var(v)) => v,
         // A whole data structure (S2.24), not an array, global, not based
         // or of multiple occurrences: the interpreter reads its bytes and
@@ -1646,7 +1659,7 @@ fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::O
         _ => return None,
     };
     let prog = cx.prog;
-    let Some(Sym::Ds(d)) = cx.syms.get(ds) else {
+    let Some(Sym::Ds(d)) = sym(cx, ds) else {
         return None;
     };
     if d.local
@@ -1657,7 +1670,7 @@ fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::O
         return None;
     }
     let name = format!("{ds}.{field}");
-    let Some(Sym::Var(v)) = cx.syms.get(&name) else {
+    let Some(Sym::Var(v)) = sym(cx, &name) else {
         return None;
     };
     if v.local || v.dim != 0 || v.buf != d.buf || prog.varying.contains_key(&name) {
@@ -1777,7 +1790,7 @@ fn file_op(op: &FileOp) -> String {
 fn is_call(cx: &Cx<'_>, parts: &[String]) -> bool {
     let name = parts.join(".");
     parts.len() == 1
-        && cx.syms.get(&name).is_none()
+        && sym(cx, &name).is_none()
         && (cx.prog.procs.contains_key(&name) || proto(cx, &name).is_some())
 }
 
@@ -1828,7 +1841,7 @@ fn call_of(
     used: &mut Vec<String>,
     path: Vec<u8>,
 ) -> Option<ir::Call> {
-    if parts.len() != 1 || cx.syms.get(&parts.join(".")).is_some() {
+    if parts.len() != 1 || sym(cx, &parts.join(".")).is_some() {
         return None;
     }
     let name = parts.join(".");
@@ -1847,7 +1860,7 @@ fn call_of(
             }
             let local = match &pr.extpgm {
                 Some(pgm) => {
-                    if matches!(cx.syms.get(pgm), Some(Sym::Var(_))) {
+                    if matches!(sym(cx, pgm), Some(Sym::Var(_))) {
                         return None;
                     }
                     None
@@ -1927,7 +1940,7 @@ fn call_of(
         // character field of its size): by reference, or for CONST by
         // reference when the sizes match (same_type_variable) and as its
         // value otherwise.
-        let whole_ds = matches!(a, Expr::Name { parts, .. } if matches!(cx.syms.get(&parts.join(".")), Some(Sym::Ds(_))));
+        let whole_ds = matches!(a, Expr::Name { parts, .. } if matches!(sym(cx, &parts.join(".")), Some(Sym::Ds(_))));
         if local.is_some_and(|pi| !matches!(pi.syms.get(&p.name), Some(Sym::Var(_))))
             || (whole_ds && local.is_some())
         {
@@ -1944,7 +1957,7 @@ fn call_of(
         let mut ap = path.clone();
         ap.push(u8::try_from(k).ok()?);
         let field = |a: &Expr| match a {
-            Expr::Name { parts, .. } => match cx.syms.get(&parts.join(".")) {
+            Expr::Name { parts, .. } => match sym(cx, &parts.join(".")) {
                 Some(Sym::Var(_)) => true,
                 // A whole data structure (S2.60), for a call that is not
                 // local; `variable` takes only those it can place.
@@ -2052,7 +2065,7 @@ fn call_param_ty(t: DType) -> Option<ir::Ty> {
 /// nodes), to find the forms that keep code in the interpreter (ADR 0007,
 /// phase A). A diagnostic: it does not change what is generated. At most
 /// 100 000 lines per process.
-fn note_why(cx: &Cx<'_>, i: &Ins) {
+fn note_why(cx: &Cx<'_>, i: &Ins, at: usize) {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static LINES: AtomicUsize = AtomicUsize::new(0);
     let Ok(path) = std::env::var("AS4TAINR_NATIVE_WHY") else {
@@ -2163,6 +2176,8 @@ fn note_why(cx: &Cx<'_>, i: &Ins) {
         .append(true)
         .open(path)
     {
+        // Where it is, after the shape (S2.61): the program and its line.
+        let line = format!("{} @{}:{at}\n", line.trim_end(), cx.prog.name);
         let _ = std::io::Write::write_all(&mut f, line.as_bytes());
     }
 }
@@ -2172,7 +2187,7 @@ fn target_shape(cx: &Cx<'_>, e: &Expr) -> String {
     match e {
         Expr::Name { parts, args } => {
             let k = if args.is_some() { "elem" } else { "name" };
-            match cx.syms.get(&parts.join(".")) {
+            match sym(cx, &parts.join(".")) {
                 Some(Sym::Var(v)) => format!("{k}:{}!{}", type_name(v.dtype), var_why(cx, v)),
                 Some(Sym::Ds(_)) => format!("{k}:ds"),
                 Some(_) => format!("{k}:other"),
@@ -2181,7 +2196,7 @@ fn target_shape(cx: &Cx<'_>, e: &Expr) -> String {
         }
         Expr::Path { parts, idx, args } => {
             let first = parts.first().map(String::as_str).unwrap_or("");
-            let ds = match cx.syms.get(first) {
+            let ds = match sym(cx, first) {
                 Some(Sym::Ds(d)) => format!(
                     "ds{}{}",
                     if d.local { "-local" } else { "" },
@@ -2251,7 +2266,7 @@ fn shape(cx: &Cx<'_>, e: &Expr, out: &mut Vec<String>, depth: u32) {
         Expr::Path { .. } => out.push("path".into()),
         Expr::Name { parts, args } => {
             let n = parts.join(".");
-            match (cx.syms.get(&n), args) {
+            match (sym(cx, &n), args) {
                 (Some(Sym::Var(v)), None) => {
                     let why = if variable(cx, e, &mut Vec::new()).is_some() {
                         String::new()
@@ -2300,7 +2315,7 @@ fn ar_op(op: &BinOp) -> ir::ArOp {
 fn is_pointer_name(cx: &Cx<'_>, e: &Expr) -> bool {
     match e {
         Expr::Name { parts, .. } => {
-            matches!(cx.syms.get(&parts.join(".")), Some(Sym::Var(v)) if v.dtype == DType::Pointer)
+            matches!(sym(cx, &parts.join(".")), Some(Sym::Var(v)) if v.dtype == DType::Pointer)
         }
         _ => false,
     }
@@ -2445,9 +2460,7 @@ fn proto_why(cx: &Cx<'_>, name: &str) -> String {
         why.push("procptr".to_string());
     }
     match &pr.extpgm {
-        Some(pgm) if matches!(cx.syms.get(pgm), Some(Sym::Var(_))) => {
-            why.push("pgm-var".to_string())
-        }
+        Some(pgm) if matches!(sym(cx, pgm), Some(Sym::Var(_))) => why.push("pgm-var".to_string()),
         Some(_) => {}
         None => {
             let up = pr
@@ -2497,7 +2510,7 @@ fn proto_why(cx: &Cx<'_>, name: &str) -> String {
 fn is_temporal_name(cx: &Cx<'_>, e: &Expr) -> bool {
     match e {
         Expr::Name { parts, .. } => matches!(
-            cx.syms.get(&parts.join(".")),
+            sym(cx, &parts.join(".")),
             Some(Sym::Var(v)) if matches!(v.dtype, DType::Date(_) | DType::Time(_) | DType::Timestamp(_))
         ),
         _ => false,
@@ -2785,7 +2798,7 @@ fn file_read(
         }
         Some(k) => {
             let list: Vec<Expr> = match k {
-                [Expr::Name { parts, args: None }] => match cx.syms.get(&parts.join(".")) {
+                [Expr::Name { parts, args: None }] => match sym(cx, &parts.join(".")) {
                     Some(Sym::Klist(l)) => l.clone(),
                     _ => k.to_vec(),
                 },

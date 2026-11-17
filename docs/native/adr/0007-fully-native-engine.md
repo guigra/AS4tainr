@@ -486,3 +486,15 @@ A hexadecimal literal for a CONST or VALUE character parameter is its bytes, as 
 - a receiver data structure;
 - x'C1C2' as data;
 - CPF9801 after the space is deleted.
+
+## S2.61: the module's global fields in procedures
+
+The corpus pass found names that lowering called unknown in procedures (MODE, CALLS, SEEN1...). They were the module's global fields: a procedure's symbol table (ProcInfo::syms) has its own names only. The interpreter's Machine::sym finds a name in the running procedure first, then among the program's.
+
+Lowering now does the same (`sym`):
+- a procedure's names first;
+- then the module's globals, which `variable` places, or refuses, as it does in the main program (based fields, multiple-occurrence data structures).
+
+A local of the same name as a global still hides it.
+
+**Verified by** the native unit NGLOBAL, under both engines. The program captured on PUB400 (tools/golden/native61.txt n61_glb) has procedures that change a global counter, a packed total, a data structure subfield, array elements and a character field, and a local that hides a global.
