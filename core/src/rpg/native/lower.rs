@@ -1250,6 +1250,13 @@ fn any_operand(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Oper
             Some(ir::Operand::Num { m, s: d.scale() })
         }
         Expr::Str(b) => Some(ir::Operand::Str(b.clone())),
+        // A hexadecimal literal (S2.57): eval's `Expr::Hex(s) =>
+        // Value::Char(s)`, character data of those bytes. Its two other
+        // forms stay out: an EVAL of one to an integer field (Stmt::Eval
+        // takes its bytes as an unsigned number), which needs a numeric
+        // operand and gets none here, and an integer argument (value_arg
+        // refuses Hex).
+        Expr::Hex(b) => Some(ir::Operand::Str(b.clone())),
         // A named constant (S2.42): eval's `Sym::Const(c) => c`, its value
         // as defined, so the same operand as the literal it stands for.
         // The value goes into the routine's layout lines, so the
