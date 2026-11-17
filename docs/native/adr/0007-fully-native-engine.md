@@ -504,3 +504,18 @@ A local of the same name as a global still hides it.
 An indicator (*INxx, *INLR...) is character data of length 1 (ILE RPG Reference, "Indicator Data Type"). The interpreter's + concatenates it with characters or with another indicator, and adds it as a number to a number. Lowering now takes an indicator as a part of a concatenation (`cat_part`): its value is '1' or '0' (Value::Ind's chars, X'F1' or X'F0'). Every other part of a lowered concatenation is character data, so the + is always a concatenation. An indicator on its own, or added to a number, is not lowered.
 
 This was the most frequent form left in the corpus pass: DSPLY ('ARITH SUB ' + %char(r) + ' ' + *in50 + *in51 + *in52) in NARITH, whose expected lines come from PUB400 (tools/golden/native3.txt). NARITH's coverage ceiling goes from 4 instructions in the interpreter to 0.
+
+## S2.63: arrays of a procedure's own storage
+
+An element of a procedure's local array, or a subfield of an element of its local data structure array, is now lowered as the interpreter finds it. Machine::sym places the local in the frame, then elem_off adds (index - 1) times the stride, with RNQ0121 for an index out of range. Generated code computes the element's offset and asks `rt.local` for the frame's buffer.
+
+Not lowered:
+- a local array that is a parameter: one passed by reference is the caller's storage, where elem_off also checks that the element is there (MCH0601);
+- a based local;
+- a local varying-dimension array.
+
+**Verified by** the native unit NLOCARR, under both engines. Its program was captured on PUB400 (tools/golden/native63.txt n63_loc):
+- a local array with literal and field indexes;
+- a local data structure array;
+- a recursive call whose own array stays apart from its caller's;
+- an index out of range under MONITOR, which gives 00121.

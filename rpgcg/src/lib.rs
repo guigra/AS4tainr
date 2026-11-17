@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.62");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.63");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -965,6 +965,26 @@ fn place_of(o: &ir::Operand) -> Option<(String, String, String)> {
             "so".to_string(),
         )),
         ir::Operand::Var { based: Some(_), .. } => None,
+        // An element of a procedure's local array (S2.63): its place in the
+        // frame (`rt.local`), as `Machine::sym` then `elem_off` give it.
+        // A varying-dimension one is not lowered.
+        ir::Operand::Var {
+            buf,
+            off,
+            index: Some(ix),
+            local: true,
+            ..
+        } => match &ix.vary {
+            Some(_) => None,
+            None => Some((
+                format!(
+                    "    let o = {};\n    let (sb, so) = rt.local({buf}, o)?;\n",
+                    elem_at(*off, ix)
+                ),
+                "sb".to_string(),
+                "so".to_string(),
+            )),
+        },
         ir::Operand::Var {
             buf,
             off,
@@ -990,6 +1010,16 @@ fn place_of(o: &ir::Operand) -> Option<(String, String, String)> {
             buf, off, local, ..
         } => Some(place(*buf, *off, *local)),
         _ => None,
+    }
+}
+
+/// The buffer of an array element whose offset `o` is worked out (S2.63):
+/// a global's buffer, or for a procedure local its place in the frame.
+fn elem_place(buf: usize, local: bool) -> String {
+    if local {
+        format!("let (b, o) = rt.local({buf}, o)?;")
+    } else {
+        format!("let b = {buf};")
     }
 }
 
@@ -1036,10 +1066,12 @@ fn value(o: &ir::Operand) -> String {
             off,
             ty: t,
             index: Some(ix),
+            local,
             ..
         } => format!(
-            "{{ let o = {}; rpgrt::native::load(rt.mem(), {buf}, o, {})? }}",
+            "{{ let o = {}; {} rpgrt::native::load(rt.mem(), b, o, {})? }}",
             elem_at(*off, ix),
+            elem_place(*buf, *local),
             ty(t)
         ),
         ir::Operand::Var {
@@ -1131,10 +1163,12 @@ fn number(o: &ir::Operand) -> String {
             off,
             ty: t,
             index: Some(ix),
+            local,
             ..
         } => format!(
-            "{{ let o = {}; rpgrt::native::load_num(rt.mem(), {buf}, o, {})? }}",
+            "{{ let o = {}; {} rpgrt::native::load_num(rt.mem(), b, o, {})? }}",
             elem_at(*off, ix),
+            elem_place(*buf, *local),
             ty(t)
         ),
         ir::Operand::Var {

@@ -1,0 +1,5 @@
+# Captures for stage 2, S2.63: arrays of a procedure's own storage (one batch).
+# The first run named a field out, an operation code (RNF7064); it is res now.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native63.txt -f tools/golden/native63
+n63_crt_loc|!system "CRTSQLRPGI OBJ(@LIB@/GN63LOC) SRCSTMF('@HOME@/gld/gn63loc.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n63_loc|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN63LOC)"; cat gn1.out; rm -f gn1.out
