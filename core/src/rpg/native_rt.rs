@@ -320,35 +320,101 @@ impl<'a> Rt<'_, 'a> {
             return Ok(None);
         }
         let target = pr.extproc.clone().unwrap_or_else(|| name.to_string());
-        if self.m.prog.procs.contains_key(&target) {
+        let sym = target.to_ascii_uppercase();
+        // call_named_inner's order (S2.56): a procedure of this module, one
+        // the binder found, a CEE API, a C runtime function. EXTPROC written
+        // in lower case names the system's C function even when the module
+        // has one of that name (`system_named`).
+        let system_named = pr
+            .written
+            .as_deref()
+            .is_some_and(|w| w != w.to_ascii_uppercase())
+            && super::crt::C_FUNCTIONS.contains(&target.as_str());
+        // args_for's check: only a C function takes more arguments than
+        // its prototype has.
+        let fits = |n: usize| -> NResult<()> {
+            if n > pr.params.len() {
+                anyhow::bail!(
+                    "{name}: {n} parameters passed, it takes {}",
+                    pr.params.len()
+                );
+            }
+            Ok(())
+        };
+        if !system_named && self.m.prog.procs.contains_key(&target) {
+            fits(args.len())?;
             return self.call_frame(&target, args);
         }
-        let sym = target.to_ascii_uppercase();
-        let bound = self
-            .m
-            .io
-            .binding
-            .as_ref()
-            .and_then(|b| b.imports.get(&sym))
-            .cloned();
-        let Some(t) = bound else {
-            anyhow::bail!(
-                "CPD5D02: Definition for procedure {target} not found: it is not in this module, and the program is not bound to a module or service program that exports it (CRTPGM, CRTSRVPGM, BNDDIR)."
-            );
+        let bound = if system_named {
+            None
+        } else {
+            self.m
+                .io
+                .binding
+                .as_ref()
+                .and_then(|b| b.imports.get(&sym))
+                .cloned()
         };
-        let mut a = Vec::with_capacity(args.len());
-        for arg in args.into_iter().take(pr.params.len()) {
-            a.push(match arg {
-                CallArg::Ref { buf, off, dtype } => super::Arg::Ref(super::Loc {
-                    buf,
-                    off,
-                    size: dtype.size(),
-                    dtype,
-                }),
-                CallArg::Val(v) => super::Arg::Val(v),
-            });
+        let as_arg = |arg: CallArg| match arg {
+            CallArg::Ref { buf, off, dtype } => super::Arg::Ref(super::Loc {
+                buf,
+                off,
+                size: dtype.size(),
+                dtype,
+            }),
+            CallArg::Val(v) => super::Arg::Val(v),
+        };
+        if let Some(t) = bound {
+            fits(args.len())?;
+            let a: Vec<super::Arg> = args.into_iter().map(as_arg).collect();
+            return self.m.call_bound(&sym, &t, a);
         }
-        self.m.call_bound(&sym, &t, a)
+        if super::cee::CEE_APIS.contains(&sym.as_str()) {
+            fits(args.len())?;
+            let a: Vec<super::Arg> = args.into_iter().map(as_arg).collect();
+            let v = self
+                .m
+                .cee_call(&sym, &a)
+                .ok_or_else(|| anyhow!("native: {sym} is not a CEE API"))??;
+            return Ok(Some(v));
+        }
+        if super::crt::C_FUNCTIONS.contains(&sym.as_str()) {
+            // The prototype's arguments as args_for gives them, CONST ones
+            // passed by reference as their values (an output buffer as its
+            // address, C_OUT_BUFFERS); the rest as values (printf's list).
+            let n = args.len().min(pr.params.len());
+            let mut a = Vec::with_capacity(args.len());
+            for (k, arg) in args.into_iter().enumerate() {
+                let konst = k < n && pr.params.get(k).is_some_and(|p| p.konst);
+                a.push(match arg {
+                    CallArg::Ref { buf, off, dtype } if konst => {
+                        if super::crt::C_OUT_BUFFERS.contains(&(sym.as_str(), k)) {
+                            super::Arg::Val(self.addr_of(buf, off))
+                        } else {
+                            let end = off
+                                .checked_add(dtype.size())
+                                .ok_or_else(|| anyhow!("native: an argument's size"))?;
+                            let bytes = self
+                                .m
+                                .bufs
+                                .get(buf)
+                                .and_then(|b| b.get(off..end))
+                                .ok_or_else(|| anyhow!("native: an argument's storage"))?;
+                            super::Arg::Val(data::load(&dtype, bytes)?)
+                        }
+                    }
+                    other => as_arg(other),
+                });
+            }
+            let v = self
+                .m
+                .c_call(&sym, &a)
+                .ok_or_else(|| anyhow!("native: {sym} is not a C function"))??;
+            return Ok(Some(v));
+        }
+        anyhow::bail!(
+            "CPD5D02: Definition for procedure {target} not found: it is not in this module, and the program is not bound to a module or service program that exports it (CRTPGM, CRTSRVPGM, BNDDIR)."
+        )
     }
 
     /// The values of VALUE and CONST parameters, then the procedure's

@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.56: C runtime functions and a CEE API (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native57.txt -f tools/golden/native57
+n57_crt_c|!system "CRTSQLRPGI OBJ(@LIB@/GN57C) SRCSTMF('@HOME@/gld/gn57c.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n57_c|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN57C)"; cat gn1.out; rm -f gn1.out
