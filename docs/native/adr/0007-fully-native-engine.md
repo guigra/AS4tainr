@@ -467,3 +467,22 @@ The work is split in the order of the interpreter's file_op.
 **Watched.** native_tripwire.rs watches record_of, record_change, rla_change and fref_of.
 
 **Verified by** the native unit NFWRITE, under both engines. Its DDS file, its program and its expected lines are those captured on PUB400 (tools/golden/native59.txt n59_w).
+
+## S2.60: whole data structures and hexadecimal literals as call arguments
+
+**What chose this step.** S2.59's corpus pass with AS4TAINR_NATIVE_WHY, made to name each option and argument, showed the calls kept in the interpreter. Most were calls of system APIs (user spaces, messages) with two forms:
+- the error code structure, or a receiver, as a whole data structure;
+- a hexadecimal literal as a CONST character argument.
+
+**What lowering now lets through.** A whole data structure (global, not an array, not based, not of multiple occurrences) as the argument of a call of a program, or of a procedure that is not in the module, goes as the interpreter's loc_of gives it: its bytes, as a character field of its size.
+- By reference, it goes as is when the parameter's type is the same, or when the parameter is OPTIONS(*VARSIZE) character.
+- For CONST, it goes by reference when the sizes match (same_type_variable), and as its value otherwise.
+- For a procedure of the module, a data structure argument is still not lowered (OpenRPG test325).
+
+A hexadecimal literal for a CONST or VALUE character parameter is its bytes, as eval gives them. For an integer parameter, args_for makes it a number, and that is not lowered.
+
+**Verified by** the native unit NCALLDS, under both engines. It is the program captured on PUB400 (tools/golden/native60.txt n60_api), with the user space in QGPL:
+- QUSCRTUS, QUSCHGUS, QUSRTVUS and QUSDLTUS, with the error code structure;
+- a receiver data structure;
+- x'C1C2' as data;
+- CPF9801 after the space is deleted.

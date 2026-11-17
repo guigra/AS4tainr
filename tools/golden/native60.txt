@@ -1,0 +1,6 @@
+# Captures for stage 2, S2.60: whole data structures and hexadecimal literals as call arguments (one batch).
+# gn60api.rpgle names the user space in GUIGRA261, the library of the PUB400 account used.
+# The first run named a parameter force, an operation code (RNF5507); it is frc now.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native60.txt -f tools/golden/native60
+n60_crt_api|!system "CRTSQLRPGI OBJ(@LIB@/GN60API) SRCSTMF('@HOME@/gld/gn60api.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n60_api|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN60API)"; cat gn1.out; rm -f gn1.out

@@ -1922,8 +1922,14 @@ fn call_of(
         // structure as the argument: the interpreter may pass it by
         // reference (same_type_variable) where a value would be built
         // here; not lowered (OpenRPG test325 under native-corpus.sh).
+        // S2.60: a whole data structure for a program or a procedure of
+        // another module is passed as loc_of gives it (its bytes, as a
+        // character field of its size): by reference, or for CONST by
+        // reference when the sizes match (same_type_variable) and as its
+        // value otherwise.
+        let whole_ds = matches!(a, Expr::Name { parts, .. } if matches!(cx.syms.get(&parts.join(".")), Some(Sym::Ds(_))));
         if local.is_some_and(|pi| !matches!(pi.syms.get(&p.name), Some(Sym::Var(_))))
-            || matches!(a, Expr::Name { parts, .. } if matches!(cx.syms.get(&parts.join(".")), Some(Sym::Ds(_))))
+            || (whole_ds && local.is_some())
         {
             return None;
         }
@@ -1938,7 +1944,13 @@ fn call_of(
         let mut ap = path.clone();
         ap.push(u8::try_from(k).ok()?);
         let field = |a: &Expr| match a {
-            Expr::Name { parts, .. } => matches!(cx.syms.get(&parts.join(".")), Some(Sym::Var(_))),
+            Expr::Name { parts, .. } => match cx.syms.get(&parts.join(".")) {
+                Some(Sym::Var(_)) => true,
+                // A whole data structure (S2.60), for a call that is not
+                // local; `variable` takes only those it can place.
+                Some(Sym::Ds(_)) => local.is_none(),
+                _ => false,
+            },
             _ => false,
         };
         let by_ref = !p.by_value && !p.konst;
@@ -1996,7 +2008,8 @@ fn call_of(
 
 /// A VALUE or CONST argument passed as a value: the interpreter's
 /// `eval` of it, numeric for a numeric parameter and character for a
-/// character one (no conversion between them, no hexadecimal literal).
+/// character one (no conversion between them; a hexadecimal literal only
+/// for a character parameter, S2.60).
 fn value_arg(
     cx: &Cx<'_>,
     ty: &ir::Ty,
@@ -2004,7 +2017,12 @@ fn value_arg(
     used: &mut Vec<String>,
     path: Vec<u8>,
 ) -> Option<ir::CallArg> {
-    if matches!(a, Expr::Hex(_) | Expr::Omit) {
+    // A hexadecimal literal for a character parameter is its bytes (S2.60:
+    // eval's Value::Char); for an integer one args_for makes it a number,
+    // which is not lowered.
+    if matches!(a, Expr::Omit)
+        || (matches!(a, Expr::Hex(_)) && !matches!(ty, ir::Ty::Char(_) | ir::Ty::Varchar(_)))
+    {
         return None;
     }
     match ty {
@@ -2056,8 +2074,37 @@ fn note_why(cx: &Cx<'_>, i: &Ins) {
             // A call not lowered: a procedure of this module (and what keeps
             // it out), or a prototype of something else (a program, a
             // service program's procedure).
-            Ins::Stmt(Stmt::CallP(Expr::Name { parts, .. })) => {
+            Ins::Stmt(Stmt::CallP(Expr::Name { parts, args })) => {
                 let name = parts.join(".");
+                // Each argument's shape against its parameter's type and
+                // passing (S2.60's diagnostic).
+                let params = match cx.prog.procs.get(&name) {
+                    Some(pi) => Some(&pi.params),
+                    None => proto(cx, &name).map(|pr| &pr.params),
+                };
+                let mut detail = Vec::new();
+                for (k, a) in args.as_deref().unwrap_or(&[]).iter().enumerate() {
+                    let mut nodes = Vec::new();
+                    shape(cx, a, &mut nodes, 0);
+                    nodes.sort();
+                    nodes.dedup();
+                    let pd = match params.and_then(|ps| ps.get(k)) {
+                        Some(p) => format!(
+                            "{}{}",
+                            type_name(p.dtype),
+                            if p.by_value {
+                                "/value"
+                            } else if p.konst {
+                                "/const"
+                            } else {
+                                "/ref"
+                            }
+                        ),
+                        None => "extra".to_string(),
+                    };
+                    detail.push(format!("{pd}<-{}", nodes.join("&")));
+                }
+                let detail = detail.join(" ");
                 match cx.prog.procs.get(&name) {
                     Some(pi) => {
                         let mut why = Vec::new();
@@ -2088,9 +2135,9 @@ fn note_why(cx: &Cx<'_>, i: &Ins) {
                         if why.is_empty() {
                             why.push("arguments");
                         }
-                        format!("callp=local why={}\n", why.join(","))
+                        format!("callp=local why={} args={detail}\n", why.join(","))
                     }
-                    None => format!("callp=proto why={}\n", proto_why(cx, &name)),
+                    None => format!("callp=proto why={} args={detail}\n", proto_why(cx, &name)),
                 }
             }
             Ins::Stmt(Stmt::Dsply { message, response }) => {
@@ -2417,8 +2464,19 @@ fn proto_why(cx: &Cx<'_>, name: &str) -> String {
         }
     }
     for p in &pr.params {
-        if p.file || p.omit || p.string || p.varsize || p.trim || p.convert {
-            why.push("options".to_string());
+        // Each option by name (S2.60's diagnostic).
+        for (on, opt) in [
+            (p.file, "likefile"),
+            (p.omit, "omit"),
+            (p.string, "string"),
+            (p.varsize, "varsize"),
+            (p.trim, "trim"),
+            (p.convert, "convert"),
+            (p.nopass, "nopass"),
+        ] {
+            if on {
+                why.push(format!("opt:{opt}"));
+            }
         }
         if param_ty(p.dtype).is_none() {
             why.push(format!("param:{}", type_name(p.dtype)));
