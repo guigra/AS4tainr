@@ -366,3 +366,11 @@ The native units have no calls between programs. The upstream suite's cross-prog
 - **Too many arguments.** Only a C function takes more arguments than its prototype has. Elsewhere it is args_for's error, which the native call raises too.
 - **A phase B dependency.** c_call and cee_call are interpreter services, as call_program and call_bound are (the user's choice, 2026-11-15: use them now, write them again in rpgrt later). The tripwire already watches call_named_inner.
 - **Expected values.** From PUB400, tools/golden/native57.txt n57_c (the unit NCFUNC), and the interpreter gives the same. IBM i's C runtime is EBCDIC: toupper(97) is 97 (x'61' is '/'), and 55 (x'37') is not a digit.
+
+## S2.57: hexadecimal literals
+
+- **What is lowered.** A hexadecimal literal (`x'00'`) is an operand, the character data of its bytes, as eval gives it (`Expr::Hex(s) => Value::Char(s)`). So it works wherever a character literal does: concatenations, comparisons, EVAL to a character field, %SUBST as a target.
+- **Not lowered.** Its two other forms stay in the interpreter:
+  - EVAL of a hexadecimal literal to an integer or unsigned field, where Stmt::Eval takes its bytes as an unsigned number. That needs a numeric operand, and lowering gives none for a hexadecimal literal.
+  - An integer argument, which value_arg refuses for a hexadecimal literal.
+- **Expected values.** From PUB400: NCFUNC's `x'00'` terminators (tools/golden/native57.txt n57_c: strlen gives 5 and atoi 123). NCFUNC now has 2 instructions in the interpreter, down from 4.
