@@ -1096,6 +1096,17 @@ impl Runtime for Rt<'_, '_> {
         Ok(sql_result(o))
     }
 
+    fn sql_call(
+        &mut self,
+        pc: usize,
+        name: &str,
+        exprs: Vec<String>,
+        outs: Vec<Option<rpgrt::native::SqlSlot>>,
+    ) -> NResult<rpgrt::native::SqlResult> {
+        let o = self.sql_cursor_n(pc, |rt| rt.sql_call_n(name, &exprs, &outs))?;
+        Ok(sql_result(o))
+    }
+
     fn sql_close(&mut self, pc: usize, name: &str) -> NResult<rpgrt::native::SqlResult> {
         let o = self.sql_cursor_n(pc, |rt| {
             Ok(match rt.m.sql.cursors.remove(name) {
@@ -2873,6 +2884,59 @@ impl Rt<'_, '_> {
                 rrns,
             },
         );
+        Ok(sql_ok(0))
+    }
+
+    /// exec_sql.rs sql_call (S2.75): the procedure called through sqlpl
+    /// with the job's library list, user and current library on the
+    /// program's SQL session (a failure as its condition's SQLCODE, and
+    /// for -438 its SQLSTATE); then each OUT and INOUT parameter's value
+    /// into its host variable (assign_hosts, an error stops it).
+    fn sql_call_n(
+        &mut self,
+        name: &str,
+        exprs: &[String],
+        outs: &[Option<rpgrt::native::SqlSlot>],
+    ) -> NResult<SqlOut> {
+        let curlib = self.m.io.cl.as_ref().and_then(|c| c.curlib.clone());
+        let client = self.m.io.client;
+        let url = self.m.io.database_url.clone();
+        let libl = self.m.io.libl.clone();
+        let user = self.m.io.user.clone();
+        let rt = self.m.io.rt.clone();
+        let session = self.session_n()?;
+        let env = crate::sqlpl::Env {
+            session,
+            catalog: client,
+            database_url: &url,
+            libl: &libl,
+            user: &user,
+            curlib,
+        };
+        let r = rt.block_on(crate::sqlpl::call_exprs(&env, name, exprs));
+        let (routine, out) = match r {
+            Ok(x) => x,
+            Err(e) => {
+                let (code, state, text) = crate::sqlpl::condition_of(&e);
+                let mut o = sql_err(code, text);
+                if code == -438 {
+                    o.state = state;
+                }
+                return Ok(o);
+            }
+        };
+        for ((p, t), v) in routine.parms.iter().zip(outs).zip(&out.values) {
+            if p.mode == "IN" {
+                continue;
+            }
+            if let Some(slot) = t {
+                if let Some(o) =
+                    self.assign_hosts_n(std::slice::from_ref(slot), std::slice::from_ref(v))?
+                {
+                    return Ok(o);
+                }
+            }
+        }
         Ok(sql_ok(0))
     }
 

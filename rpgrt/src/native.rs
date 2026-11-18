@@ -307,6 +307,16 @@ pub trait Runtime {
         host: &str,
         fields: Vec<SqlRowSlot>,
     ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.75): CALL the SQL procedure `name` with `exprs`
+    /// (exec_sql.rs sql_call), each OUT or INOUT parameter's value into
+    /// its `outs` field; the outcome.
+    fn sql_call(
+        &mut self,
+        pc: usize,
+        name: &str,
+        exprs: Vec<String>,
+        outs: Vec<Option<SqlSlot>>,
+    ) -> NResult<SqlResult>;
     /// Stage 2 (S2.72): CLOSE the cursor `name`; the outcome.
     fn sql_close(&mut self, pc: usize, name: &str) -> NResult<SqlResult>;
     /// Stage 2 (S2.71): GET DIAGNOSTICS's items' values about the last

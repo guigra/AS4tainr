@@ -446,6 +446,12 @@ fn native_runtime_matches_the_interpreter_it_copies() {
         ),
         function(EXEC_SQL, "fn strip_cursor_clauses(query: &str) -> String {", ""),
         function(EXEC_SQL, "fn with_rrn(query: &str) -> Option<String> {", ""),
+        // S2.75: CALL.
+        function(
+            EXEC_SQL,
+            "    fn sql_call(&mut self, sql: &str) -> Result<Outcome> {",
+            "    ",
+        ),
         // S2.74: multiple-row FETCH and INSERT.
         function(EXEC_SQL, "    fn fetch_rows(\n", "    "),
         function(
@@ -504,9 +510,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // statement_text and using_values, S2.72 sql_open, sql_fetch,
     // strip_cursor_clauses and with_rrn (OpenCursor and cursors made
     // pub(super), the user's second authorization of 2026-11-18), S2.73
-    // positioned_change, S2.74 fetch_rows and sql_insert_rows;
+    // positioned_change, S2.74 fetch_rows and sql_insert_rows, S2.75
+    // sql_call;
     // upstream still dd47e28.
-    let reviewed = "e00e78b2eab66991332160a09ebae71adc3f4d5b34fbacf5b9f2efeb5522eb38";
+    let reviewed = "385ce9e41c3e6712194d2c797efa452f0c1bf20de47611fe301e28c8ee3d5b6b";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

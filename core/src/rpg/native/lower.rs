@@ -500,6 +500,11 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 sqlca: Box::new(sqlca),
             }
         }
+        // CALL of an SQL procedure (S2.75).
+        Ins::Stmt(Stmt::Sql(text)) if sql_call_kind(text) => {
+            let sqlca = sqlca_ops(cx, &mut used)?;
+            sql_call(cx, text, sqlca, &mut used)?
+        }
         // INSERT ... n ROWS VALUES (:dsarray) (S2.74).
         Ins::Stmt(Stmt::Sql(text)) if sql_insert_rows_kind(text) => {
             let sqlca = sqlca_ops(cx, &mut used)?;
@@ -4283,5 +4288,123 @@ fn sql_insert_rows(
         dim,
         host,
         fields,
+    })
+}
+
+/// CALL, as exec_sql.rs sql_statement tells it (S2.75).
+fn sql_call_kind(sql: &str) -> bool {
+    sql.split_whitespace()
+        .next()
+        .is_some_and(|w| w.eq_ignore_ascii_case("CALL"))
+}
+
+/// A host variable of a CALL argument (S2.75): `hv`, `hv ind` or
+/// `hv INDICATOR ind`, as sql_call splits it; a field, not a data
+/// structure.
+fn sql_call_host(
+    cx: &Cx<'_>,
+    rest: &str,
+    used: &mut Vec<String>,
+) -> Option<(ir::SqlIn, ir::SqlOut)> {
+    let parts: Vec<&str> = rest
+        .split_whitespace()
+        .filter(|w| !w.eq_ignore_ascii_case("INDICATOR"))
+        .collect();
+    let hv = parts.first().copied().unwrap_or("");
+    if hv.contains(':') || parts.len() > 2 {
+        return None;
+    }
+    let ind = parts.get(1).map(|i| i.trim_start_matches(':').to_string());
+    let targets = sql_targets(cx, hv)?;
+    let [t] = targets.as_slice() else {
+        return None;
+    };
+    let value = sql_field(cx, t, used)?;
+    if !matches!(
+        value,
+        ir::Operand::Var {
+            index: None,
+            based: None,
+            ..
+        }
+    ) {
+        return None;
+    }
+    let ind = match ind {
+        Some(i) => {
+            let o = num_variable(cx, &super::super::expr::parse(&i).ok()?, used)?;
+            if !matches!(
+                o,
+                ir::Operand::Var {
+                    index: None,
+                    based: None,
+                    ..
+                }
+            ) {
+                return None;
+            }
+            Some(o)
+        }
+        None => None,
+    };
+    let char_len = match &value {
+        ir::Operand::Var {
+            ty: ir::Ty::Char(n),
+            ..
+        } => Some(*n),
+        _ => None,
+    };
+    let numeric = !is_char(&value);
+    Some((
+        ir::SqlIn {
+            value: value.clone(),
+            char_len,
+            ind: ind.clone(),
+        },
+        ir::SqlOut {
+            target: value,
+            numeric,
+            ind,
+        },
+    ))
+}
+
+/// A CALL taken apart as exec_sql.rs sql_call does (S2.75): the routine
+/// and its arguments (sqlpl::parse_call); an argument by name keeps its
+/// `NAME => ` and is only an input; a positional host variable is also
+/// where an OUT or INOUT parameter's value goes.
+fn sql_call(
+    cx: &Cx<'_>,
+    sql: &str,
+    sqlca: [ir::Operand; 5],
+    used: &mut Vec<String>,
+) -> Option<ir::Lowered> {
+    let (name, args) = crate::sqlpl::parse_call(sql.trim()).ok()??;
+    let mut out = Vec::new();
+    for a in &args {
+        let (kw, t) = match a.split_once("=>") {
+            Some((k, e)) if !k.trim().is_empty() && !k.contains('\'') => {
+                (format!("{} => ", k.trim()), e.trim())
+            }
+            _ => (String::new(), a.trim()),
+        };
+        match t.strip_prefix(':') {
+            Some(rest) => {
+                let (input, o) = sql_call_host(cx, rest, used)?;
+                let positional = kw.is_empty();
+                out.push(ir::SqlArg::Host {
+                    kw,
+                    input: Box::new(input),
+                    out: positional.then(|| Box::new(o)),
+                });
+            }
+            None => out.push(ir::SqlArg::Text(format!("{kw}{t}"))),
+        }
+    }
+    used.push(format!("sql call {name} {} args", out.len()));
+    Some(ir::Lowered::SqlCall {
+        sqlca: Box::new(sqlca),
+        name,
+        args: out,
     })
 }
