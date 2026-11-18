@@ -1893,3 +1893,18 @@ async fn native_unit_lowered_nested_path() {
     )
     .await;
 }
+
+// Stage 2, S2.77: a path with two indexes lowered to Rust.
+// Source: golden capture tools/golden/native77 n77_nested2 (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_path_two_indexes() {
+    let _ = require_db!();
+    expect(
+        "NNEST2",
+        include_str!("native/NNEST2.rpgle"),
+        // gv(1).m(4).parmNo was never set: the structure's storage starts
+        // as blanks, x'40404040' as an int(10).
+        &["GV 10v1 20v2 30v3 L 40 1077952576", "ERROR 121"],
+    )
+    .await;
+}

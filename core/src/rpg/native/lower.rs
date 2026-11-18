@@ -1795,6 +1795,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
                 stride: v.stride,
                 dim: v.dim,
                 vary,
+                outer: None,
             }));
             Some(1)
         }
@@ -1819,6 +1820,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
             stride: o.size,
             dim: o.count,
             vary: None,
+            outer: None,
         }));
     }
     let off = match elem {
@@ -1981,30 +1983,26 @@ fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::O
     else {
         return None;
     };
-    // The index is on a data structure: the parser gives `idx` one entry
-    // per part, or only up to the last indexed part. One index, on any
-    // part but the last (S2.76: `list.users(i).name`, a LIKEDS subfield
-    // with DIM, whose subfields program.rs names LIST.USERS.NAME at the
-    // first element's place); interp.rs path_sym adds (i - 1) times that
-    // structure's size. A path with two indexes stays in the interpreter.
+    // The indexes are on data structures: the parser gives `idx` one entry
+    // per part, or only up to the last indexed part. Each on a part but
+    // the last (S2.76: `list.users(i).name`, a LIKEDS subfield with DIM,
+    // whose subfields program.rs names LIST.USERS.NAME at the first
+    // element's place; S2.77: more than one, `gv(s).m(1).parmNo`).
+    // interp.rs path_sym adds, part by part from the left, (i - 1) times
+    // that structure's size after its range check: here a chain of
+    // indexes, the outer one first (`ir::Index::outer`).
     let indexed: Vec<usize> = idx
         .iter()
         .enumerate()
         .filter_map(|(k, x)| x.is_some().then_some(k))
         .collect();
-    let (ds, field, ix) = match (indexed.as_slice(), parts.len()) {
-        ([k], n) if n >= 2 && k.checked_add(1).is_some_and(|k1| k1 < n) => {
-            let ix = idx.get(*k)?.as_ref()?;
-            (
-                parts.get(..=*k)?.join("."),
-                parts.get(k.checked_add(1)?..)?.join("."),
-                ix,
-            )
-        }
-        _ => return None,
-    };
+    let last = parts.len().checked_sub(1)?;
+    let first = *indexed.first()?;
+    if parts.len() < 2 || indexed.iter().any(|k| *k >= last) {
+        return None;
+    }
+    let ds = parts.get(..=first)?.join(".");
     let ds = &ds;
-    let field = &field;
     let prog = cx.prog;
     let Some(Sym::Ds(d)) = sym(cx, ds) else {
         return None;
@@ -2023,7 +2021,7 @@ fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::O
     {
         return None;
     }
-    let name = format!("{ds}.{field}");
+    let name = parts.join(".");
     let Some(Sym::Var(v)) = sym(cx, &name) else {
         return None;
     };
@@ -2040,16 +2038,44 @@ fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::O
         DType::Varchar(n) => ir::Ty::Varchar(n),
         _ => return None,
     };
-    let of = operand(cx, ix, used)?;
-    let shown = format!(
-        "{ds}({}).{field} stride {} dim {}",
-        match &of {
-            ir::Operand::Var { name, .. } => name.clone(),
-            other => format!("{other:?}"),
-        },
-        d.size,
-        d.dim
-    );
+    let mut index: Option<Box<ir::Index>> = None;
+    let mut shown = String::new();
+    for (k, part) in parts.iter().enumerate() {
+        if k > 0 {
+            shown.push('.');
+        }
+        shown.push_str(part);
+        let Some(Some(ix)) = idx.get(k) else {
+            continue;
+        };
+        let at = parts.get(..=k)?.join(".");
+        let Some(Sym::Ds(dk)) = sym(cx, &at) else {
+            return None;
+        };
+        if dk.dim == 0 || dk.buf != d.buf || dk.local != d.local {
+            return None;
+        }
+        let of = operand(cx, ix, used)?;
+        let _ = std::fmt::Write::write_fmt(
+            &mut shown,
+            format_args!(
+                "({}) stride {} dim {}",
+                match &of {
+                    ir::Operand::Var { name, .. } => name.clone(),
+                    other => format!("{other:?}"),
+                },
+                dk.size,
+                dk.dim
+            ),
+        );
+        index = Some(Box::new(ir::Index {
+            of,
+            stride: dk.size,
+            dim: dk.dim,
+            vary: None,
+            outer: index,
+        }));
+    }
     used.push(format!(
         "layout {shown} {} {} {:?} {}",
         v.buf,
@@ -2063,12 +2089,7 @@ fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::O
         off: v.off,
         ty,
         local: v.local,
-        index: Some(Box::new(ir::Index {
-            of,
-            stride: d.size,
-            dim: d.dim,
-            vary: None,
-        })),
+        index: Some(index?),
         based: None,
     })
 }
