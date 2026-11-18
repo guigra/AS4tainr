@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.83: fixed-form string operations (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native83.txt -f tools/golden/native83
+n83_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN83STR) SRCSTMF('@HOME@/gld/gn83str.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n83_strops|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN83STR)"; cat gn1.out; rm -f gn1.out
