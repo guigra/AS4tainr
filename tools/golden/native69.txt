@@ -1,0 +1,5 @@
+# Captures for stage 2, S2.69: embedded SQL with no host variables (one batch).
+# gn69sql.rpgle names its table in GUIGRA261, the library of the PUB400 account used.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native69.txt -f tools/golden/native69
+n69_crt_sql|!system "CRTSQLRPGI OBJ(@LIB@/GN69SQL) SRCSTMF('@HOME@/gld/gn69sql.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n69_sql|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN69SQL)"; cat gn1.out; rm -f gn1.out

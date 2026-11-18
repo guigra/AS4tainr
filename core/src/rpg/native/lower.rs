@@ -473,6 +473,33 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             };
             ir::Lowered::SetOccur { buf, to, result }
         }
+        // EXEC SQL, step 1 (S2.69): a statement with no host variable that
+        // exec_sql.rs's sql_statement runs without cursors, INTO, CALL,
+        // dynamic SQL or GET DIAGNOSTICS; the SQLCA's fields as operands.
+        Ins::Stmt(Stmt::Sql(text)) if sql_step1(text) => {
+            let field = |n: &str, used: &mut Vec<String>| variable(cx, &Expr::name(n), used);
+            let errd = |k: i64, used: &mut Vec<String>| {
+                variable(
+                    cx,
+                    &Expr::Name {
+                        parts: vec!["SQLERRD".into()],
+                        args: Some(vec![Expr::Num(super::super::dec::Dec::from_i64(k))]),
+                    },
+                    used,
+                )
+            };
+            let sqlca = [
+                field("SQLCODE", &mut used)?,
+                field("SQLSTATE", &mut used)?,
+                field("SQLERRMC", &mut used)?,
+                errd(3, &mut used)?,
+                errd(5, &mut used)?,
+            ];
+            used.push("exec sql step 1".into());
+            ir::Lowered::ExecSql {
+                sqlca: Box::new(sqlca),
+            }
+        }
         // A read of a database file (S2.58).
         Ins::Stmt(Stmt::File {
             op,
@@ -3150,4 +3177,46 @@ fn file_read(
     }
     used.push(format!("file read {op:?} {file} {i}"));
     Some(ir::Lowered::FileRead { keys, moves })
+}
+
+/// Whether an EXEC SQL is one step 1 lowers (S2.69): no host variable
+/// (bind_host's `:name` outside literals), and not a statement exec_sql.rs
+/// treats on its own (OPEN, FETCH, CLOSE, PREPARE, EXECUTE, CALL, GET,
+/// SET RESULT SETS, INSERT ... ROWS, a positioned UPDATE or DELETE).
+fn sql_step1(sql: &str) -> bool {
+    let mut quote = None::<char>;
+    let mut prev_colon = false;
+    for c in sql.chars() {
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+            prev_colon = false;
+            continue;
+        }
+        if prev_colon && (c.is_ascii_alphabetic() || "_#@$".contains(c)) {
+            return false;
+        }
+        if c == '\'' || c == '"' {
+            quote = Some(c);
+        }
+        prev_colon = c == ':';
+    }
+    let w: Vec<String> = sql
+        .split_whitespace()
+        .map(|x| x.to_ascii_uppercase())
+        .collect();
+    let first = w.first().map(String::as_str).unwrap_or("");
+    let second = w.get(1).map(String::as_str).unwrap_or("");
+    if matches!(
+        first,
+        "OPEN" | "FETCH" | "CLOSE" | "PREPARE" | "EXECUTE" | "CALL" | "GET" | ""
+    ) || (first == "SET" && second == "RESULT")
+        || (first == "INSERT" && w.iter().any(|x| x == "ROWS"))
+        || w.windows(2)
+            .any(|p| matches!(p, [a, b] if a == "CURRENT" && b == "OF"))
+    {
+        return false;
+    }
+    true
 }

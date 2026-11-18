@@ -1730,3 +1730,24 @@ async fn native_unit_lowered_array_functions() {
     )
     .await;
 }
+
+// Stage 2, S2.69: embedded SQL with no host variables lowered to Rust.
+// Source: golden capture tools/golden/native69 n69_sql (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_static_sql() {
+    let _ = require_db!();
+    expect(
+        "NSQL1",
+        include_str!("native/NSQL1.rpgle"),
+        &[
+            // n69_sql's "CREATE 7905 01567 0" and "COMMIT -7007 51009 0" are
+            // not checked (NSQL1.rpgle; fidelity.md, interpreter defects).
+            "INSERT 0 00000 3",
+            "UPDATE0 100 02000 0",
+            "DELETE 0 00000 2",
+            "MISSING -204 42704 0",
+            "DROP 0 00000 0",
+        ],
+    )
+    .await;
+}

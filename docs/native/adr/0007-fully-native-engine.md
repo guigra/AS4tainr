@@ -602,3 +602,34 @@ With a start or a number of elements, these stay in the interpreter. There, as f
 - ties, where the first counts;
 - an integer array;
 - a character array.
+
+## S2.69: embedded SQL, step 1 (no host variables)
+
+An EXEC SQL with no host variable is now lowered, as the plan's step 1 says. Lowering refuses, and the interpreter keeps:
+- a statement with bind_host's `:name` outside literals;
+- OPEN, FETCH, CLOSE, PREPARE, EXECUTE, CALL, GET and SET RESULT SETS;
+- INSERT ... ROWS;
+- a positioned UPDATE or DELETE.
+
+**Runtime.** `Runtime::exec_sql` writes again exec_sql.rs, in its order:
+- exec_sql up to the SQLCA: the outcome, an SQL error as one, and `last` for GET DIAGNOSTICS;
+- sql_statement's start: the wait for other jobs' locks, and STACK_INFO;
+- sql_statement's arms for these statements: SET OPTION, INCLUDE, WHENEVER, BEGIN and END, DECLARE CURSOR, COMMIT and ROLLBACK, the DDL through ddl.rs, and SQLCODE -84 for GRANT, REVOKE, LOCK and MERGE;
+- the rest through sql_change: run_sql, sql_overrides (temporary views for file overrides) and session.
+
+The text helpers words, find_word and sql_error are written again without indexing. sql::Session, ddl.rs and objlock.rs are shared.
+
+**Generated code** stores the outcome into SQLCODE, SQLSTATE, SQLERRMC, SQLERRD(3) and SQLERRD(5) with the truncating fit, as exec_sql assigns them. Lowering resolves those names (the program's SQLCA) as operands.
+
+**Upstream touch point.** The native runtime shares the interpreter's SQL state (session, prepared statements, last outcome, override views). exec_sql.rs's fields are now `pub(super)`, authorized by the user on 2026-11-18 (CLAUDE.native.md section 3), in a commit of its own.
+
+**Verified by** the native unit NSQL1, under both engines. The program captured on PUB400 (tools/golden/native69.txt n69_sql) runs:
+- an INSERT of three rows;
+- an UPDATE of none (SQLCODE 100);
+- a DELETE of two (SQLERRD(3));
+- a missing table (-204, 42704);
+- a DROP.
+
+The capture's CREATE (+7905, the table not journaled) and COMMIT under COMMIT(*NONE) (-7007) are interpreter defects (fidelity.md), so NSQL1 does not check those two lines.
+
+native_tripwire.rs watches the copied functions. It now also watches ops.rs's occurrence functions, which S2.64 wrote again.
