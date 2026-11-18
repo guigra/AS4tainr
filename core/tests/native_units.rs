@@ -2283,3 +2283,16 @@ async fn native_unit_lowered_for_each() {
     )
     .await;
 }
+
+// Stage 2, S2.90: ON-EXIT in native procedure calls.
+// Source: golden capture tools/golden/native90 n90_onexit (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_on_exit() {
+    let _ = require_db!();
+    expect(
+        "NONEXIT2",
+        include_str!("native/NONEXIT2.rpgle"),
+        &["A 5 normal B 99 normal ERR 202 abnormal"],
+    )
+    .await;
+}
