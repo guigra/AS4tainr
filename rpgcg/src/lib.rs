@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.72");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.73");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -383,6 +383,16 @@ pub mod ir {
             orient: String,
             n: i64,
             outputs: Option<Vec<SqlOut>>,
+        },
+        /// UPDATE or DELETE WHERE CURRENT OF (S2.73): the cursor, the
+        /// table, the statement's text before WHERE in pieces around its
+        /// host variables and their inputs; then the SQLCA.
+        SqlPositioned {
+            sqlca: Box<[Operand; 5]>,
+            cursor: String,
+            table: String,
+            pieces: Vec<String>,
+            inputs: Vec<SqlIn>,
         },
         /// CLOSE (S2.72): the cursor; then the SQLCA.
         SqlClose {
@@ -2072,6 +2082,54 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("sf{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::SqlPositioned {
+                sqlca,
+                cursor,
+                table,
+                pieces,
+                inputs,
+            },
+        ) => {
+            // exec_sql.rs positioned_change: the host literals of the text
+            // before WHERE (bind_host), then the runtime; then the SQLCA.
+            let mut body = String::new();
+            let qm = if inputs.is_empty() { "" } else { "mut " };
+            let _ = writeln!(body, "    let {qm}qlits: Vec<String> = Vec::new();");
+            for i in inputs {
+                let null = match &i.ind {
+                    Some(ind) => format!("{}.is_negative()", number(ind)),
+                    None => "false".to_string(),
+                };
+                let cl = match i.char_len {
+                    Some(n) => format!("Some({n})"),
+                    None => "None".to_string(),
+                };
+                let _ = writeln!(
+                    body,
+                    "    if {null} {{\n        qlits.push(\"NULL\".to_string());\n    }} else {{\n        let v = {};\n        qlits.push(rpgrt::native::sql_literal(&v, {cl})?);\n    }}",
+                    value(&i.value)
+                );
+            }
+            let pcs: Vec<String> = pieces.iter().map(|p| json_str(p)).collect();
+            let _ = writeln!(
+                body,
+                "    let o = rt.sql_positioned({pc}, {}, {}, &[{}], qlits)?;",
+                json_str(cursor),
+                json_str(table),
+                pcs.join(", ")
+            );
+            sqlca_store(&mut body, sqlca, &bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn sp{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("sp{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::SqlClose { sqlca, name }) => {

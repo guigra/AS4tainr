@@ -446,6 +446,12 @@ fn native_runtime_matches_the_interpreter_it_copies() {
         ),
         function(EXEC_SQL, "fn strip_cursor_clauses(query: &str) -> String {", ""),
         function(EXEC_SQL, "fn with_rrn(query: &str) -> Option<String> {", ""),
+        // S2.73: UPDATE and DELETE WHERE CURRENT OF.
+        function(
+            EXEC_SQL,
+            "    fn positioned_change(&mut self, sql: &str, w: &[String]) -> Result<Outcome> {",
+            "    ",
+        ),
         // S2.71: dynamic SQL and GET DIAGNOSTICS.
         function(
             EXEC_SQL,
@@ -490,9 +496,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // bind_host, assign_hosts and single_row, S2.71 get_diagnostics,
     // statement_text and using_values, S2.72 sql_open, sql_fetch,
     // strip_cursor_clauses and with_rrn (OpenCursor and cursors made
-    // pub(super), the user's second authorization of 2026-11-18);
+    // pub(super), the user's second authorization of 2026-11-18), S2.73
+    // positioned_change;
     // upstream still dd47e28.
-    let reviewed = "c4107f1628fab0e8710e51392738127513eb2f95f9691f47fecb9aec508b1b3a";
+    let reviewed = "917e656459ce364cbd2419b11149e54ea1ba9f9003edde26955345eb16706525";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

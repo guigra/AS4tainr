@@ -270,6 +270,18 @@ pub trait Runtime {
         outs: Vec<SqlSlot>,
         into: bool,
     ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.73): UPDATE or DELETE of `table` WHERE CURRENT OF
+    /// `cursor` (exec_sql.rs positioned_change): the text before WHERE
+    /// from `pieces` with the `qlits` between them, for the row the cursor
+    /// is on; the outcome.
+    fn sql_positioned(
+        &mut self,
+        pc: usize,
+        cursor: &str,
+        table: &str,
+        pieces: &[&str],
+        qlits: Vec<String>,
+    ) -> NResult<SqlResult>;
     /// Stage 2 (S2.72): CLOSE the cursor `name`; the outcome.
     fn sql_close(&mut self, pc: usize, name: &str) -> NResult<SqlResult>;
     /// Stage 2 (S2.71): GET DIAGNOSTICS's items' values about the last

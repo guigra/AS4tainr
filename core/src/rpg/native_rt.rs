@@ -1052,6 +1052,18 @@ impl Runtime for Rt<'_, '_> {
         Ok(sql_result(o))
     }
 
+    fn sql_positioned(
+        &mut self,
+        pc: usize,
+        cursor: &str,
+        table: &str,
+        pieces: &[&str],
+        qlits: Vec<String>,
+    ) -> NResult<rpgrt::native::SqlResult> {
+        let o = self.sql_cursor_n(pc, |rt| rt.sql_positioned_n(cursor, table, pieces, qlits))?;
+        Ok(sql_result(o))
+    }
+
     fn sql_close(&mut self, pc: usize, name: &str) -> NResult<rpgrt::native::SqlResult> {
         let o = self.sql_cursor_n(pc, |rt| {
             Ok(match rt.m.sql.cursors.remove(name) {
@@ -2830,6 +2842,56 @@ impl Rt<'_, '_> {
             },
         );
         Ok(sql_ok(0))
+    }
+
+    /// exec_sql.rs positioned_change (S2.73): -501 when the cursor is
+    /// not open, -510 when it is not over one table, -508 when it is not on
+    /// a row; else the text before WHERE (its host literals bound) with
+    /// `WHERE RRN(table) = n`, the row's record number, through
+    /// sql_change.
+    fn sql_positioned_n(
+        &mut self,
+        cursor: &str,
+        table: &str,
+        pieces: &[&str],
+        qlits: Vec<String>,
+    ) -> NResult<SqlOut> {
+        let Some(c) = self.m.sql.cursors.get(cursor) else {
+            return Ok(sql_err(
+                -501,
+                format!("SQL0501: Cursor {cursor} is not open."),
+            ));
+        };
+        let Some(rrns) = &c.rrns else {
+            return Ok(sql_err(
+                -510,
+                format!("SQL0510: Cursor {cursor} cannot be used to change the table."),
+            ));
+        };
+        let Some(rrn) = usize::try_from(c.pos)
+            .ok()
+            .and_then(|p| rrns.get(p))
+            .copied()
+        else {
+            return Ok(sql_err(
+                -508,
+                format!("SQL0508: Cursor {cursor} is not on a row."),
+            ));
+        };
+        let mut head = String::new();
+        let mut lit = qlits.into_iter();
+        for (k, p) in pieces.iter().enumerate() {
+            if k > 0 {
+                head.push_str(
+                    &lit.next()
+                        .ok_or_else(|| anyhow!("native: a host literal"))?,
+                );
+            }
+            head.push_str(p);
+        }
+        let short = table.rsplit(['.', '/']).next().unwrap_or(table);
+        let text = format!("{head} WHERE RRN({short}) = {rrn}");
+        self.sql_change_n(&text)
     }
 
     /// exec_sql.rs sql_fetch for one row: -501 when the cursor is not
