@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.78");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.79");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -461,6 +461,14 @@ pub mod ir {
             sqlca: Box<[Operand; 5]>,
             name: String,
             args: Vec<SqlArg>,
+        },
+        /// OPEN, CLOSE or FEOD of a printer file (S2.79).
+        PrinterOp,
+        /// WRITE of a printer file's record format (S2.79): the program
+        /// fields it prints and the INDDS data structure, with places.
+        PrinterWrite {
+            fields: Vec<(String, Operand)>,
+            indds: Option<Operand>,
         },
         /// EXCEPT (S2.78): the exception records' name, and the program
         /// fields their output specifications name, with their places.
@@ -1238,6 +1246,32 @@ fn elem_place(buf: usize, local: bool) -> String {
     } else {
         format!("let b = {buf};")
     }
+}
+
+/// Output fields' places as `fields` (S2.78, S2.79).
+fn out_slots(
+    body: &mut String,
+    fields: &[(String, ir::Operand)],
+    bad: &dyn Fn() -> Error,
+) -> Result<(), Error> {
+    let fm = if fields.is_empty() { "" } else { "mut " };
+    let _ = writeln!(
+        body,
+        "    let {fm}fields: Vec<rpgrt::native::OutSlot> = Vec::new();"
+    );
+    for (n, o) in fields {
+        let ir::Operand::Var { ty: t, .. } = o else {
+            return Err(bad());
+        };
+        let at = scalar_place(o).ok_or_else(bad)?;
+        let _ = writeln!(
+            body,
+            "    {{\n        let (buf, off) = {at};\n        fields.push(rpgrt::native::OutSlot {{ name: {}.to_string(), buf, off, ty: {} }});\n    }}",
+            json_str(n),
+            ty(t)
+        );
+    }
+    Ok(())
 }
 
 /// The SQLCA stored from the outcome `o` (S2.69-S2.71), as exec_sql.rs
@@ -2391,27 +2425,46 @@ fn lowered_step(
                 format!("sk{pc}(rt).map(|()| {next})"),
             )
         }
+        (ir::Kind::Stmt, ir::Lowered::PrinterOp) => guarded(
+            format!("rt.stmt({pc}).map(|()| {next})"),
+            format!("rt.printer_op({pc}).map(|()| {next})"),
+        ),
+        (ir::Kind::Stmt, ir::Lowered::PrinterWrite { fields, indds }) => {
+            // errors.rs file_op and printer.rs printer_write: the fields'
+            // places for this call, then the runtime.
+            let mut body = String::new();
+            out_slots(&mut body, fields, &bad)?;
+            let ind = match indds {
+                Some(o) => {
+                    let ir::Operand::Var { ty: t, .. } = o else {
+                        return Err(bad());
+                    };
+                    let at = scalar_place(o).ok_or_else(bad)?;
+                    format!(
+                        "{{ let (buf, off) = {at}; Some(rpgrt::native::OutSlot {{ name: String::new(), buf, off, ty: {} }}) }}",
+                        ty(t)
+                    )
+                }
+                None => "None".to_string(),
+            };
+            let _ = writeln!(
+                body,
+                "    let indds = {ind};\n    rt.printer_write({pc}, fields, indds)?;"
+            );
+            let _ = writeln!(
+                helpers,
+                "\nfn pw{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("pw{pc}(rt).map(|()| {next})"),
+            )
+        }
         (ir::Kind::Stmt, ir::Lowered::Except { name, fields }) => {
             // interp.rs except: the fields' places for this call, then the
             // runtime prints the records.
             let mut body = String::new();
-            let fm = if fields.is_empty() { "" } else { "mut " };
-            let _ = writeln!(
-                body,
-                "    let {fm}fields: Vec<rpgrt::native::OutSlot> = Vec::new();"
-            );
-            for (n, o) in fields {
-                let ir::Operand::Var { ty: t, .. } = o else {
-                    return Err(bad());
-                };
-                let at = scalar_place(o).ok_or_else(bad)?;
-                let _ = writeln!(
-                    body,
-                    "    {{\n        let (buf, off) = {at};\n        fields.push(rpgrt::native::OutSlot {{ name: {}.to_string(), buf, off, ty: {} }});\n    }}",
-                    json_str(n),
-                    ty(t)
-                );
-            }
+            out_slots(&mut body, fields, &bad)?;
             let nm = match name {
                 Some(n) => format!("Some({})", json_str(n)),
                 None => "None".to_string(),

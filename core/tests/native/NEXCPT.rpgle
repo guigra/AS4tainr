@@ -1,7 +1,7 @@
       * Native unit NEXCPT (S2.78): EXCEPT to a program-described printer
       * file, the program captured on PUB400 without its reading of its
       * own spooled file: the printed lines are compared with the lines
-      * PASE system printed from it.
+      * PASE system printed from it. CLOSE of the printer (S2.79).
       * Source: golden capture tools/golden/native78 n78_except (PUB400,
       * IBM i 7.5, 2026-11-18).
        ctl-opt dftactgrp(*no);
@@ -22,6 +22,7 @@
        except;
        except tot;
        except dtl;
+       close qprint;
        *inlr = *on;
      OQPRINT    E            HDR            1
      O                                           10 'REPORT'

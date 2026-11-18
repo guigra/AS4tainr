@@ -877,3 +877,30 @@ The printers, the overflow state and the printed lines are the interpreter's. It
 PASE system printed the spooled file on standard output. That shows no blank lines and adds PUB400's banner, so the unit compares the program's printed lines that have text, without the banner. Its program leaves out the capture's CLOSE and its reading of the spooled file with SQL (printer CLOSE is not lowered yet; the unit has no spooled file).
 
 native_tripwire.rs watches the functions written again.
+
+## S2.79: WRITE, OPEN, CLOSE and FEOD of printer files
+
+**Lowered**, with no error extender or resulting indicators:
+- WRITE of an externally described printer file's record format;
+- OPEN, CLOSE and FEOD of a printer file.
+
+Both are lowered for a file of the program, not of a procedure. The fields the format prints must be character, varying or numeric fields with no index; a date or time field is not lowered. The INDDS data structure is placed when the file names one. A program-described printer file's WRITE of a data structure stays in the interpreter.
+
+**Runtime.**
+- `printer_write_n` and `printer_op_n` write again errors.rs file_op for these operations: the error status off, a savepoint under commitment control, then file_op's end (`file_end_n`, S2.58).
+- Inside them they write again printer.rs:
+  - printer_write: the record format, the indicators from INDDS's bytes or *IN01-*IN99, PAGNBR's page after SKIPB and SPACEB, each printed field's text, then crate::prtf::layout as it is;
+  - printer_text: DATE, TIME, PAGNBR, fields, edit words and codes, zoned digits;
+  - print_ops;
+  - printer_op: OPEN and FEOD flush the lines kept; CLOSE flushes them and closes the spooled file.
+- They share S2.78's printer helpers.
+
+**Verified by** the native unit NPRTW, under both engines. The program captured on PUB400 (tools/golden/native79.txt n79_write) prints a printer file made from the capture's DDS (NPRTWP.prtf):
+- HDR with a constant and PAGNBR;
+- DTL with a character field, EDTCDE(J) and (Z), and a constant conditioned by 50 (on, then off);
+- TOT with SPACEB and an EDTWRD;
+- then CLOSE.
+
+The unit compares the printed lines that have text, as S2.78's does. NEXCPT now also has the capture's CLOSE.
+
+native_tripwire.rs watches printer_op, printer_write, printer_text and print_ops.

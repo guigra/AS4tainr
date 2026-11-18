@@ -1,0 +1,11 @@
+     A          R HDR                       SPACEA(1)
+     A                                     5'REPORT'
+     A                                    17PAGNBR EDTCDE(Z)
+     A          R DTL                       SPACEA(1)
+     A            NM            10A        3
+     A            AMT            7S 2     +1EDTCDE(J)
+     A            QTY            5S 0     +1EDTCDE(Z)
+     A  50                                +4'FLAG'
+     A          R TOT                       SPACEB(1) SPACEA(1)
+     A                                     2'TOT'
+     A            AMT            7S 2     +1EDTWRD('  ,  0.  -')

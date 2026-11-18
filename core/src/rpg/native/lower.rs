@@ -599,6 +599,42 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             }
         }
         // A read of a database file (S2.58).
+        // OPEN, CLOSE and FEOD of a printer file (S2.79): errors.rs
+        // file_op and printer.rs printer_op.
+        Ins::Stmt(Stmt::File {
+            op: op @ (FileOp::Open | FileOp::Close | FileOp::Feod),
+            file,
+            key: None,
+            ds: None,
+            fields: None,
+            ext,
+            ind,
+        }) if !ext.error && ext.other.is_empty() && ind.is_empty() && printer_file(cx, file) => {
+            used.push(format!("printer {op:?} {file}"));
+            ir::Lowered::PrinterOp
+        }
+        // WRITE of an externally described printer file's record format
+        // (S2.79): errors.rs file_op and printer.rs printer_write, with
+        // the fields the format prints and the INDDS structure placed.
+        Ins::Stmt(Stmt::File {
+            op: FileOp::Write,
+            file,
+            key: None,
+            ds: None,
+            fields: None,
+            ext,
+            ind,
+        }) if !ext.error
+            && ext.other.is_empty()
+            && ind.lo.is_none()
+            && ind.hi.is_none()
+            && ind.eq.is_none()
+            && printer_format(cx, file).is_some() =>
+        {
+            let (fields, indds) = printer_fields(cx, file, &mut used)?;
+            used.push(format!("printer write {file} {} fields", fields.len()));
+            ir::Lowered::PrinterWrite { fields, indds }
+        }
         Ins::Stmt(Stmt::File {
             op,
             file,
@@ -4554,4 +4590,106 @@ fn except_fields(
         }
     }
     Some(fields)
+}
+
+/// The externally described printer file a WRITE names by its record
+/// format, and the format (S2.79): a PRINTER file of the program (not of
+/// a procedure, as file_read asks) with its DDS.
+fn printer_format<'p>(
+    cx: &Cx<'p>,
+    fmt: &str,
+) -> Option<(
+    &'p super::super::program::FileInfo,
+    &'p crate::prtf::PRecord,
+)> {
+    let prog = cx.prog;
+    if prog.files.iter().any(|f| f.decl.proc.is_some()) {
+        return None;
+    }
+    let i = prog
+        .files
+        .iter()
+        .position(|f| f.decl.name == fmt || f.format == fmt)
+        .or_else(|| prog.file_index(fmt))?;
+    let fi = prog.files.get(i)?;
+    if fi.decl.device != "PRINTER" {
+        return None;
+    }
+    let rec = fi.printer.as_ref()?.record(fmt)?;
+    Some((fi, rec))
+}
+
+/// The program fields a printer record format prints (S2.79), character,
+/// varying or numeric with no index (not a date or time field), and the
+/// INDDS data structure when the file names one.
+#[allow(clippy::type_complexity)] // the two parts of PrinterWrite
+fn printer_fields(
+    cx: &Cx<'_>,
+    fmt: &str,
+    used: &mut Vec<String>,
+) -> Option<(Vec<(String, ir::Operand)>, Option<ir::Operand>)> {
+    let (fi, rec) = printer_format(cx, fmt)?;
+    let mut fields: Vec<(String, ir::Operand)> = Vec::new();
+    for f in &rec.fields {
+        if !matches!(f.content, crate::prtf::Content::Field) {
+            continue;
+        }
+        if matches!(f.dtype, 'L' | 'T') {
+            return None;
+        }
+        if fields.iter().any(|(k, _)| *k == f.name) {
+            continue;
+        }
+        let o = sql_field(cx, &Expr::name(&f.name), used)?;
+        if !matches!(
+            o,
+            ir::Operand::Var {
+                index: None,
+                based: None,
+                ..
+            }
+        ) {
+            return None;
+        }
+        fields.push((f.name.clone(), o));
+    }
+    let indds = match super::super::ast::keyword(&fi.decl.keywords, "INDDS")
+        .and_then(|k| k.args.first())
+        .map(|a| a.trim().to_ascii_uppercase())
+    {
+        Some(n) => match sym(cx, &n) {
+            Some(Sym::Ds(_)) => {
+                let o = variable(cx, &Expr::name(&n), used)?;
+                if !matches!(
+                    o,
+                    ir::Operand::Var {
+                        index: None,
+                        based: None,
+                        ..
+                    }
+                ) {
+                    return None;
+                }
+                Some(o)
+            }
+            _ => None,
+        },
+        None => None,
+    };
+    Some((fields, indds))
+}
+
+/// A printer file of the program by its name (S2.79), as file_idx finds
+/// it (not of a procedure).
+fn printer_file(cx: &Cx<'_>, file: &str) -> bool {
+    let prog = cx.prog;
+    if prog.files.iter().any(|f| f.decl.proc.is_some()) {
+        return false;
+    }
+    prog.files
+        .iter()
+        .position(|f| f.decl.name == file || f.format == file)
+        .or_else(|| prog.file_index(file))
+        .and_then(|i| prog.files.get(i))
+        .is_some_and(|f| f.decl.device == "PRINTER")
 }

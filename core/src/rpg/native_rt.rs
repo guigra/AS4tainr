@@ -1107,6 +1107,19 @@ impl Runtime for Rt<'_, '_> {
         Ok(sql_result(o))
     }
 
+    fn printer_write(
+        &mut self,
+        pc: usize,
+        fields: Vec<rpgrt::native::OutSlot>,
+        indds: Option<rpgrt::native::OutSlot>,
+    ) -> NResult<()> {
+        self.printer_write_n(pc, &fields, indds.as_ref())
+    }
+
+    fn printer_op(&mut self, pc: usize) -> NResult<()> {
+        self.printer_op_n(pc)
+    }
+
     fn except(
         &mut self,
         pc: usize,
@@ -4154,6 +4167,323 @@ impl Rt<'_, '_> {
                     p.out_pos.1 = line;
                 }
             }
+        }
+        Ok(())
+    }
+}
+
+// ---- printer files: WRITE of a record format (S2.79) ------------------
+
+impl Rt<'_, '_> {
+    /// errors.rs file_op for WRITE of a printer file's record format: the
+    /// file's error status off, a savepoint under commitment control,
+    /// printer.rs printer_write, then file_op's end (file_end_n).
+    fn printer_write_n(
+        &mut self,
+        pc: usize,
+        fields: &[rpgrt::native::OutSlot],
+        indds: Option<&rpgrt::native::OutSlot>,
+    ) -> NResult<()> {
+        let (op, file, _, _, _) = self.file_stmt(pc)?;
+        let file = file.to_string();
+        if op != FileOp::Write {
+            return Err(mismatch(pc, "a WRITE"));
+        }
+        let i = self
+            .file_idx_n(&file)
+            .ok_or_else(|| anyhow!("{file} is not a file of this program"))?;
+        self.file_n(i)?.status.error = false;
+        let cmt = self.file_n(i)?.cmt.clone();
+        if let Some(d) = &cmt {
+            self.m.block(async {
+                d.client
+                    .batch_execute("SAVEPOINT as4tainr_rla")
+                    .await
+                    .map_err(anyhow::Error::from)
+            })?;
+        }
+        let r = self.printer_write_inner_n(i, &file, fields, indds);
+        self.file_end_n(i, op, &file, cmt.as_deref(), r.as_ref().map(|_| ()))?;
+        r
+    }
+
+    /// errors.rs file_op for OPEN, CLOSE or FEOD of a printer file around
+    /// printer.rs printer_op: OPEN and FEOD write the lines kept; CLOSE
+    /// writes them, and the spooled file is complete (an OPEN after it
+    /// starts a new one).
+    fn printer_op_n(&mut self, pc: usize) -> NResult<()> {
+        let (op, file, _, _, _) = self.file_stmt(pc)?;
+        let file = file.to_string();
+        if !matches!(op, FileOp::Open | FileOp::Close | FileOp::Feod) {
+            return Err(mismatch(pc, "an OPEN, CLOSE or FEOD"));
+        }
+        let i = self
+            .file_idx_n(&file)
+            .ok_or_else(|| anyhow!("{file} is not a file of this program"))?;
+        self.file_n(i)?.status.error = false;
+        let cmt = self.file_n(i)?.cmt.clone();
+        if let Some(d) = &cmt {
+            self.m.block(async {
+                d.client
+                    .batch_execute("SAVEPOINT as4tainr_rla")
+                    .await
+                    .map_err(anyhow::Error::from)
+            })?;
+        }
+        let name = self
+            .m
+            .prog
+            .files
+            .get(i)
+            .ok_or_else(|| anyhow!("native: no file {i}"))?
+            .decl
+            .name
+            .clone();
+        let r = (|| -> NResult<()> {
+            self.flush_printer_n(&name)?;
+            if op == FileOp::Close {
+                if let Some(p) = self.m.printers.remove(&name) {
+                    if let Some(id) = p.spl {
+                        let client = self.m.io.client;
+                        self.m.block(crate::spool::close(client, id))?;
+                    }
+                }
+            }
+            Ok(())
+        })();
+        self.file_end_n(i, op, &file, cmt.as_deref(), r.as_ref().map(|_| ()))?;
+        r
+    }
+
+    /// printer.rs printer_write for an externally described printer file:
+    /// the record format, the printer, the indicators (INDDS's bytes or
+    /// *IN01-*IN99), the page the record prints on after its SKIPB or
+    /// SPACEB (PAGNBR), each printed field's text in order, the layout
+    /// (prtf::layout), then print_ops.
+    fn printer_write_inner_n(
+        &mut self,
+        i: usize,
+        fmt: &str,
+        fields: &[rpgrt::native::OutSlot],
+        indds: Option<&rpgrt::native::OutSlot>,
+    ) -> NResult<()> {
+        let prog = self.m.prog;
+        let fi = prog
+            .files
+            .get(i)
+            .ok_or_else(|| anyhow!("native: no file {i}"))?;
+        let Some(dds) = fi.printer.as_ref() else {
+            return Err(anyhow!(
+                "WRITE {fmt}: printer file {} is program-described; it is written with EXCEPT and output specifications",
+                fi.decl.name
+            ));
+        };
+        let rec = dds.record(fmt).ok_or_else(|| {
+            anyhow!(
+                "WRITE {fmt}: printer file {} has no record format {fmt}",
+                fi.decl.name
+            )
+        })?;
+        let file = fi.decl.name.clone();
+        self.ensure_printer_n(&file)?;
+        let mut ind = [false; 100];
+        match indds {
+            Some(d) => {
+                let v = rpgrt::native::load(&self.m.bufs, d.buf, d.off, d.ty)?;
+                let bytes = v.chars()?;
+                for (n, slot) in ind.iter_mut().enumerate().skip(1) {
+                    *slot = n.checked_sub(1).and_then(|k| bytes.get(k)) == Some(&0xF1);
+                }
+            }
+            None => {
+                for (n, slot) in ind.iter_mut().enumerate().skip(1) {
+                    *slot = self.m.ind(&format!("{n:02}"));
+                }
+            }
+        }
+        let (page_length, _) = self.form_of_n(i)?;
+        let page = {
+            let p = self
+                .m
+                .printers
+                .get(&file)
+                .ok_or_else(|| anyhow!("native: the printer of {file}"))?;
+            let first = |v: &[(Option<crate::dspf::Cond>, u32)]| -> Option<i32> {
+                v.iter()
+                    .find(|(c, _)| crate::dspf::cond_true(c, &ind))
+                    .and_then(|(_, n)| i32::try_from(*n).ok())
+            };
+            let mut line = p.line;
+            let mut page = p.page;
+            if let Some(n) = first(&rec.spacing.skip_before) {
+                if n < line || n == line && p.printed_on_page {
+                    page = page.saturating_add(1);
+                }
+                line = n;
+            }
+            if let Some(n) = first(&rec.spacing.space_before) {
+                if line.saturating_add(n) > page_length {
+                    page = page.saturating_add(1);
+                }
+            }
+            page
+        };
+        let mut texts: Vec<String> = Vec::new();
+        for f in &rec.fields {
+            if !f.printed
+                || !crate::dspf::cond_true(&f.cond, &ind)
+                || matches!(f.content, crate::prtf::Content::Literal(_))
+            {
+                continue;
+            }
+            texts.push(self.printer_text_n(f, page, fields)?);
+        }
+        let mut it = texts.into_iter();
+        let ops = crate::prtf::layout(rec, &ind, &mut |_f: &crate::prtf::PField| {
+            Ok(it.next().unwrap_or_default())
+        })?;
+        self.print_ops_n(i, &file, &ops)
+    }
+
+    /// printer.rs printer_text: a literal; DATE (MMDDYY or MMDDYYYY), TIME
+    /// (HHMMSS of the clock) and PAGNBR; a field's value (a signed
+    /// numeric field with decimals as a number, anything else as its
+    /// characters padded or cut to the field's length); a number with its
+    /// edit word, its edit code, or its zoned digits.
+    fn printer_text_n(
+        &mut self,
+        f: &crate::prtf::PField,
+        page: i32,
+        fields: &[rpgrt::native::OutSlot],
+    ) -> NResult<String> {
+        use crate::prtf::Content;
+        let (value, digits, decs) = match &f.content {
+            Content::Literal(t) => return Ok(t.clone()),
+            Content::Date { four_digit } => {
+                let (y, m, d) = super::today();
+                let (y, m, d) = (i64::from(y), i64::from(m), i64::from(d));
+                let v = if *four_digit {
+                    m.saturating_mul(1_000_000)
+                        .saturating_add(d.saturating_mul(10_000))
+                        .saturating_add(y)
+                } else {
+                    m.saturating_mul(10_000)
+                        .saturating_add(d.saturating_mul(100))
+                        .saturating_add(y.rem_euclid(100))
+                };
+                (Dec::from_i64(v), if *four_digit { 8 } else { 6 }, 0)
+            }
+            Content::Time => {
+                let secs = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0)
+                    % 86_400;
+                let v = (secs / 3600)
+                    .saturating_mul(10_000)
+                    .saturating_add((secs / 60 % 60).saturating_mul(100))
+                    .saturating_add(secs % 60);
+                (Dec::from_i64(i64::try_from(v)?), 6, 0)
+            }
+            Content::PageNumber => (Dec::from_i64(i64::from(page)), 4, 0),
+            Content::Field => {
+                if matches!(f.dtype, 'L' | 'T') {
+                    return Err(anyhow!(
+                        "native: a date or time printer field is not lowered"
+                    ));
+                }
+                let slot = Self::out_slot(&f.name, fields)?;
+                let v = rpgrt::native::load(&self.m.bufs, slot.buf, slot.off, slot.ty)?;
+                match f.decimals {
+                    Some(d) if f.dtype == 'S' => (v.num()?, u32::from(f.length), u32::from(d)),
+                    _ => {
+                        let t = a(&v.chars()?);
+                        let n = usize::from(f.length);
+                        return Ok(format!("{:<n$}", t.chars().take(n).collect::<String>()));
+                    }
+                }
+            }
+        };
+        if let Some(w) = &f.edit_word {
+            return super::edit_word(&value, digits, decs, w);
+        }
+        Ok(match f.edit_code {
+            Some(c) => super::edit_code(&value, digits, decs, c),
+            None => {
+                let t = super::super::data::DType::Zoned(digits, decs);
+                let mut b = t.initial();
+                data::store(
+                    &t,
+                    &Value::Num(value),
+                    &mut b,
+                    Fit::Truncate { half_adjust: false },
+                    false,
+                )?;
+                a(&b)
+            }
+        })
+    }
+
+    /// printer.rs print_ops: skips and lines (a new page when not below
+    /// the current line), spacing (a new page past the page's end), text
+    /// lines kept; the overflow indicator on when the overflow line is
+    /// reached or passed; the lines written every 50.
+    fn print_ops_n(&mut self, i: usize, file: &str, ops: &[crate::prtf::PrintOp]) -> NResult<()> {
+        use crate::prtf::PrintOp;
+        let (page_length, overflow_line) = self.form_of_n(i)?;
+        let overflow_ind = self.overflow_ind_n(file);
+        let p = self
+            .m
+            .printers
+            .get_mut(file)
+            .ok_or_else(|| anyhow!("native: the printer of {file}"))?;
+        fn new_page(p: &mut super::Printer) {
+            p.page = p.page.saturating_add(1);
+            p.line = 1;
+            p.printed_on_page = false;
+        }
+        let mut overflow = false;
+        for op in ops {
+            match op {
+                PrintOp::Skip(n) | PrintOp::Line(n) => {
+                    let n = i32::try_from(*n)?;
+                    if n < p.line || n == p.line && p.printed_on_page {
+                        new_page(p);
+                    } else if p.line <= overflow_line && n > overflow_line {
+                        overflow = true;
+                    }
+                    p.line = n;
+                }
+                PrintOp::Space(n) => {
+                    let before = p.line;
+                    p.line = p.line.saturating_add(i32::try_from(*n)?);
+                    if before <= overflow_line && p.line > overflow_line {
+                        overflow = true;
+                    }
+                    if p.line > page_length {
+                        new_page(p);
+                    }
+                }
+                PrintOp::Text(t) => {
+                    if p.line > page_length {
+                        new_page(p);
+                    }
+                    p.buffer.push((p.page, p.line, t.clone()));
+                    p.printed_on_page = true;
+                    if p.line >= overflow_line {
+                        overflow = true;
+                    }
+                }
+            }
+        }
+        let full = p.buffer.len() >= 50;
+        if overflow {
+            if let Some(of) = overflow_ind {
+                self.m.set_ind(&of, true);
+            }
+        }
+        if full {
+            self.flush_printer_n(file)?;
         }
         Ok(())
     }
