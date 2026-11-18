@@ -110,6 +110,13 @@ pub trait Runtime {
     fn loop_step(&mut self, pc: usize) -> NResult<()>;
     /// FOR-EACH: take the list's values.
     fn each_init(&mut self, pc: usize) -> NResult<()>;
+    /// Stage 2 (S2.89): FOR-EACH over a whole array: its elements' values
+    /// kept for the loop (interp.rs list_of of an array, then the
+    /// EachInit arm's state).
+    fn each_array(&mut self, pc: usize, arr: ArrPlace) -> NResult<()>;
+    /// Stage 2 (S2.89): the loop's next value (the EachNext arm), or none
+    /// at its end (its state dropped).
+    fn each_take(&mut self, pc: usize) -> NResult<Option<Value>>;
     /// FOR-EACH: the next value is in the item (false: there is none).
     fn each_next(&mut self, pc: usize) -> NResult<bool>;
     /// EXSR.

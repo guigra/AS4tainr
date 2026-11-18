@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.88");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.89");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -557,6 +557,11 @@ pub mod ir {
         /// indicators, the result.
         /// Boxed: the variants' sizes stay close (clippy::large_enum_variant).
         StrOp(Box<StrOpData>),
+        /// FOR-EACH over a whole array (S2.89): the array (buf, off,
+        /// stride, dim, type).
+        EachArray { arr: (usize, usize, usize, u32, Ty) },
+        /// FOR-EACH's next value into its item (S2.89).
+        EachNext { var: Operand },
         /// SORTA (S2.86): the array (buf, off, stride, dim, type, lead),
         /// descending or not.
         Sorta {
@@ -1870,6 +1875,35 @@ fn lowered_step(
             guarded(
                 format!("rt.loop_past({pc}).map(|past| if past {{ {end} }} else {{ {next} }})"),
                 format!("lt{pc}(rt).map(|past| if past {{ {end} }} else {{ {next} }})"),
+            )
+        }
+        (
+            ir::Kind::EachInit,
+            ir::Lowered::EachArray {
+                arr: (b, o, st, d, t),
+            },
+        ) => guarded(
+            format!("rt.each_init({pc}).map(|()| {next})"),
+            format!(
+                "rt.each_array({pc}, rpgrt::native::ArrPlace {{ buf: {b}, off: {o}, stride: {st}, dim: {d}, ty: {}, lead: 0 }}).map(|()| {next})",
+                ty(t)
+            ),
+        ),
+        (ir::Kind::EachNext { end }, ir::Lowered::EachNext { var }) => {
+            // The EachNext arm: the next value into the item with the
+            // strict fit, or the loop's end.
+            let ir::Operand::Var { ty: t, .. } = var else {
+                return Err(bad());
+            };
+            let (prelude, sb, so) = place_of(var).ok_or_else(bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn en{pc}(rt: &mut dyn Runtime) -> NResult<bool> {{\n    let Some(v) = rt.each_take({pc})? else {{\n        return Ok(false);\n    }};\n{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        {},\n        &v,\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: false }},\n        false,\n    )?;\n    Ok(true)\n}}",
+                ty(t)
+            );
+            guarded(
+                format!("rt.each_next({pc}).map(|got| if got {{ {next} }} else {{ {end} }})"),
+                format!("en{pc}(rt).map(|got| if got {{ {next} }} else {{ {end} }})"),
             )
         }
         (ir::Kind::LoopStep, ir::Lowered::LoopStep { var, by, down }) => {
