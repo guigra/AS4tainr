@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.74");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.75");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -218,6 +218,20 @@ pub mod ir {
         pub value: Operand,
         pub char_len: Option<u32>,
         pub ind: Option<Operand>,
+    }
+
+    /// An argument of an SQL CALL (S2.75): text as written, or a host
+    /// variable (after `NAME => ` when given by name) as a literal, with
+    /// the field an OUT or INOUT parameter's value goes back to.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum SqlArg {
+        Text(String),
+        /// Boxed: the variants' sizes stay close (clippy::large_enum_variant).
+        Host {
+            kw: String,
+            input: Box<SqlIn>,
+            out: Option<Box<SqlOut>>,
+        },
     }
 
     /// A row count of a multiple-row FETCH or INSERT (S2.74): a number
@@ -437,6 +451,13 @@ pub mod ir {
             dim: u32,
             host: String,
             fields: Vec<SqlRowField>,
+        },
+        /// CALL of an SQL procedure (S2.75): the routine's name as
+        /// sqlpl::parse_call gives it, and each argument; then the SQLCA.
+        SqlCall {
+            sqlca: Box<[Operand; 5]>,
+            name: String,
+            args: Vec<SqlArg>,
         },
         /// CLOSE (S2.72): the cursor; then the SQLCA.
         SqlClose {
@@ -2269,6 +2290,88 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("si{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::SqlCall { sqlca, name, args }) => {
+            // exec_sql.rs sql_call: each argument's expression (a host
+            // variable as host_literal makes it), and where an OUT or INOUT
+            // value goes; then the runtime; then the SQLCA.
+            let mut body = String::new();
+            let em = if args.is_empty() { "" } else { "mut " };
+            let _ = writeln!(body, "    let {em}exprs: Vec<String> = Vec::new();");
+            let _ = writeln!(
+                body,
+                "    let {em}outs: Vec<Option<rpgrt::native::SqlSlot>> = Vec::new();"
+            );
+            for a in args {
+                match a {
+                    ir::SqlArg::Text(t) => {
+                        let _ = writeln!(
+                            body,
+                            "    exprs.push({}.to_string());\n    outs.push(None);",
+                            json_str(t)
+                        );
+                    }
+                    ir::SqlArg::Host { kw, input, out } => {
+                        let null = match &input.ind {
+                            Some(ind) => format!("{}.is_negative()", number(ind)),
+                            None => "false".to_string(),
+                        };
+                        let cl = match input.char_len {
+                            Some(n) => format!("Some({n})"),
+                            None => "None".to_string(),
+                        };
+                        let _ = writeln!(
+                            body,
+                            "    if {null} {{\n        exprs.push(format!(\"{{}}NULL\", {}));\n    }} else {{\n        let v = {};\n        exprs.push(format!(\"{{}}{{}}\", {}, rpgrt::native::sql_literal(&v, {cl})?));\n    }}",
+                            json_str(kw),
+                            value(&input.value),
+                            json_str(kw)
+                        );
+                        match out {
+                            None => body.push_str("    outs.push(None);\n"),
+                            Some(o) => {
+                                let ir::Operand::Var { ty: t, .. } = &o.target else {
+                                    return Err(bad());
+                                };
+                                let at = scalar_place(&o.target).ok_or_else(bad)?;
+                                let ind = match &o.ind {
+                                    Some(ind) => {
+                                        let ir::Operand::Var { ty: it, .. } = ind else {
+                                            return Err(bad());
+                                        };
+                                        let iat = scalar_place(ind).ok_or_else(bad)?;
+                                        format!(
+                                            "{{ let (b, o) = {iat}; Some((b, o, {})) }}",
+                                            ty(it)
+                                        )
+                                    }
+                                    None => "None".to_string(),
+                                };
+                                let _ = writeln!(
+                                    body,
+                                    "    {{\n        let (buf, off) = {at};\n        let ind = {ind};\n        outs.push(Some(rpgrt::native::SqlSlot {{ buf, off, ty: {}, numeric: {}, ind }}));\n    }}",
+                                    ty(t),
+                                    o.numeric
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            let _ = writeln!(
+                body,
+                "    let o = rt.sql_call({pc}, {}, exprs, outs)?;",
+                json_str(name)
+            );
+            sqlca_store(&mut body, sqlca, &bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn sk{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("sk{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::SqlClose { sqlca, name }) => {

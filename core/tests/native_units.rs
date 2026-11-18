@@ -1862,3 +1862,21 @@ async fn native_unit_lowered_sql_multiple_rows() {
     )
     .await;
 }
+
+// Stage 2, S2.75: CALL of SQL procedures lowered to Rust.
+// Source: golden capture tools/golden/native75 n75_sql (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_sql_call() {
+    let _ = require_db!();
+    expect(
+        "NSQL7",
+        include_str!("native/NSQL7.rpgle"),
+        &[
+            "CALL 0 42 hi! LIT 0 10 hi!! 0",
+            // n75_sql's line is "OK 0 SIGNAL -438 75001 NONE -204 42704": the
+            // NONE part is not checked (NSQL7.rpgle; fidelity.md).
+            "OK 0 SIGNAL -438 75001",
+        ],
+    )
+    .await;
+}

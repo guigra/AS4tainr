@@ -799,3 +799,31 @@ The element storage is read with `rpgrt::native::load` at each element's place.
 On IBM i an INSERT of 0 rows is -221, but sql_insert_rows gives 0, an interpreter defect (fidelity.md); NSQL6 leaves that part of its line out. PUB400's precompiler wants a scroll cursor for FETCH FIRST (SQL0225).
 
 native_tripwire.rs watches fetch_rows and sql_insert_rows.
+
+## S2.75: CALL of SQL procedures
+
+The last step of the SQL plan. The remaining embedded SQL refusals are the cases lowering keeps in the interpreter: LOBs, dates and times as host variables, data structures with indicators, and array elements as targets.
+
+**Lowered:** CALL, taken apart as sql_call does, with sqlpl::parse_call (a parse with no state) at lowering time.
+- An argument by name (`NAME => :hv`) is an input: `NAME => ` and the host literal.
+- A positional host variable (`:hv`, `:hv :ind`, `:hv INDICATOR :ind`) is an input, and also where an OUT or INOUT parameter's value goes.
+- Any other argument is text as written.
+- A host variable must be a field. A data structure, an element with an index, or a name with `:` in it stays in the interpreter.
+
+**Runtime.** `Runtime::sql_call` (`sql_call_n`) writes again sql_call's end:
+- sqlpl::call_exprs, on the program's SQL session, with the job's library list, user, current library and the main connection;
+- a failure as its condition (sqlpl::condition_of; for -438 its SQLSTATE too);
+- then each parameter whose mode is not IN into its host variable, through assign_hosts (an error stops it).
+
+It runs after sql_statement's start, and the outcome is kept as the last.
+
+**Verified by** the native unit NSQL7, under both engines. The program captured on PUB400 (tools/golden/native75.txt n75_sql) calls:
+- a procedure with IN, OUT and INOUT host variables (42, 'hi!');
+- the same with a literal argument and an INOUT with an indicator ('hi!!', 0);
+- a procedure that SIGNALs (-438, 75001).
+
+Two interpreter defects (fidelity.md):
+- A missing procedure gives -440 and 42884, where IBM i gives -204 and 42704, so NSQL7 leaves that part of its line out.
+- as4tainr's compiler cannot take the capture's EXEC SQL CREATE PROCEDURE with a compound body, so NSQL7 makes the procedures with EXECUTE IMMEDIATE.
+
+native_tripwire.rs watches sql_call.

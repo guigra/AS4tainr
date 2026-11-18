@@ -1,0 +1,5 @@
+# Captures for stage 2, S2.75: CALL of SQL procedures (one batch).
+# gn75sql.rpgle names its table in GUIGRA261, the library of the PUB400 account used.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native75.txt -f tools/golden/native75
+n75_crt_sql|!system "CRTSQLRPGI OBJ(@LIB@/GN75SQL) SRCSTMF('@HOME@/gld/gn75sql.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n75_sql|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN75SQL)"; cat gn1.out; rm -f gn1.out
