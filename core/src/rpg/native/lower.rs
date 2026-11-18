@@ -500,6 +500,11 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 sqlca: Box::new(sqlca),
             }
         }
+        // Cursors (S2.72): OPEN, FETCH of one row, CLOSE.
+        Ins::Stmt(Stmt::Sql(text)) if sql_cursor_kind(text) => {
+            let sqlca = sqlca_ops(cx, &mut used)?;
+            sql_cursor(cx, text, sqlca, &mut used)?
+        }
         // Dynamic SQL and GET DIAGNOSTICS (S2.71).
         Ins::Stmt(Stmt::Sql(text)) if sql_dyn_kind(text).is_some() => {
             let sqlca = sqlca_ops(cx, &mut used)?;
@@ -3246,6 +3251,17 @@ fn file_read(
 /// treats on its own (OPEN, FETCH, CLOSE, PREPARE, EXECUTE, CALL, GET,
 /// SET RESULT SETS, INSERT ... ROWS, a positioned UPDATE or DELETE).
 fn sql_step1(sql: &str) -> bool {
+    // DECLARE ... CURSOR (S2.72): sql_statement answers SQLCODE 0 before
+    // any host variable is bound (they are bound at OPEN).
+    {
+        let w: Vec<String> = sql
+            .split_whitespace()
+            .map(|x| x.to_ascii_uppercase())
+            .collect();
+        if w.first().map(String::as_str) == Some("DECLARE") && w.iter().any(|x| x == "CURSOR") {
+            return true;
+        }
+    }
     let mut quote = None::<char>;
     let mut prev_colon = false;
     for c in sql.chars() {
@@ -3831,4 +3847,206 @@ fn sql_diag(
         items.push((name, targets));
     }
     Some((condition, items))
+}
+
+/// OPEN, FETCH and CLOSE, as exec_sql.rs sql_statement tells them (S2.72).
+fn sql_cursor_kind(sql: &str) -> bool {
+    let first = sql
+        .split_whitespace()
+        .next()
+        .map(|x| x.to_ascii_uppercase())
+        .unwrap_or_default();
+    matches!(first.as_str(), "OPEN" | "FETCH" | "CLOSE")
+}
+
+/// A host variable's inputs (S2.72), as host_literal makes them: a data
+/// structure's fields (no indicator then), or the field with its
+/// indicator.
+fn sql_host_inputs(
+    cx: &Cx<'_>,
+    name: &str,
+    ind: Option<String>,
+    used: &mut Vec<String>,
+) -> Option<Vec<ir::SqlIn>> {
+    let targets = sql_targets(cx, name)?;
+    if targets.len() > 1 && ind.is_some() {
+        return None;
+    }
+    let ind = match ind {
+        Some(i) => Some(num_variable(
+            cx,
+            &super::super::expr::parse(&i).ok()?,
+            used,
+        )?),
+        None => None,
+    };
+    let mut out = Vec::new();
+    for t in &targets {
+        let value = sql_field(cx, t, used)?;
+        let char_len = match &value {
+            ir::Operand::Var {
+                ty: ir::Ty::Char(n),
+                ..
+            } => Some(*n),
+            _ => None,
+        };
+        out.push(ir::SqlIn {
+            value,
+            char_len,
+            ind: ind.clone(),
+        });
+    }
+    Some(out)
+}
+
+/// OPEN, FETCH or CLOSE taken apart as exec_sql.rs sql_open, sql_fetch
+/// and sql_statement's CLOSE do (S2.72). Lowering keeps in the
+/// interpreter a cursor not declared in the program, a multiple-row FETCH
+/// (ROWS), and INTO targets with an index.
+fn sql_cursor(
+    cx: &Cx<'_>,
+    sql: &str,
+    sqlca: [ir::Operand; 5],
+    used: &mut Vec<String>,
+) -> Option<ir::Lowered> {
+    let sql = sql.trim();
+    let words = |t: &str| -> Vec<String> {
+        t.split_whitespace()
+            .map(|x| x.to_ascii_uppercase())
+            .collect()
+    };
+    let w = words(sql);
+    let first = w.first().cloned().unwrap_or_default();
+    let second = w.get(1).cloned().unwrap_or_default();
+    match first.as_str() {
+        "CLOSE" => {
+            let name = second.trim_end_matches(';').to_string();
+            used.push(format!("sql close {name}"));
+            Some(ir::Lowered::SqlClose {
+                sqlca: Box::new(sqlca),
+                name,
+            })
+        }
+        "OPEN" => {
+            let name = second;
+            let decl = cx.prog.cursors.get(&name)?;
+            let (pieces, inputs, prepared, using) = match decl {
+                super::super::program::Cursor::Select(q) => {
+                    let (scanned, hosts) = sql_bind_scan(q);
+                    let mut pieces = Vec::new();
+                    let mut inputs = Vec::new();
+                    let mut parts = scanned.into_iter();
+                    pieces.push(parts.next()?);
+                    for (hn, ind) in hosts {
+                        let ins = sql_host_inputs(cx, &hn, ind, used)?;
+                        for k in 0..ins.len() {
+                            if k > 0 {
+                                pieces.push(", ".to_string());
+                            }
+                        }
+                        inputs.extend(ins);
+                        pieces.push(parts.next()?);
+                    }
+                    (pieces, inputs, None, Vec::new())
+                }
+                super::super::program::Cursor::Prepared(st) => {
+                    let mut using = Vec::new();
+                    if let Some(at) = sql_word_at(sql, "USING") {
+                        for (hn, ind) in sql_host_list(sql.get(at.checked_add(5)?..)?)? {
+                            using.push(sql_host_inputs(cx, &hn, ind, used)?);
+                        }
+                    }
+                    (Vec::new(), Vec::new(), Some(st.clone()), using)
+                }
+            };
+            used.push(format!("sql open {name} {} inputs", inputs.len()));
+            Some(ir::Lowered::SqlOpen {
+                sqlca: Box::new(sqlca),
+                name,
+                pieces,
+                inputs,
+                prepared,
+                using,
+            })
+        }
+        "FETCH" => {
+            let into = sql_word_at(sql, "INTO");
+            let head = sql.get(..into.unwrap_or(sql.len()))?;
+            let w = words(head);
+            let mut k = 1usize;
+            let mut orient = ("NEXT".to_string(), 0i64);
+            if let Some(o) = w.get(k) {
+                match o.as_str() {
+                    "NEXT" | "PRIOR" | "FIRST" | "LAST" | "BEFORE" | "AFTER" | "CURRENT" => {
+                        orient = (o.clone(), 0);
+                        k = k.saturating_add(1);
+                    }
+                    "RELATIVE" | "ABSOLUTE" => {
+                        let n = w
+                            .get(k.saturating_add(1))
+                            .and_then(|x| x.parse().ok())
+                            .unwrap_or(0);
+                        orient = (o.clone(), n);
+                        k = k.saturating_add(2);
+                    }
+                    _ => {}
+                }
+            }
+            if w.get(k).map(String::as_str) == Some("FROM") {
+                k = k.saturating_add(1);
+            }
+            let name = w.get(k).cloned().unwrap_or_default();
+            if w.iter().any(|x| x == "ROWS") {
+                return None;
+            }
+            let outputs = match into {
+                None => None,
+                Some(at) => {
+                    let mut outs = Vec::new();
+                    for (hn, ind) in sql_host_list(sql.get(at.checked_add(4)?..)?)? {
+                        let ind = match ind {
+                            Some(i) => {
+                                let o =
+                                    num_variable(cx, &super::super::expr::parse(&i).ok()?, used)?;
+                                if !matches!(
+                                    o,
+                                    ir::Operand::Var {
+                                        index: None,
+                                        based: None,
+                                        ..
+                                    }
+                                ) {
+                                    return None;
+                                }
+                                Some(o)
+                            }
+                            None => None,
+                        };
+                        for t in sql_targets(cx, &hn)? {
+                            let target = sql_field(cx, &t, used)?;
+                            if !matches!(target, ir::Operand::Var { index: None, .. }) {
+                                return None;
+                            }
+                            let numeric = !is_char(&target);
+                            outs.push(ir::SqlOut {
+                                target,
+                                numeric,
+                                ind: ind.clone(),
+                            });
+                        }
+                    }
+                    Some(outs)
+                }
+            };
+            used.push(format!("sql fetch {name} {}", orient.0));
+            Some(ir::Lowered::SqlFetch {
+                sqlca: Box::new(sqlca),
+                name,
+                orient: orient.0,
+                n: orient.1,
+                outputs,
+            })
+        }
+        _ => None,
+    }
 }

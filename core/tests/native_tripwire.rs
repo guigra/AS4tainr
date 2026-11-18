@@ -433,6 +433,19 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    ",
         ),
         function(EXEC_SQL, "    fn assign_hosts(\n", "    "),
+        // S2.72: cursors.
+        function(
+            EXEC_SQL,
+            "    fn sql_open(&mut self, sql: &str) -> Result<Outcome> {",
+            "    ",
+        ),
+        function(
+            EXEC_SQL,
+            "    fn sql_fetch(&mut self, sql: &str) -> Result<Outcome> {",
+            "    ",
+        ),
+        function(EXEC_SQL, "fn strip_cursor_clauses(query: &str) -> String {", ""),
+        function(EXEC_SQL, "fn with_rrn(query: &str) -> Option<String> {", ""),
         // S2.71: dynamic SQL and GET DIAGNOSTICS.
         function(
             EXEC_SQL,
@@ -475,9 +488,11 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // pub(super) for the native runtime, the user's authorization of
     // 2026-11-18), S2.70 host_list, literal, host_literal, host_targets,
     // bind_host, assign_hosts and single_row, S2.71 get_diagnostics,
-    // statement_text and using_values;
+    // statement_text and using_values, S2.72 sql_open, sql_fetch,
+    // strip_cursor_clauses and with_rrn (OpenCursor and cursors made
+    // pub(super), the user's second authorization of 2026-11-18);
     // upstream still dd47e28.
-    let reviewed = "255d090a0836f4b7f0e9f77d9de74fcd5df08d8d4e9ef95a90d3801e98e5f11c";
+    let reviewed = "c4107f1628fab0e8710e51392738127513eb2f95f9691f47fecb9aec508b1b3a";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

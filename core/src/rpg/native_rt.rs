@@ -1026,6 +1026,42 @@ impl Runtime for Rt<'_, '_> {
         Ok(sql_result(o))
     }
 
+    fn sql_open(
+        &mut self,
+        pc: usize,
+        name: &str,
+        pieces: &[&str],
+        qlits: Vec<String>,
+        prepared: Option<&str>,
+        lits: Vec<String>,
+    ) -> NResult<rpgrt::native::SqlResult> {
+        let o = self.sql_cursor_n(pc, |rt| rt.sql_open_n(name, pieces, qlits, prepared, lits))?;
+        Ok(sql_result(o))
+    }
+
+    fn sql_fetch(
+        &mut self,
+        pc: usize,
+        name: &str,
+        orient: &str,
+        n: i64,
+        outs: Vec<rpgrt::native::SqlSlot>,
+        into: bool,
+    ) -> NResult<rpgrt::native::SqlResult> {
+        let o = self.sql_cursor_n(pc, |rt| rt.sql_fetch_n(name, orient, n, &outs, into))?;
+        Ok(sql_result(o))
+    }
+
+    fn sql_close(&mut self, pc: usize, name: &str) -> NResult<rpgrt::native::SqlResult> {
+        let o = self.sql_cursor_n(pc, |rt| {
+            Ok(match rt.m.sql.cursors.remove(name) {
+                Some(_) => sql_ok(0),
+                None => sql_err(-501, format!("SQL0501: Cursor {name} is not open.")),
+            })
+        })?;
+        Ok(sql_result(o))
+    }
+
     fn sql_diagnostics(
         &mut self,
         pc: usize,
@@ -2689,6 +2725,159 @@ impl Rt<'_, '_> {
         Ok((vals, sql_ok(0)))
     }
 
+    /// exec_sql.rs exec_sql for OPEN, FETCH and CLOSE (S2.72):
+    /// sql_statement's start, then `run`; an SQL error as the outcome,
+    /// kept as the last.
+    fn sql_cursor_n(
+        &mut self,
+        pc: usize,
+        run: impl FnOnce(&mut Self) -> NResult<SqlOut>,
+    ) -> NResult<SqlOut> {
+        let sql = match &at(self.code, pc)?.ins {
+            Ins::Stmt(super::super::ast::Stmt::Sql(t)) => t.clone(),
+            _ => return Err(mismatch(pc, "an EXEC SQL")),
+        };
+        let r = match self.sql_prologue_n(sql.trim()) {
+            Ok(Some(o)) => Ok(o),
+            Ok(None) => run(self),
+            Err(e) => Err(e),
+        };
+        let out = match r {
+            Ok(o) => o,
+            Err(e) => match sql_error_n(&e) {
+                Some(o) => o,
+                None => return Err(e),
+            },
+        };
+        self.m.sql.last = Some(out.clone());
+        Ok(out)
+    }
+
+    /// exec_sql.rs sql_open: -502 when the cursor is open; the declared
+    /// query with its host literals, or the prepared statement (SQL0518
+    /// when it was not prepared) with the USING literals for its markers;
+    /// without its update or read-only clause; over one table, each row's
+    /// record number too (WHERE CURRENT OF), else the query as it is. The
+    /// rows are read now.
+    fn sql_open_n(
+        &mut self,
+        name: &str,
+        pieces: &[&str],
+        qlits: Vec<String>,
+        prepared: Option<&str>,
+        lits: Vec<String>,
+    ) -> NResult<SqlOut> {
+        if self.m.sql.cursors.contains_key(name) {
+            return Ok(sql_err(
+                -502,
+                format!("SQL0502: Cursor {name} is already open."),
+            ));
+        }
+        let query = match prepared {
+            None => {
+                let mut bound = String::new();
+                let mut lit = qlits.into_iter();
+                for (k, p) in pieces.iter().enumerate() {
+                    if k > 0 {
+                        bound.push_str(
+                            &lit.next()
+                                .ok_or_else(|| anyhow!("native: a host literal"))?,
+                        );
+                    }
+                    bound.push_str(p);
+                }
+                bound
+            }
+            Some(s) => {
+                let text = self
+                    .m
+                    .sql
+                    .prepared
+                    .get(s)
+                    .cloned()
+                    .ok_or_else(|| anyhow!("SQL0518: Statement {s} was not prepared."))?;
+                super::exec_sql::fill_markers(&text, &lits)?
+            }
+        };
+        let query = sql_strip_cursor_clauses(&query);
+        let rrn_query = sql_with_rrn(&query);
+        let (rows, rrns) = match rrn_query.as_deref().map(|q| self.run_sql_n(q)) {
+            Some(Ok(crate::sql::Exec::Rows { mut rows, .. })) => {
+                let rrns = rows
+                    .iter_mut()
+                    .map(|r| {
+                        r.pop()
+                            .flatten()
+                            .and_then(|v| v.trim().parse::<i64>().ok())
+                            .unwrap_or(0)
+                    })
+                    .collect();
+                (rows, Some(rrns))
+            }
+            _ => match self.run_sql_n(&query)? {
+                crate::sql::Exec::Rows { rows, .. } => (rows, None),
+                crate::sql::Exec::Count(..) => {
+                    return Err(anyhow!("SQL0104: cursor {name} is not a query"))
+                }
+            },
+        };
+        self.m.sql.cursors.insert(
+            name.to_string(),
+            super::exec_sql::OpenCursor {
+                rows,
+                pos: -1,
+                rrns,
+            },
+        );
+        Ok(sql_ok(0))
+    }
+
+    /// exec_sql.rs sql_fetch for one row: -501 when the cursor is not
+    /// open; the new position by the orientation, kept between before
+    /// the first (-1) and after the last; BEFORE and AFTER end there; off
+    /// the rows +100; with no INTO SQLCODE 0 and 1 row; else the row into
+    /// the host variables (assign_hosts).
+    fn sql_fetch_n(
+        &mut self,
+        name: &str,
+        orient: &str,
+        n: i64,
+        outs: &[rpgrt::native::SqlSlot],
+        into: bool,
+    ) -> NResult<SqlOut> {
+        let Some(c) = self.m.sql.cursors.get_mut(name) else {
+            return Ok(sql_err(
+                -501,
+                format!("SQL0501: Cursor {name} is not open."),
+            ));
+        };
+        let len = isize::try_from(c.rows.len())?;
+        let n = isize::try_from(n).unwrap_or(if n < 0 { isize::MIN } else { isize::MAX });
+        c.pos = match orient {
+            "NEXT" => c.pos.saturating_add(1),
+            "PRIOR" => c.pos.saturating_sub(1),
+            "FIRST" => 0,
+            "LAST" => len.saturating_sub(1),
+            "BEFORE" => -1,
+            "AFTER" => len,
+            "CURRENT" => c.pos,
+            "RELATIVE" => c.pos.saturating_add(n),
+            _ => n.saturating_sub(1),
+        }
+        .clamp(-1, len);
+        if orient == "BEFORE" || orient == "AFTER" {
+            return Ok(sql_ok(0));
+        }
+        let row = match usize::try_from(c.pos).ok().and_then(|p| c.rows.get(p)) {
+            Some(r) => r.clone(),
+            None => return Ok(sql_not_found()),
+        };
+        if !into {
+            return Ok(sql_ok(1));
+        }
+        Ok(self.assign_hosts_n(outs, &row)?.unwrap_or(sql_ok(1)))
+    }
+
     /// exec_sql.rs single_row: exactly one row into the host variables
     /// (none: +100; more: the first row's values, then -811).
     fn single_row_n(&mut self, query: &str, outs: &[rpgrt::native::SqlSlot]) -> NResult<SqlOut> {
@@ -3111,4 +3300,77 @@ fn sql_result(o: SqlOut) -> rpgrt::native::SqlResult {
         rows: o.rows,
         errd5: o.errd5,
     }
+}
+
+/// exec_sql.rs strip_cursor_clauses (S2.72): a cursor's query without its
+/// FOR UPDATE [OF ...], FOR READ ONLY or FOR FETCH ONLY, which runs to
+/// the end or to OPTIMIZE or WITH after it.
+fn sql_strip_cursor_clauses(query: &str) -> String {
+    let mut q = query.trim().trim_end_matches(';').to_string();
+    while let Some(at) = sql_find_word(&q, "FOR") {
+        let rest: Vec<String> = q
+            .get(at.saturating_add(3)..)
+            .unwrap_or("")
+            .split_whitespace()
+            .take(2)
+            .map(|w| w.to_ascii_uppercase())
+            .collect();
+        let is_clause = match rest.first().map(String::as_str) {
+            Some("UPDATE") => true,
+            Some("READ") | Some("FETCH") => rest.get(1).map(String::as_str) == Some("ONLY"),
+            _ => false,
+        };
+        if !is_clause {
+            break;
+        }
+        let tail = q.get(at..).unwrap_or("").to_string();
+        let end = ["OPTIMIZE", "WITH"]
+            .iter()
+            .filter_map(|w| sql_find_word(&tail, w))
+            .min()
+            .unwrap_or(tail.len());
+        q = format!(
+            "{} {}",
+            q.get(..at).unwrap_or("").trim_end(),
+            tail.get(end..).unwrap_or("")
+        )
+        .trim()
+        .to_string();
+    }
+    q
+}
+
+/// exec_sql.rs with_rrn (S2.72): a query over one table with each row's
+/// record number last (RRN of the table's last name part or its
+/// correlation name); None for a union, a group, a join, DISTINCT, or a
+/// table reference it cannot tell.
+fn sql_with_rrn(query: &str) -> Option<String> {
+    let from = sql_find_word(query, "FROM")?;
+    for w in ["UNION", "EXCEPT", "INTERSECT", "GROUP", "JOIN", "DISTINCT"] {
+        if sql_find_word(query, w).is_some() {
+            return None;
+        }
+    }
+    let rest = query.get(from.checked_add(4)?..)?;
+    let end = ["WHERE", "ORDER", "FOR", "FETCH", "OPTIMIZE", "WITH"]
+        .iter()
+        .filter_map(|w| sql_find_word(rest, w))
+        .min()
+        .unwrap_or(rest.len());
+    let table_ref = rest.get(..end)?.trim();
+    if table_ref.is_empty() || table_ref.contains(',') || table_ref.contains('(') {
+        return None;
+    }
+    let parts: Vec<&str> = table_ref.split_whitespace().collect();
+    let corr = match parts.as_slice() {
+        [t] => t.rsplit(['.', '/']).next().unwrap_or(t),
+        [_, a] => *a,
+        [_, as_, a] if as_.eq_ignore_ascii_case("AS") => *a,
+        _ => return None,
+    };
+    Some(format!(
+        "{}, RRN({corr}) {}",
+        query.get(..from)?.trim_end(),
+        query.get(from..)?
+    ))
 }

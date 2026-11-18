@@ -690,7 +690,7 @@ The plan's step 5, except CALL and the cursors. These are now lowered:
 - a statement text that is not a character operand;
 - a host variable lowering cannot resolve, as in S2.70.
 
-OPEN, FETCH and CLOSE need the interpreter's `cursors` and its `OpenCursor`. Those stay private: the user's authorization of 2026-11-18 left them out. They wait for the user's decision (HANDOFF.md).
+OPEN, FETCH and CLOSE needed the interpreter's `cursors` and its `OpenCursor`, which the first authorization left out; S2.72 does them after the second.
 
 **Verified by** the native unit NSQL3, under both engines. The program captured on PUB400 (tools/golden/native71.txt n71_sql) runs:
 - EXECUTE IMMEDIATE of DDL and DML;
@@ -703,3 +703,41 @@ OPEN, FETCH and CLOSE need the interpreter's `cursors` and its `OpenCursor`. Tho
 Its CREATE line (+7905) is the interpreter defect of S2.69. In the capture each GET DIAGNOSTICS comes right after its statement, because the capture's own output is an SQL CALL.
 
 native_tripwire.rs watches get_diagnostics, statement_text and using_values.
+
+## S2.72: cursors
+
+The plan's step 4, without the positioned UPDATE and DELETE. The user's second authorization of 2026-11-18 makes `SqlState.cursors` and `OpenCursor` and its fields `pub(super)`, in a commit of its own, so the two engines share open cursors.
+
+**Lowered:**
+- DECLARE ... CURSOR, now also with host variables in its query. sql_statement answers SQLCODE 0 before binding them; they are bound at OPEN.
+- OPEN of a cursor declared in the program. For a declared query: its text in pieces around its host variables (bind_host), with the inputs made as in S2.70. For a prepared statement: the USING inputs (using_values).
+- FETCH of one row: orientation NEXT, PRIOR, FIRST, LAST, BEFORE, AFTER, CURRENT, RELATIVE n or ABSOLUTE n, FROM, INTO targets as in S2.70, or no INTO.
+- CLOSE.
+
+**Runtime:**
+- `Runtime::sql_open` and `sql_open_n` write again sql_open:
+  - -502 when the cursor is already open;
+  - the bound query, or the prepared text with fill_markers (SQL0518 when it was not prepared);
+  - strip_cursor_clauses and with_rrn, also written again without indexing;
+  - every row read at OPEN, with each row's record number when there is one table.
+- `sql_fetch_n` writes again sql_fetch: -501 when the cursor is not open, the position clamped between -1 and the row count, BEFORE and AFTER ending there, +100 off the rows, no INTO giving 0, and assign_hosts. The position arithmetic saturates where sql_fetch's `as isize` would overflow.
+- `sql_close` writes again the CLOSE arm (-501).
+- All three run sql_statement's start first, and keep the outcome as the last.
+
+**Lowering refuses** (the interpreter keeps them):
+- a cursor the program does not declare (sql_open's -504);
+- a multiple-row FETCH (ROWS), which is the next block with the multiple-row INSERT;
+- INTO targets or indicators with an index.
+
+**Verified by** the native unit NSQL4, under both engines. The program captured on PUB400 (tools/golden/native72.txt n72_sql) covers:
+- a host variable bound at OPEN (changed after OPEN, so the rows do not change);
+- FOR READ ONLY;
+- a data structure INTO to the end (100, 02000);
+- OPEN of an open cursor (-502), and FETCH and CLOSE of a closed one (-501);
+- a scroll cursor with LAST, PRIOR, FIRST, RELATIVE 2, BEFORE, a FETCH with no INTO, and RELATIVE past the end;
+- a prepared statement's cursor opened with USING;
+- a null into a field with an indicator.
+
+PUB400's precompiler took no `FETCH ABSOLUTE 2` (SQL0104), so the capture leaves it out.
+
+native_tripwire.rs watches sql_open, sql_fetch, strip_cursor_clauses and with_rrn.
