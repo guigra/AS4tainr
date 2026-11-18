@@ -1880,3 +1880,16 @@ async fn native_unit_lowered_sql_call() {
     )
     .await;
 }
+
+// Stage 2, S2.76: a path with one index on its middle part lowered to Rust.
+// Source: golden capture tools/golden/native76 n76_nested (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_nested_path() {
+    let _ = require_db!();
+    expect(
+        "NNEST",
+        include_str!("native/NNEST.rpgle"),
+        &["U ADA=5 GRACE=12 LIN=24", "ERROR 121"],
+    )
+    .await;
+}

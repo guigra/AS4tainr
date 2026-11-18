@@ -2,30 +2,27 @@
 
 Last update: 2026-11-18 01:40 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
 
-## Now (2026-11-18, 04:15 UTC)
+## Now (2026-11-18, 07:40 UTC)
 
-**Stage 2 is committed up to S2.68**, each block validated by a full section 7 on the ARM64 VM:
-- corpus coverage 87.8% native;
-- level 2 rust: 669 of 691 tests the same as the interpreter.
+**Committed up to S2.71** (89.5% native, level 2 rust 672 of 694):
+- 104e992: exec_sql.rs visibility;
+- S2.69 332f488;
+- S2.70 dd16646;
+- S2.71 5998afd.
 
-**Validated or validating, as snapshots chained one on the other** (`as4tainr-up-logs/s7-<tag>.commit`):
+**Snapshots chained one on the other**, each with its section 7 running or queued (`as4tainr-up-logs/s7-<tag>.commit`):
 
-| Snapshot | What | Where its section 7 runs |
+| Snapshot | What | Where |
 | --- | --- | --- |
-| `7e86004` sqlvis | exec_sql.rs's `pub(super)` (the user's authorization of 2026-11-18), its own commit | ARM (`s7f-sqlvis`) |
-| `9d728ae` S2.69 | embedded SQL with no host variables | ARM after sqlvis (`chain269.sh`) |
-| `b521505` S2.70 | host variables: SELECT/VALUES INTO, SET, changes | jsr-test-2 (`s7f-s270`) |
-| S2.71 | PREPARE, EXECUTE, EXECUTE IMMEDIATE, GET DIAGNOSTICS | worktree; units running on x86 |
+| `3a8da82` curvis | `cursors` and `OpenCursor` made `pub(super)` (the user's second authorization, 2026-11-18), its own commit | ARM `s7f-curvis` |
+| `51efa8e` S2.72 | cursors: DECLARE, OPEN, FETCH of one row, CLOSE | jsr-test-2 `s7f-s272` |
+| `4b225c3` S2.73 | UPDATE and DELETE WHERE CURRENT OF | ARM after curvis (`chain273.sh`) |
+| `363a311` S2.74 | multiple-row FETCH and INSERT | jsr-test-2 after S2.72 (`chain274.sh`) |
+| `c750039` S2.75 | CALL of SQL procedures | ARM after S2.73 (`chain275.sh`) |
 
-Commit each in order once its run passes.
+Commit them in this order as each passes: curvis, S2.72, S2.73, S2.74, S2.75. For each one, check that the snapshot's parent tree is HEAD's tree.
 
-**Waiting for the user: cursors.** OPEN, FETCH and CLOSE need the interpreter's `SqlState.cursors` and the private `OpenCursor` struct (rows, pos, rrns). Without them, a cursor opened natively and fetched by the interpreter (or the other way) would not be shared. The 2026-11-18 authorization left `cursors` out, so I did not widen it.
-
-The question for the user: may `OpenCursor` and its fields and `SqlState.cursors` be `pub(super)` too? It is visibility only, the same kind of touch point.
-
-Steps 4 and 5 of the SQL plan wait on that answer:
-- cursors, with FETCH, positioned UPDATE and DELETE;
-- CALL and the multiple-row INSERT and FETCH.
+With S2.75 the plan for embedded SQL is done. The units have 77 tests; both engines and the generated lints passed on x86 for every block.
 
 **jsr-test-2** (x86, 10.0.1.1) had no `/QSYS.LIB` directory, and qsh_commands_see_qsys_lib fails without one. It was made with sudo on 2026-11-18, as on the ARM VM and the dev host.
 
