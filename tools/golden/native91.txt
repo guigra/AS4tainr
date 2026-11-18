@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.91: data imports and exports (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native91.txt -f tools/golden/native91
+n91_crt|!system "CRTRPGMOD MODULE(@LIB@/GN91MOD) SRCSTMF('@HOME@/gld/gn91mod.rpgle')" && system "CRTSQLRPGI OBJ(@LIB@/GN91MAIN) SRCSTMF('@HOME@/gld/gn91main.rpgle') COMMIT(*NONE) OBJTYPE(*MODULE)" && system "CRTPGM PGM(@LIB@/GN91MAIN) MODULE(@LIB@/GN91MAIN @LIB@/GN91MOD)"
+n91_data|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN91MAIN)"; cat gn1.out; rm -f gn1.out

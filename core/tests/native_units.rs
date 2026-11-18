@@ -2296,3 +2296,79 @@ async fn native_unit_lowered_on_exit() {
     )
     .await;
 }
+
+// Stage 2, S2.91: data imports and exports between two modules of a
+// program (CRTRPGMOD and CRTPGM, as the capture made it).
+// Source: golden capture tools/golden/native91 n91_data (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_data_imports() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    use as4tainr_core::source;
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    catalog::init(&client)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    let _ = source::create_file(&client, "QGPL", "QRPGLESRC", "").await;
+    for (name, text) in [
+        ("NDATAMOD", include_str!("native/NDATAMOD.rpgle")),
+        ("NDATAIMP", include_str!("native/NDATAIMP.rpgle")),
+    ] {
+        source::put_member(
+            &client,
+            &source::Member {
+                library: "QGPL".into(),
+                file: "QRPGLESRC".into(),
+                name: name.into(),
+                srctype: "RPGLE".into(),
+                text: "native unit NDATAIMP".into(),
+                source: text.into(),
+                ..Default::default()
+            },
+            true,
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{name}: {e:#}"));
+    }
+    // The commands compile and call RPG: the engine connects to the
+    // database itself.
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    for cmd in [
+        "DLTPGM PGM(QGPL/NDATAIMP)",
+        "DLTMOD MODULE(QGPL/NDATAIMP)",
+        "DLTMOD MODULE(QGPL/NDATAMOD)",
+    ] {
+        let _ = job.run(cmd).await;
+    }
+    for cmd in [
+        "CRTRPGMOD MODULE(QGPL/NDATAMOD)",
+        "CRTRPGMOD MODULE(QGPL/NDATAIMP)",
+        "CRTPGM PGM(QGPL/NDATAIMP) MODULE(QGPL/NDATAIMP QGPL/NDATAMOD)",
+    ] {
+        job.run(cmd)
+            .await
+            .unwrap_or_else(|e| panic!("{cmd}: {e:#}"));
+    }
+    let got = match job.run("CALL PGM(QGPL/NDATAIMP)").await {
+        Ok(as4tainr_core::commands::Outcome::Messages(m)) => m,
+        Ok(other) => panic!("NDATAIMP: {other:?}"),
+        Err(e) => panic!("NDATAIMP: {e:#}"),
+    };
+    assert_eq!(got, ["DSPLY  100 x 105 mod5x 2 mod1y"], "NDATAIMP");
+}

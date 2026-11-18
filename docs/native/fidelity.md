@@ -94,3 +94,20 @@ The backend follows each fix since the rebase on upstream dd47e28 (2026-11-13). 
 
 - **A panic in `rpgrt/src/rpg/data.rs:184`** (code moved unchanged from upstream). Fixed-form MOVE with a float field (OpenRPG's test corpus, `tests/test194_fixed_cspec_err_move_float.rpgle`) panics with "zero fits" in both engines, where the RPG error path is expected. Found by `scripts/native-corpus.sh` on 2026-11-12. On IBM i the program does not compile: RNF7547, severity 30, on the MOVE (golden capture tools/golden/native10.txt n10_crt_mvf, PUB400, IBM i 7.5, 2026-11-12).
 - **`rla_test::verify22_joblog_info_in_a_system_job` is intermittent.** It reads `QSYS2.JOBLOG_INFO('*')` of the process's own job, which the tests running in parallel share. In the aarch64 evidence run of 769f0d5 it failed once under `auto`: a CPF9898 row's sender was `*N` where `GLD22Q` line 20 was expected. The same run passed it under `rust`. Run alone, it passed 3 times under `auto`, 2 under `rust` and once under `interp`. Upstream test, not touched.
+
+## Numbers past 2^64 in length, start and count operands (found 2026-11-18)
+
+When a number gives a length, start position or count, the two engines differ only for values of 2^64 and up:
+- The interpreter casts it to `usize` with `as`, which keeps the low 64 bits:
+  - ops.rs string_op: SCAN's length and start, CAT's blanks;
+  - interp.rs bif's `%STR` maximum.
+  So 18446744073709551617 becomes 1.
+- The native runtime converts with `try_from`, as section 5 of CLAUDE.native.md requires:
+  - `str_op_n`: a SCAN length or start that does not fit is the operation's error (status 100), and CAT's blanks become 0;
+  - `str_at`: a `%STR` maximum that does not fit is no limit.
+
+**Examples.** SCAN `'A':18446744073709551617` of `'A'` finds 1 under the interpreter and is an error natively. CAT `'A':18446744073709551617` `'B'` gives `A B` under the interpreter and `AB` natively.
+
+IBM i rejects such a length or start: the operation's error, as for a length past the string. No capture has been made of the CAT blanks or the `%STR` maximum yet.
+
+These were found by an independent review (codex, read-only) of native_rt.rs against the interpreter. They are left as they are until a PUB400 capture says which behavior is right. Fields of such a size are not seen in practice.

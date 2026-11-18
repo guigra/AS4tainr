@@ -1584,8 +1584,6 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 || prog.varying.contains_key(&name)
                 || prog.based.contains_key(&v.buf)
                 || prog.occurs.iter().any(|o| o.buf == v.buf)
-                || prog.data_imports.iter().any(|(n, _)| *n == name)
-                || prog.data_exports.iter().any(|(n, _)| *n == name)
             {
                 return None;
             }
@@ -1726,8 +1724,6 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 || prog.varying.contains_key(&name)
                 || prog.based.contains_key(&v.buf)
                 || prog.occurs.iter().any(|o| o.buf == v.buf)
-                || prog.data_imports.iter().any(|(n, _)| *n == name)
-                || prog.data_exports.iter().any(|(n, _)| *n == name)
             {
                 return None;
             }
@@ -2112,8 +2108,10 @@ fn num_variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Ope
 
 /// An eligible field (ADR 0006): a global scalar of the main program,
 /// numeric or fixed-length character, that is not an array, not based,
-/// not in a multiple-occurrence data structure, not varying, not imported
-/// or exported. File fields are eligible since program.rs gives them
+/// not in a multiple-occurrence data structure, not varying. Imported and
+/// exported fields too (S2.91): their storage is the module's, which the
+/// interpreter's share_in/share_out bring up to date at the calls between
+/// modules, the native runtime's through the same services. File fields are eligible since program.rs gives them
 /// buffer numbers in name order (S2.6).
 fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
     if let Expr::Path { .. } = e {
@@ -2140,8 +2138,6 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
                 || d.dim != 0
                 || prog.based.contains_key(&d.buf)
                 || prog.occurs.iter().any(|o| o.buf == d.buf)
-                || prog.data_imports.iter().any(|(n, _)| n == name)
-                || prog.data_exports.iter().any(|(n, _)| n == name)
             {
                 return None;
             }
@@ -2304,8 +2300,6 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
             // A varying-dimension array's elements only with a run-time
             // index (S2.45).
             || (prog.varying.contains_key(name) && index.is_none())
-            || prog.data_imports.iter().any(|(n, _)| n == name)
-            || prog.data_exports.iter().any(|(n, _)| n == name)
     };
     if excluded {
         return None;
@@ -4682,8 +4676,6 @@ fn sql_row_fields(
         || !d.qualified
         || prog.based.contains_key(&d.buf)
         || prog.occurs.iter().any(|o| o.buf == d.buf)
-        || prog.data_imports.iter().any(|(n, _)| n == host)
-        || prog.data_exports.iter().any(|(n, _)| n == host)
     {
         return None;
     }

@@ -1104,3 +1104,19 @@ The exit routine runs through dispatch, so natively, since the native table has 
 - a normal end (trace "normal", value 5);
 - an ON-EXIT RETURN replacing the value (99);
 - a division by zero in the body, the ON-EXIT run with its indicator on ("abnormal"), and the caller's MONITOR catching status 202.
+
+## S2.91: imported and exported fields
+
+Fields and data structures defined with IMPORT or EXPORT are lowered like any other global. Before, ADR 0006's first rules kept them out.
+
+**Why this is safe.** Their storage is the module's own buffers. The interpreter's share_in and share_out (bifs.rs) copy it to and from the program's shared copy, and nothing else reads that copy. They run only at the edges where a module's values can change hands:
+- the program's start, and its end with or without LR;
+- a call into another module or service program (call_bound_in);
+- QCMDEXC's message ID (crt.rs).
+
+The native runtime reaches all of these through the same Machine and the same services. So native code that reads and writes the buffers between those edges does what the interpreter does.
+
+**Verified by** the native unit NDATAIMP, under both engines. It is a program of two modules (CRTRPGMOD and CRTPGM), as captured on PUB400 (tools/golden/native91.txt n91_data):
+- the main module imports TOTAL, which the other module exports with INZ(100);
+- the main module exports LABEL, which the other module imports;
+- each side sees the other's changes across the calls: "100 x 105 mod5x 2 mod1y".
