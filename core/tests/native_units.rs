@@ -2116,3 +2116,55 @@ async fn native_unit_lowered_editc_third() {
     )
     .await;
 }
+
+// Stage 2, S2.82: date, time and timestamp fields of a database file in
+// lowered file operations.
+// Source: golden capture tools/golden/native82 n82_datefile (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_temporal_file_fields() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    catalog::init(&client)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    // As the capture made GN82T before its compile.
+    let _ = job.run("DLTF FILE(QGPL/NDATEFT)").await;
+    job.run_sql_script(
+        "CREATE TABLE QGPL.NDATEFT (ID INT NOT NULL, D DATE, T TIME, TS TIMESTAMP);",
+        "native unit NDATEF",
+        10,
+        None,
+        true,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    expect(
+        "NDATEF",
+        include_str!("native/NDATEF.rpgle"),
+        &[
+            "1 2026-01-31 09.15.00 2026-01-31-23.59.59.000000",
+            "2 1815-12-10 23.00.00 2000-02-29-12.00.00.500000",
+            "1 2026-02-28 11.15.00 2026-02-01-00.00.00.000000",
+            "2 1815-12-10 23.00.00 2000-02-29-12.00.00.500000",
+        ],
+    )
+    .await;
+}

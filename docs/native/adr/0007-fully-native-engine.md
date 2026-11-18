@@ -947,3 +947,13 @@ native_tripwire.rs watches the three functions.
 For zero with K and '+', IBM i gives all blanks, while the arm puts the '+' after them. That is an interpreter defect (fidelity.md); NEDITC3 leaves that part out.
 
 native_tripwire.rs watches bif, which holds the arm.
+
+## S2.82: date, time and timestamp fields of database files
+
+Lowered file operations (S2.58, S2.59) now take a file whose date, time or timestamp fields go to program fields of those types. The move is the character one, as fill_fields' Value::str and record_of's characters make it: the record's *ISO text into the field with the strict fit, and back. data::store and decode, which both engines use, convert for the program field's format.
+
+**Verified by** the native unit NDATEF, under both engines. The program captured on PUB400 (tools/golden/native82.txt n82_datefile) uses a table of int, date, time and timestamp columns:
+- two records written;
+- read in arrival order;
+- the first updated with %MONTHS (January 31 to February 28), %HOURS and %SECONDS (to the next day);
+- read again after SETLL *START.
