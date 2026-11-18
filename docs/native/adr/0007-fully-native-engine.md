@@ -765,3 +765,37 @@ native_tripwire.rs watches sql_open, sql_fetch, strip_cursor_clauses and with_rr
 After CLOSE, IBM i gives -507. positioned_change gives -501, an interpreter defect (fidelity.md), so NSQL5 stops that line before it.
 
 native_tripwire.rs watches positioned_change.
+
+## S2.74: multiple-row FETCH and INSERT
+
+**Lowered:**
+- FETCH ... FOR n ROWS INTO :dsarray, as fetch_rows reads it: the count is the word before ROWS;
+- INSERT INTO table n ROWS VALUES (:dsarray), as sql_insert_rows reads it: the text before the count, with no host variables here; VALUES or values.
+
+The count is a number as written (Dec::parse) or a numeric host variable. The host structure array must be:
+- global, with DIM, and so qualified;
+- not based, not of multiple occurrences, not imported or exported.
+
+Each subfield is a character, varying or numeric `HOST.SF`, at its first element's place, with the structure's size between elements.
+
+**Runtime.**
+- `Runtime::sql_fetch_rows` (`sql_fetch_rows_n`) writes again fetch_rows:
+  - -221 when the count is more than the elements, and -501 when the cursor is not open;
+  - the first row by the orientation, clamped between 0 and the row count;
+  - +100 with the cursor after the last row, when there is none or the count is 0;
+  - otherwise the rows into the elements in order, through assign_hosts' strict fit (an error stops it);
+  - the cursor on the last row read, and SQLERRD(5) = 100 when that is the last row.
+- `sql_insert_rows_n` writes again sql_insert_rows:
+  - a count of 0 is SQLCODE 0, and more than the elements is -221;
+  - otherwise each element up to the count becomes a row of literals (a fixed character field as CAST(... AS char(n))), through sql_change.
+
+The element storage is read with `rpgrt::native::load` at each element's place.
+
+**Verified by** the native unit NSQL6, under both engines. The program captured on PUB400 (tools/golden/native74.txt n74_sql) runs:
+- INSERT of 3 rows (a literal count) and of 2 (a host variable), and of 5 into 4 elements (-221);
+- FETCH FOR 2 ROWS three times over 5 rows (0/2/0, 0/2/0, 0/1/100, the second element keeping its value);
+- FETCH past the end (100), and FETCH FIRST FOR 3 ROWS into 2 elements (-221).
+
+On IBM i an INSERT of 0 rows is -221, but sql_insert_rows gives 0, an interpreter defect (fidelity.md); NSQL6 leaves that part of its line out. PUB400's precompiler wants a scroll cursor for FETCH FIRST (SQL0225).
+
+native_tripwire.rs watches fetch_rows and sql_insert_rows.

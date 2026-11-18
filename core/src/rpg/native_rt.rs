@@ -1064,6 +1064,38 @@ impl Runtime for Rt<'_, '_> {
         Ok(sql_result(o))
     }
 
+    fn sql_fetch_rows(
+        &mut self,
+        pc: usize,
+        name: &str,
+        orient: &str,
+        n: i64,
+        count: Dec,
+        dim: u32,
+        host: &str,
+        fields: Vec<rpgrt::native::SqlRowSlot>,
+    ) -> NResult<rpgrt::native::SqlResult> {
+        let o = self.sql_cursor_n(pc, |rt| {
+            rt.sql_fetch_rows_n(name, orient, n, &count, dim, host, &fields)
+        })?;
+        Ok(sql_result(o))
+    }
+
+    fn sql_insert_rows(
+        &mut self,
+        pc: usize,
+        target: &str,
+        count: Dec,
+        dim: u32,
+        host: &str,
+        fields: Vec<rpgrt::native::SqlRowSlot>,
+    ) -> NResult<rpgrt::native::SqlResult> {
+        let o = self.sql_cursor_n(pc, |rt| {
+            rt.sql_insert_rows_n(target, &count, dim, host, &fields)
+        })?;
+        Ok(sql_result(o))
+    }
+
     fn sql_close(&mut self, pc: usize, name: &str) -> NResult<rpgrt::native::SqlResult> {
         let o = self.sql_cursor_n(pc, |rt| {
             Ok(match rt.m.sql.cursors.remove(name) {
@@ -2844,6 +2876,138 @@ impl Rt<'_, '_> {
         Ok(sql_ok(0))
     }
 
+    /// exec_sql.rs fetch_rows (S2.74): -221 when the count is more than
+    /// the array's elements, -501 when the cursor is not open; the first
+    /// row by the orientation (kept between 0 and the row count); none
+    /// (or a count of 0): +100, the cursor after the last row; else up to
+    /// `count` rows into the elements in order, each subfield with the
+    /// strict fit (an error stops it), the cursor on the last one read,
+    /// SQLERRD(5) 100 when that is the last row.
+    #[allow(clippy::too_many_arguments)] // fetch_rows' parts, as lowered
+    fn sql_fetch_rows_n(
+        &mut self,
+        name: &str,
+        orient: &str,
+        n: i64,
+        count: &Dec,
+        dim: u32,
+        host: &str,
+        fields: &[rpgrt::native::SqlRowSlot],
+    ) -> NResult<SqlOut> {
+        let want = sql_row_count(count)?;
+        if want > usize::try_from(dim.max(1))? {
+            return Ok(sql_err(
+                -221,
+                format!("SQL0221: {want} rows are more than the {dim} elements of {host}."),
+            ));
+        }
+        let Some(c) = self.m.sql.cursors.get_mut(name) else {
+            return Ok(sql_err(
+                -501,
+                format!("SQL0501: Cursor {name} is not open."),
+            ));
+        };
+        let len = isize::try_from(c.rows.len())?;
+        let n = isize::try_from(n).unwrap_or(if n < 0 { isize::MIN } else { isize::MAX });
+        let start = match orient {
+            "PRIOR" => c.pos.saturating_sub(1),
+            "FIRST" => 0,
+            "LAST" => len.saturating_sub(1),
+            "CURRENT" => c.pos,
+            "RELATIVE" => c.pos.saturating_add(n),
+            "ABSOLUTE" => n.saturating_sub(1),
+            _ => c.pos.saturating_add(1),
+        }
+        .clamp(0, len);
+        let end = start
+            .saturating_add(isize::try_from(want).unwrap_or(isize::MAX))
+            .min(len);
+        if want == 0 || start >= len {
+            c.pos = len;
+            return Ok(sql_not_found());
+        }
+        let rows: Vec<Vec<Option<String>>> = c
+            .rows
+            .get(usize::try_from(start)?..usize::try_from(end)?)
+            .ok_or_else(|| anyhow!("native: the cursor's rows"))?
+            .to_vec();
+        c.pos = end.saturating_sub(1);
+        let last = end == len;
+        for (i, row) in rows.iter().enumerate() {
+            let outs: Vec<rpgrt::native::SqlSlot> = fields
+                .iter()
+                .map(|f| -> NResult<rpgrt::native::SqlSlot> {
+                    Ok(rpgrt::native::SqlSlot {
+                        buf: f.buf,
+                        off: i
+                            .checked_mul(f.stride)
+                            .and_then(|d| f.off.checked_add(d))
+                            .ok_or_else(|| anyhow!("native: an element's place"))?,
+                        ty: f.ty,
+                        numeric: f.numeric,
+                        ind: None,
+                    })
+                })
+                .collect::<NResult<_>>()?;
+            if let Some(err) = self.assign_hosts_n(&outs, row)? {
+                if err.code < 0 {
+                    return Ok(err);
+                }
+            }
+        }
+        let mut out = sql_ok(i64::try_from(rows.len())?);
+        if last {
+            out.errd5 = 100;
+        }
+        Ok(out)
+    }
+
+    /// exec_sql.rs sql_insert_rows (S2.74): a count of 0 inserts nothing
+    /// (SQLCODE 0); more than the array's elements: -221; else one row per
+    /// element up to the count, each subfield's value as a literal (a
+    /// fixed character field as CAST(... AS char(n))), after `target`,
+    /// through sql_change.
+    fn sql_insert_rows_n(
+        &mut self,
+        target: &str,
+        count: &Dec,
+        dim: u32,
+        host: &str,
+        fields: &[rpgrt::native::SqlRowSlot],
+    ) -> NResult<SqlOut> {
+        let want = sql_row_count(count)?;
+        if want == 0 {
+            return Ok(sql_ok(0));
+        }
+        if want > usize::try_from(dim.max(1))? {
+            return Ok(sql_err(
+                -221,
+                format!("SQL0221: {want} rows are more than the {dim} elements of {host}."),
+            ));
+        }
+        let mut rows = Vec::new();
+        for i in 0..want {
+            let mut parts = Vec::new();
+            for f in fields {
+                let off = i
+                    .checked_mul(f.stride)
+                    .and_then(|d| f.off.checked_add(d))
+                    .ok_or_else(|| anyhow!("native: an element's place"))?;
+                let v = rpgrt::native::load(&self.m.bufs, f.buf, off, f.ty)?;
+                let lit = rpgrt::native::sql_literal(&v, None)?;
+                match (f.ty, &v) {
+                    (super::data::DType::Char(len), Value::Char(_)) => {
+                        parts.push(format!("CAST({lit} AS char({len}))"))
+                    }
+                    _ => parts.push(lit),
+                }
+            }
+            rows.push(format!("({})", parts.join(", ")));
+        }
+        let text = format!("{target} VALUES {}", rows.join(", "));
+        self.sql_change_n(&text)
+    }
+
     /// exec_sql.rs positioned_change (S2.73): -501 when the cursor is
     /// not open, -510 when it is not over one table, -508 when it is not on
     /// a row; else the text before WHERE (its host literals bound) with
@@ -3435,4 +3599,11 @@ fn sql_with_rrn(query: &str) -> Option<String> {
         query.get(..from)?.trim_end(),
         query.get(from..)?
     ))
+}
+
+/// A multiple-row statement's row count (S2.74), as exec_sql.rs takes it:
+/// the number's integer value (`to_i128`), at least 0.
+fn sql_row_count(count: &Dec) -> NResult<usize> {
+    let n = count.to_i128()?.max(0);
+    Ok(usize::try_from(n).unwrap_or(usize::MAX))
 }

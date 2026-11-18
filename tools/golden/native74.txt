@@ -1,0 +1,5 @@
+# Captures for stage 2, S2.74: multiple-row INSERT and FETCH (one batch).
+# gn74sql.rpgle names its table in GUIGRA261, the library of the PUB400 account used.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native74.txt -f tools/golden/native74
+n74_crt_sql|!system "CRTSQLRPGI OBJ(@LIB@/GN74SQL) SRCSTMF('@HOME@/gld/gn74sql.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n74_sql|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN74SQL)"; cat gn1.out; rm -f gn1.out

@@ -282,6 +282,31 @@ pub trait Runtime {
         pieces: &[&str],
         qlits: Vec<String>,
     ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.74): FETCH ... FOR `count` ROWS INTO the host
+    /// structure array `host` (exec_sql.rs fetch_rows); the outcome.
+    #[allow(clippy::too_many_arguments)] // fetch_rows' parts, as lowered
+    fn sql_fetch_rows(
+        &mut self,
+        pc: usize,
+        name: &str,
+        orient: &str,
+        n: i64,
+        count: Dec,
+        dim: u32,
+        host: &str,
+        fields: Vec<SqlRowSlot>,
+    ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.74): INSERT `target` `count` ROWS VALUES (:host)
+    /// (exec_sql.rs sql_insert_rows); the outcome.
+    fn sql_insert_rows(
+        &mut self,
+        pc: usize,
+        target: &str,
+        count: Dec,
+        dim: u32,
+        host: &str,
+        fields: Vec<SqlRowSlot>,
+    ) -> NResult<SqlResult>;
     /// Stage 2 (S2.72): CLOSE the cursor `name`; the outcome.
     fn sql_close(&mut self, pc: usize, name: &str) -> NResult<SqlResult>;
     /// Stage 2 (S2.71): GET DIAGNOSTICS's items' values about the last
@@ -327,6 +352,17 @@ pub struct SqlResult {
     pub text: String,
     pub rows: i64,
     pub errd5: i64,
+}
+
+/// A subfield of a host structure array (S2.74): its first element's
+/// storage, the distance between elements, its type, whether numeric.
+#[derive(Clone, Debug)]
+pub struct SqlRowSlot {
+    pub buf: usize,
+    pub off: usize,
+    pub stride: usize,
+    pub ty: DType,
+    pub numeric: bool,
 }
 
 /// A dynamic SQL statement (S2.71).

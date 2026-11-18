@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.73");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.74");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -220,6 +220,26 @@ pub mod ir {
         pub ind: Option<Operand>,
     }
 
+    /// A row count of a multiple-row FETCH or INSERT (S2.74): a number
+    /// as written, or a host variable.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum SqlCount {
+        Lit(String),
+        Var(Operand),
+    }
+
+    /// A subfield of a host structure array (S2.74): its first element's
+    /// place, the distance between elements, its type, whether it is
+    /// numeric.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct SqlRowField {
+        pub buf: usize,
+        pub off: usize,
+        pub stride: usize,
+        pub ty: Ty,
+        pub numeric: bool,
+    }
+
     /// The dynamic SQL statements (S2.71).
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum SqlDyn {
@@ -393,6 +413,30 @@ pub mod ir {
             table: String,
             pieces: Vec<String>,
             inputs: Vec<SqlIn>,
+        },
+        /// FETCH ... FOR n ROWS INTO :dsarray (S2.74): the cursor, the
+        /// orientation, the row count, the array's elements and the place
+        /// of each subfield's first element; then the SQLCA.
+        SqlFetchRows {
+            sqlca: Box<[Operand; 5]>,
+            name: String,
+            orient: String,
+            n: i64,
+            count: SqlCount,
+            dim: u32,
+            host: String,
+            fields: Vec<SqlRowField>,
+        },
+        /// INSERT INTO ... n ROWS VALUES (:dsarray) (S2.74): the text
+        /// before the count, the row count, the array's elements and its
+        /// subfields; then the SQLCA.
+        SqlInsertRows {
+            sqlca: Box<[Operand; 5]>,
+            target: String,
+            count: SqlCount,
+            dim: u32,
+            host: String,
+            fields: Vec<SqlRowField>,
         },
         /// CLOSE (S2.72): the cursor; then the SQLCA.
         SqlClose {
@@ -1185,6 +1229,36 @@ fn sqlca_store(
         );
     }
     Ok(())
+}
+
+/// A multiple-row statement's row count (S2.74) as `count`: a number as
+/// written (exec_sql.rs: Dec::parse), or a host variable's value.
+fn sql_count(c: &ir::SqlCount) -> String {
+    match c {
+        ir::SqlCount::Lit(t) => format!(
+            "    let count = rpgrt::rpg::dec::Dec::parse({})?;\n",
+            json_str(t)
+        ),
+        ir::SqlCount::Var(o) => format!("    let count = {};\n", number(o)),
+    }
+}
+
+/// A host structure array's subfields as `fields` (S2.74).
+fn sql_row_fields(body: &mut String, fields: &[ir::SqlRowField]) {
+    let parts: Vec<String> = fields
+        .iter()
+        .map(|f| {
+            format!(
+                "rpgrt::native::SqlRowSlot {{ buf: {}, off: {}, stride: {}, ty: {}, numeric: {} }}",
+                f.buf,
+                f.off,
+                f.stride,
+                ty(&f.ty),
+                f.numeric
+            )
+        })
+        .collect();
+    let _ = writeln!(body, "    let fields = vec![{}];", parts.join(", "));
 }
 
 /// The USING literals (S2.71), one per host variable as exec_sql.rs
@@ -2130,6 +2204,71 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("sp{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::SqlFetchRows {
+                sqlca,
+                name,
+                orient,
+                n,
+                count,
+                dim,
+                host,
+                fields,
+            },
+        ) => {
+            // exec_sql.rs fetch_rows: the row count, the subfields' places,
+            // then the runtime; then the SQLCA.
+            let mut body = sql_count(count);
+            sql_row_fields(&mut body, fields);
+            let _ = writeln!(
+                body,
+                "    let o = rt.sql_fetch_rows({pc}, {}, {}, {n}, count, {dim}, {}, fields)?;",
+                json_str(name),
+                json_str(orient),
+                json_str(host)
+            );
+            sqlca_store(&mut body, sqlca, &bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn sr{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("sr{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::SqlInsertRows {
+                sqlca,
+                target,
+                count,
+                dim,
+                host,
+                fields,
+            },
+        ) => {
+            // exec_sql.rs sql_insert_rows: the row count, the subfields'
+            // places, then the runtime; then the SQLCA.
+            let mut body = sql_count(count);
+            sql_row_fields(&mut body, fields);
+            let _ = writeln!(
+                body,
+                "    let o = rt.sql_insert_rows({pc}, {}, count, {dim}, {}, fields)?;",
+                json_str(target),
+                json_str(host)
+            );
+            sqlca_store(&mut body, sqlca, &bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn si{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("si{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::SqlClose { sqlca, name }) => {

@@ -500,6 +500,11 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 sqlca: Box::new(sqlca),
             }
         }
+        // INSERT ... n ROWS VALUES (:dsarray) (S2.74).
+        Ins::Stmt(Stmt::Sql(text)) if sql_insert_rows_kind(text) => {
+            let sqlca = sqlca_ops(cx, &mut used)?;
+            sql_insert_rows(cx, text, sqlca, &mut used)?
+        }
         // UPDATE and DELETE WHERE CURRENT OF (S2.73).
         Ins::Stmt(Stmt::Sql(text)) if sql_positioned_kind(text) => {
             let sqlca = sqlca_ops(cx, &mut used)?;
@@ -4002,7 +4007,36 @@ fn sql_cursor(
             }
             let name = w.get(k).cloned().unwrap_or_default();
             if w.iter().any(|x| x == "ROWS") {
-                return None;
+                // FOR n ROWS (S2.74), as fetch_rows reads it: the word
+                // before ROWS, then INTO a host structure array.
+                let count = w
+                    .iter()
+                    .position(|x| x == "ROWS")
+                    .and_then(|i| i.checked_sub(1))
+                    .and_then(|i| w.get(i))
+                    .cloned()
+                    .unwrap_or_default();
+                let count = sql_count_of(cx, &count, used)?;
+                let at = into?;
+                let host = sql
+                    .get(at.checked_add(4)?..)?
+                    .trim()
+                    .trim_end_matches(';')
+                    .trim()
+                    .trim_start_matches(':')
+                    .to_ascii_uppercase();
+                let (dim, fields) = sql_row_fields(cx, &host, used)?;
+                used.push(format!("sql fetch {name} rows into {host}"));
+                return Some(ir::Lowered::SqlFetchRows {
+                    sqlca: Box::new(sqlca),
+                    name,
+                    orient: orient.0,
+                    n: orient.1,
+                    count,
+                    dim,
+                    host,
+                    fields,
+                });
             }
             let outputs = match into {
                 None => None,
@@ -4122,5 +4156,132 @@ fn sql_positioned(
         table,
         pieces,
         inputs,
+    })
+}
+
+/// A multiple-row statement's row count (S2.74): `:host`, a numeric field,
+/// or a number as written (exec_sql.rs: Dec::parse).
+fn sql_count_of(cx: &Cx<'_>, count: &str, used: &mut Vec<String>) -> Option<ir::SqlCount> {
+    match count.strip_prefix(':') {
+        Some(h) => Some(ir::SqlCount::Var(num_variable(
+            cx,
+            &super::super::expr::parse(h).ok()?,
+            used,
+        )?)),
+        None => {
+            super::super::dec::Dec::parse(count).ok()?;
+            Some(ir::SqlCount::Lit(count.to_string()))
+        }
+    }
+}
+
+/// A host structure array's elements and subfields (S2.74): a global data
+/// structure with DIM (so qualified), not based, not of multiple
+/// occurrences; each subfield character, varying or numeric, `HOST.SF`
+/// at its first element's place with the structure's size between
+/// elements.
+fn sql_row_fields(
+    cx: &Cx<'_>,
+    host: &str,
+    used: &mut Vec<String>,
+) -> Option<(u32, Vec<ir::SqlRowField>)> {
+    let prog = cx.prog;
+    let Some(Sym::Ds(d)) = sym(cx, host) else {
+        return None;
+    };
+    if d.local
+        || d.dim == 0
+        || !d.qualified
+        || prog.based.contains_key(&d.buf)
+        || prog.occurs.iter().any(|o| o.buf == d.buf)
+        || prog.data_imports.iter().any(|(n, _)| n == host)
+        || prog.data_exports.iter().any(|(n, _)| n == host)
+    {
+        return None;
+    }
+    let mut fields = Vec::new();
+    for sf in d.subfields.iter() {
+        let name = format!("{host}.{sf}");
+        let Some(Sym::Var(v)) = sym(cx, &name) else {
+            return None;
+        };
+        if v.local || v.dim != 0 || v.buf != d.buf || prog.varying.contains_key(&name) {
+            return None;
+        }
+        let (ty, numeric) = match v.dtype {
+            DType::Packed(p, q) => (ir::Ty::Packed(p, q), true),
+            DType::Zoned(p, q) => (ir::Ty::Zoned(p, q), true),
+            DType::Binary(p, q) => (ir::Ty::Binary(p, q), true),
+            DType::Int(n) => (ir::Ty::Int(n), true),
+            DType::Uns(n) => (ir::Ty::Uns(n), true),
+            DType::Char(n) => (ir::Ty::Char(n), false),
+            DType::Varchar(n) => (ir::Ty::Varchar(n), false),
+            _ => return None,
+        };
+        used.push(format!(
+            "layout {name} {} {} {:?} stride {} dim {}",
+            v.buf, v.off, v.dtype, d.size, d.dim
+        ));
+        fields.push(ir::SqlRowField {
+            buf: v.buf,
+            off: v.off,
+            stride: d.size,
+            ty,
+            numeric,
+        });
+    }
+    Some((d.dim, fields))
+}
+
+/// INSERT with ROWS, as exec_sql.rs sql_statement tells it (S2.74).
+fn sql_insert_rows_kind(sql: &str) -> bool {
+    let w: Vec<String> = sql
+        .split_whitespace()
+        .map(|x| x.to_ascii_uppercase())
+        .collect();
+    w.first().map(String::as_str) == Some("INSERT") && w.iter().any(|x| x == "ROWS")
+}
+
+/// INSERT ... n ROWS VALUES (:dsarray) taken apart as exec_sql.rs
+/// sql_insert_rows does (S2.74): the text before the count (with no host
+/// variables here), the count, VALUES or values, the host structure
+/// array.
+fn sql_insert_rows(
+    cx: &Cx<'_>,
+    sql: &str,
+    sqlca: [ir::Operand; 5],
+    used: &mut Vec<String>,
+) -> Option<ir::Lowered> {
+    let sql = sql.trim();
+    let at = sql_word_at(sql, "ROWS")?;
+    let head = sql.get(..at)?.trim_end();
+    let i = head.rfind(char::is_whitespace)?;
+    let target = head.get(..i)?;
+    let count = head.get(i.checked_add(1)?..)?.trim();
+    if !sql_bind_scan(target).1.is_empty() {
+        return None;
+    }
+    let count = sql_count_of(cx, count, used)?;
+    let rest = sql.get(at.checked_add(4)?..)?.trim_start();
+    let vals = rest
+        .strip_prefix("VALUES")
+        .or_else(|| rest.strip_prefix("values"))
+        .map(str::trim)?;
+    let host = vals
+        .trim_start_matches('(')
+        .trim_end_matches(';')
+        .trim_end_matches(')')
+        .trim()
+        .trim_start_matches(':')
+        .to_ascii_uppercase();
+    let (dim, fields) = sql_row_fields(cx, &host, used)?;
+    used.push(format!("sql insert rows {host}"));
+    Some(ir::Lowered::SqlInsertRows {
+        sqlca: Box::new(sqlca),
+        target: target.to_string(),
+        count,
+        dim,
+        host,
+        fields,
     })
 }
