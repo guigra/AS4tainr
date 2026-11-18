@@ -2,27 +2,40 @@
 
 Last update: 2026-11-18 01:40 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
 
-## Now (2026-11-18, 07:40 UTC)
+## Now (2026-11-18, 16:00 UTC)
 
-**Committed up to S2.71** (89.5% native, level 2 rust 672 of 694):
-- 104e992: exec_sql.rs visibility;
-- S2.69 332f488;
-- S2.70 dd16646;
-- S2.71 5998afd.
+**Committed up to S2.81** (e1a0c4e; 91.9% native, level 2 rust 682 of 704 as under the interpreter):
+- embedded SQL in full: S2.69-S2.75, the visibility commits 104e992 and 558eff2, QTEMP units 8714d95;
+- S2.76-S2.77, nested data structure paths;
+- printer files: S2.78 EXCEPT, S2.79 WRITE, OPEN, CLOSE and FEOD;
+- 15c4a43, the units that make or drop objects run one at a time;
+- S2.80, data areas;
+- S2.81, %EDITC's third argument.
 
-**Snapshots chained one on the other**, each with its section 7 running or queued (`as4tainr-up-logs/s7-<tag>.commit`):
+**Snapshots chained one on the other**, validating (`as4tainr-up-logs/s7-<tag>.commit`):
 
 | Snapshot | What | Where |
 | --- | --- | --- |
-| `3a8da82` curvis | `cursors` and `OpenCursor` made `pub(super)` (the user's second authorization, 2026-11-18), its own commit | ARM `s7f-curvis` |
-| `51efa8e` S2.72 | cursors: DECLARE, OPEN, FETCH of one row, CLOSE | jsr-test-2 `s7f-s272` |
-| `4b225c3` S2.73 | UPDATE and DELETE WHERE CURRENT OF | ARM after curvis (`chain273.sh`) |
-| `363a311` S2.74 | multiple-row FETCH and INSERT | jsr-test-2 after S2.72 (`chain274.sh`) |
-| `c750039` S2.75 | CALL of SQL procedures | ARM after S2.73 (`chain275.sh`) |
+| `830e8ab` S2.82 | date, time and timestamp fields of database files | ARM `s7f-s282` |
+| `d78fd7e` S2.83 | fixed-form SCAN, CHECK, CHECKR, SUBST, XLATE, CAT | jsr-test-2 `s7f-s283` |
+| `744d8aa` S2.84 | fixed-form TESTN, TESTZ, TESTB, BITON, BITOFF | ARM after S2.82 |
+| `8d31651` S2.85 | fixed-form LOOKUP of arrays, XFOOT, %CHAR of indicators | jsr-test-2 after S2.83 |
 
-Commit them in this order as each passes: curvis, S2.72, S2.73, S2.74, S2.75. For each one, check that the snapshot's parent tree is HEAD's tree.
+Commit them in order as each passes, checking each time that the snapshot's parent tree is HEAD's.
 
-With S2.75 the plan for embedded SQL is done. The units have 77 tests; both engines and the generated lints passed on x86 for every block.
+**Known failures that are not the backend's** (an upstream fragility under parallel tests, held for Kyle after 2026-11-24):
+- change_a_physical_file_with_a_logical_file_over_it: QTEMP's CHGLP, "tuple concurrently updated" or CPF3219;
+- dspmod_output_files_of_a_cl_module: QTEMP's file_fields duplicate key;
+- declared_temporary_table_and_default_user: deadlock;
+- open_files_hold_shared_read_locks: CPF1002, seen once in a debug run on ARM.
+
+Each fails in some runs, with the interpreter as well. A commit cites the run and the cause.
+
+**Next:**
+- the fixed-form operations still interpreted: MOVEA, SORTA, MOVE of fixed programs, CLEAR, RESET, TEST, MHHZO and the like;
+- then the DSPLY, EVAL and IF refusals by operand (floats, procedure pointers, data imports, UCS-2, %NULLIND, %ADDR/%STR).
+
+The WHY pass over the whole suite (`as4tainr-ev-x86/why-s280`) lists them with program and line.
 
 **jsr-test-2** (x86, 10.0.1.1) had no `/QSYS.LIB` directory, and qsh_commands_see_qsys_lib fails without one. It was made with sudo on 2026-11-18, as on the ARM VM and the dev host.
 

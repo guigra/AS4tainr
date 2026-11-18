@@ -1018,3 +1018,19 @@ native_tripwire.rs watches bit_op, bit_mask and set_result_inds.
 %CHAR of an indicator is lowered too, as its character '1' or '0' (bif's CHAR arm for a Value::Ind; the same value as an indicator in a concatenation, S2.62). NARROPS shows its indicators that way.
 
 native_tripwire.rs watches array_op, lookup and num_inds.
+
+## S2.86: fixed-form SORTA and MOVEA of character data
+
+**Lowered:**
+- SORTA of a whole global array that is not of varying dimension (character, varying or numeric), DESCEND from the program's sequence;
+- MOVEA whose sides are global fixed-length character arrays (from an index field's element or the first) or fixed-length character fields, factor 2 also a character literal, with P or not. Numbers, whose zoned images move_image makes, are not lowered.
+
+**Runtime.**
+- `sorta_n` writes again ops.rs sorta: a stable sort by data::compare, reversed for DESCEND. For an array overlaying an array of a data structure (its stride is not its size, or it has a lead), whole overlaid elements move by this key.
+- `movea_parts_n` and `movea_n` write again movea_parts and movea for character data: factor 2's bytes over the result's, left to right; P blanks the result first; an index outside its array is RNQ0121.
+
+**Verified by** the native unit NSORTMV, under both engines. The program captured on PUB400 (tools/golden/native86.txt n86_sortmovea) runs:
+- SORTA of a character array, of a DESCEND packed array, and of a key overlaying a data structure array (the whole rows move);
+- MOVEA of an array into a field, of a field into an array from index 2, and of a literal with and without P.
+
+native_tripwire.rs watches sorta, movea_parts and movea.

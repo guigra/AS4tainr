@@ -317,6 +317,12 @@ pub trait Runtime {
         exprs: Vec<String>,
         outs: Vec<Option<SqlSlot>>,
     ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.86): SORTA of the array at `arr` (ops.rs sorta:
+    /// descending when `descend`; whole elements of the overlaid array
+    /// moved when `lead` or the stride says it overlays one).
+    fn sorta(&mut self, pc: usize, arr: ArrPlace, descend: bool) -> NResult<()>;
+    /// Stage 2 (S2.86): MOVEA of character data (ops.rs movea).
+    fn movea(&mut self, pc: usize, from: MoveaSide, to: MoveaSide, pad: bool) -> NResult<()>;
     /// Stage 2 (S2.85): LOOKUP of an array (ops.rs lookup) or XFOOT
     /// (array_op's XFOOT) on the array at `arr`.
     fn array_op(&mut self, pc: usize, op: ArrOpIn) -> NResult<()>;
@@ -403,6 +409,32 @@ pub struct SqlResult {
     pub text: String,
     pub rows: i64,
     pub errd5: i64,
+}
+
+/// An array's place (S2.86): its first element, the distance between
+/// elements, the elements, their type, and the bytes from the start of an
+/// overlaid element to this array's (VarInfo::lead).
+#[derive(Clone, Debug)]
+pub struct ArrPlace {
+    pub buf: usize,
+    pub off: usize,
+    pub stride: usize,
+    pub dim: u32,
+    pub ty: DType,
+    pub lead: usize,
+}
+
+/// A side of MOVEA (S2.86): an array from the element its index field
+/// names (or the first), or a field or literal's bytes, or a field to
+/// write.
+#[derive(Clone, Debug)]
+pub enum MoveaSide {
+    Array {
+        arr: ArrPlace,
+        index: Option<OutSlot>,
+    },
+    Bytes(Vec<u8>),
+    Field(OutSlot),
 }
 
 /// A fixed-form array operation's parts (S2.85): LOOKUP's search

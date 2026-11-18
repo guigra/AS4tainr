@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.86: fixed-form SORTA and MOVEA (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native86.txt -f tools/golden/native86
+n86_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN86SRT) SRCSTMF('@HOME@/gld/gn86srt.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n86_sortmovea|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN86SRT)"; cat gn1.out; rm -f gn1.out

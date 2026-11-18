@@ -473,6 +473,57 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             };
             ir::Lowered::SetOccur { buf, to, result }
         }
+        // SORTA of a whole global array (S2.86): ops.rs sorta.
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1: None,
+            f2: Some(Expr::Name { parts, args: None }),
+            result: None,
+            ext,
+            ind,
+        }) if code == "SORTA" && !ext.error && ext.other.is_empty() && ind.is_empty() => {
+            let name = parts.join(".");
+            let Some(Sym::Var(v)) = sym(cx, &name) else {
+                return None;
+            };
+            if v.dim == 0 || v.local || cx.prog.varying.contains_key(&name) {
+                return None;
+            }
+            let ty = global_elem_ty(v.dtype, true)?;
+            let descend = cx.prog.sequence.get(&name) == Some(&'D');
+            used.push(format!(
+                "sorta {name} stride {} dim {} lead {} descend {descend}",
+                v.stride, v.dim, v.lead
+            ));
+            ir::Lowered::Sorta {
+                arr: (v.buf, v.off, v.stride, v.dim, ty, v.lead),
+                descend,
+            }
+        }
+        // MOVEA of character data (S2.86): ops.rs movea, factor 2 and the
+        // result fixed-length character arrays or fields (factor 2 also a
+        // character literal); numbers (zoned images) are not lowered.
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1: None,
+            f2: Some(f2),
+            result: Some(r),
+            ext,
+            ind,
+        }) if code == "MOVEA"
+            && !ext.error
+            && ext.other.chars().all(|c| c == 'P')
+            && ind.is_empty() =>
+        {
+            let from = movea_side(cx, f2, true, &mut used)?;
+            let to = movea_side(cx, r, false, &mut used)?;
+            used.push("movea chars".into());
+            ir::Lowered::Movea {
+                from,
+                to,
+                pad: ext.other.contains('P'),
+            }
+        }
         // Fixed-form LOOKUP of an array and XFOOT (S2.85): ops.rs lookup
         // and array_op's XFOOT.
         Ins::Stmt(Stmt::Op {
@@ -5158,4 +5209,71 @@ fn str_op(
         eq: ind.eq.clone(),
         result: res,
     })))
+}
+
+/// An array element's type for lowered array operations (S2.86):
+/// character (and varying when `varying`) or numeric.
+fn global_elem_ty(t: DType, varying: bool) -> Option<ir::Ty> {
+    Some(match t {
+        DType::Packed(d, s) => ir::Ty::Packed(d, s),
+        DType::Zoned(d, s) => ir::Ty::Zoned(d, s),
+        DType::Binary(d, s) => ir::Ty::Binary(d, s),
+        DType::Int(n) => ir::Ty::Int(n),
+        DType::Uns(n) => ir::Ty::Uns(n),
+        DType::Char(n) => ir::Ty::Char(n),
+        DType::Varchar(n) if varying => ir::Ty::Varchar(n),
+        _ => return None,
+    })
+}
+
+/// A side of MOVEA for character data (S2.86): a global fixed-length
+/// character array (not of varying dimension), from its index field's
+/// element or the first; a fixed-length character field; for factor 2,
+/// a character literal.
+fn movea_side(cx: &Cx<'_>, e: &Expr, source: bool, used: &mut Vec<String>) -> Option<ir::MoveaOp> {
+    match e {
+        Expr::Str(b) if source => Some(ir::MoveaOp::Bytes(b.clone())),
+        Expr::Name { parts, args } => {
+            let name = parts.join(".");
+            match sym(cx, &name) {
+                Some(Sym::Var(v)) if v.dim > 0 => {
+                    if v.local || cx.prog.varying.contains_key(&name) {
+                        return None;
+                    }
+                    let DType::Char(n) = v.dtype else {
+                        return None;
+                    };
+                    let index = match args.as_deref() {
+                        None => None,
+                        Some([i]) => Some(
+                            str_num(cx, i, used)
+                                .filter(|o| matches!(o, ir::Operand::Var { .. }))?,
+                        ),
+                        Some(_) => return None,
+                    };
+                    used.push(format!(
+                        "movea array {name} stride {} dim {}",
+                        v.stride, v.dim
+                    ));
+                    Some(ir::MoveaOp::Array {
+                        arr: (v.buf, v.off, v.stride, v.dim, ir::Ty::Char(n)),
+                        index,
+                    })
+                }
+                _ => {
+                    let o = sql_field(cx, e, used)?;
+                    match &o {
+                        ir::Operand::Var {
+                            ty: ir::Ty::Char(_),
+                            index: None,
+                            based: None,
+                            ..
+                        } => Some(ir::MoveaOp::Field(o)),
+                        _ => None,
+                    }
+                }
+            }
+        }
+        _ => None,
+    }
 }

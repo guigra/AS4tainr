@@ -508,6 +508,22 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    pub(super) fn ensure_printer(&mut self, file: &str) -> Result<()> {",
             "    ",
         ),
+        // S2.86: fixed-form SORTA and MOVEA.
+        function(
+            OPS,
+            "    pub(super) fn sorta(&mut self, a: &Expr) -> Result<()> {",
+            "    ",
+        ),
+        function(
+            OPS,
+            "    fn movea_parts(&mut self, e: &Expr) -> Result<(Vec<Vec<u8>>, Option<ArrayRef>, usize)> {",
+            "    ",
+        ),
+        function(
+            OPS,
+            "    fn movea(&mut self, from: &Expr, to: &Expr, pad: bool) -> Result<()> {",
+            "    ",
+        ),
         // S2.85: fixed-form LOOKUP and XFOOT.
         function(
             OPS,
@@ -682,9 +698,9 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // bif (its EDITC arm), S2.83 ops.rs split, put_positions, put_left,
     // op_error and string_op, S2.84 ops.rs bit_op and bit_mask and
     // interp.rs set_result_inds, S2.85 ops.rs array_op and lookup and
-    // interp.rs num_inds;
+    // interp.rs num_inds, S2.86 ops.rs sorta, movea_parts and movea;
     // upstream still dd47e28.
-    let reviewed = "f53c1af4b7cee8bb6f177a7a2b0036b4276c63a713898282ec90e1afa1e83bf2";
+    let reviewed = "6b96b57d8ab49801c1a41b6555ab51358e349b35abc80076fff0846811aa30ba";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

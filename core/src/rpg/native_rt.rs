@@ -1120,6 +1120,26 @@ impl Runtime for Rt<'_, '_> {
         self.printer_op_n(pc)
     }
 
+    fn sorta(&mut self, pc: usize, arr: rpgrt::native::ArrPlace, descend: bool) -> NResult<()> {
+        if !matches!(&at(self.code, pc)?.ins, Ins::Stmt(_)) {
+            return Err(mismatch(pc, "a SORTA"));
+        }
+        self.sorta_n(&arr, descend)
+    }
+
+    fn movea(
+        &mut self,
+        pc: usize,
+        from: rpgrt::native::MoveaSide,
+        to: rpgrt::native::MoveaSide,
+        pad: bool,
+    ) -> NResult<()> {
+        if !matches!(&at(self.code, pc)?.ins, Ins::Stmt(_)) {
+            return Err(mismatch(pc, "a MOVEA"));
+        }
+        self.movea_n(&from, &to, pad)
+    }
+
     fn array_op(&mut self, pc: usize, op: rpgrt::native::ArrOpIn) -> NResult<()> {
         if !matches!(&at(self.code, pc)?.ins, Ins::Stmt(_)) {
             return Err(mismatch(pc, "an array operation"));
@@ -5193,6 +5213,179 @@ impl Rt<'_, '_> {
                 ix.ty,
                 &Value::Num(Dec::from_i64(i64::try_from(at)?)),
                 Fit::Strict { half_adjust: false },
+                false,
+            )?;
+        }
+        Ok(())
+    }
+}
+
+// ---- fixed-form SORTA and MOVEA (S2.86) -------------------------------
+
+/// A part of a MOVEA side (S2.86): its bytes, and where they go back (a
+/// buffer, an offset and a type), none for a literal.
+type MoveaPart = (Vec<u8>, Option<(usize, usize, super::data::DType)>);
+
+impl Rt<'_, '_> {
+    /// An element's place (k from 0).
+    fn arr_at_n(arr: &rpgrt::native::ArrPlace, k: usize) -> NResult<usize> {
+        k.checked_mul(arr.stride)
+            .and_then(|d| arr.off.checked_add(d))
+            .ok_or_else(|| anyhow!("native: an element's place"))
+    }
+
+    /// ops.rs sorta: the elements sorted by data::compare (a stable sort),
+    /// reversed for DESCEND; for an array overlaying an array of a data
+    /// structure, whole overlaid elements moved by this key.
+    fn sorta_n(&mut self, arr: &rpgrt::native::ArrPlace, descend: bool) -> NResult<()> {
+        use std::cmp::Ordering;
+        let n = usize::try_from(arr.dim)?;
+        let mut keyed: Vec<(Value, Vec<u8>)> = Vec::with_capacity(n);
+        let whole = arr.stride != arr.ty.size() || arr.lead > 0;
+        for k in 0..n {
+            let at = Self::arr_at_n(arr, k)?;
+            let key = rpgrt::native::load(&self.m.bufs, arr.buf, at, arr.ty)?;
+            let bytes = if whole {
+                let start = at
+                    .checked_sub(arr.lead)
+                    .ok_or_else(|| anyhow!("native: an overlaid element"))?;
+                let end = start
+                    .checked_add(arr.stride)
+                    .ok_or_else(|| anyhow!("native: an overlaid element"))?;
+                self.m
+                    .bufs
+                    .get(arr.buf)
+                    .and_then(|b| b.get(start..end))
+                    .ok_or_else(|| anyhow!("native: an overlaid element"))?
+                    .to_vec()
+            } else {
+                Vec::new()
+            };
+            keyed.push((key, bytes));
+        }
+        let mut err = None;
+        keyed.sort_by(|x, y| {
+            data::compare(&x.0, &y.0).unwrap_or_else(|e| {
+                err = Some(e);
+                Ordering::Equal
+            })
+        });
+        if let Some(e) = err {
+            return Err(e);
+        }
+        if descend {
+            keyed.reverse();
+        }
+        for (k, (v, bytes)) in keyed.into_iter().enumerate() {
+            let at = Self::arr_at_n(arr, k)?;
+            if whole {
+                let start = at
+                    .checked_sub(arr.lead)
+                    .ok_or_else(|| anyhow!("native: an overlaid element"))?;
+                let end = start
+                    .checked_add(arr.stride)
+                    .ok_or_else(|| anyhow!("native: an overlaid element"))?;
+                self.m
+                    .bufs
+                    .get_mut(arr.buf)
+                    .and_then(|b| b.get_mut(start..end))
+                    .ok_or_else(|| anyhow!("native: an overlaid element"))?
+                    .copy_from_slice(&bytes);
+            } else {
+                rpgrt::native::store(
+                    &mut self.m.bufs,
+                    arr.buf,
+                    at,
+                    arr.ty,
+                    &v,
+                    Fit::Strict { half_adjust: false },
+                    false,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    /// ops.rs movea_parts for character data: an array's elements from
+    /// its index's (RNQ0121 outside the array), or one part; with where
+    /// they go.
+    fn movea_parts_n(&self, side: &rpgrt::native::MoveaSide) -> NResult<Vec<MoveaPart>> {
+        use rpgrt::native::MoveaSide;
+        Ok(match side {
+            MoveaSide::Array { arr, index } => {
+                let dim = usize::try_from(arr.dim)?;
+                let first = match index {
+                    Some(ix) => {
+                        let i = rpgrt::native::load(&self.m.bufs, ix.buf, ix.off, ix.ty)?
+                            .num()?
+                            .to_i128()?;
+                        if i < 1 || i > i128::try_from(dim)? {
+                            return Err(anyhow!(
+                                "RNQ0121: An array index is out of range (index {i}, {dim} elements)."
+                            ));
+                        }
+                        usize::try_from(i)?
+                    }
+                    None => 1,
+                };
+                let mut out = Vec::new();
+                for k in first..=dim {
+                    let at = Self::arr_at_n(arr, k.saturating_sub(1))?;
+                    let b = rpgrt::native::load(&self.m.bufs, arr.buf, at, arr.ty)?.chars()?;
+                    out.push((b, Some((arr.buf, at, arr.ty))));
+                }
+                out
+            }
+            MoveaSide::Bytes(b) => vec![(b.clone(), None)],
+            MoveaSide::Field(f) => {
+                let b = rpgrt::native::load(&self.m.bufs, f.buf, f.off, f.ty)?.chars()?;
+                vec![(b, Some((f.buf, f.off, f.ty)))]
+            }
+        })
+    }
+
+    /// ops.rs movea for character data: factor 2's bytes over the result's
+    /// (an array from its index, or a field), left to right until one runs
+    /// out; P blanks the rest first; each part assigned with the
+    /// truncating fit.
+    fn movea_n(
+        &mut self,
+        from: &rpgrt::native::MoveaSide,
+        to: &rpgrt::native::MoveaSide,
+        pad: bool,
+    ) -> NResult<()> {
+        let src: Vec<u8> = self
+            .movea_parts_n(from)?
+            .into_iter()
+            .flat_map(|(b, _)| b)
+            .collect();
+        let dst = self.movea_parts_n(to)?;
+        let mut flat: Vec<u8> = dst.iter().flat_map(|(b, _)| b.clone()).collect();
+        if pad {
+            flat.fill(data::BLANK);
+        }
+        let n = src.len().min(flat.len());
+        if let (Some(d), Some(s)) = (flat.get_mut(..n), src.get(..n)) {
+            d.copy_from_slice(s);
+        }
+        let mut at = 0usize;
+        for (part, place) in &dst {
+            let end = at
+                .checked_add(part.len())
+                .ok_or_else(|| anyhow!("native: MOVEA's parts"))?;
+            let bytes = flat
+                .get(at..end)
+                .ok_or_else(|| anyhow!("native: MOVEA's parts"))?
+                .to_vec();
+            at = end;
+            let (buf, off, ty) = place.ok_or_else(|| anyhow!("native: MOVEA's result"))?;
+            rpgrt::native::store(
+                &mut self.m.bufs,
+                buf,
+                off,
+                ty,
+                &Value::Char(bytes),
+                Fit::Truncate { half_adjust: false },
                 false,
             )?;
         }
