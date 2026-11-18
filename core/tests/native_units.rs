@@ -99,6 +99,39 @@ async fn printed(name: &str, source: &str) -> Vec<String> {
         .collect()
 }
 
+/// Run a program and give its DSPLY lines and its printed lines (those
+/// with text, as `printed`).
+async fn shown_and_printed(name: &str, source: &str) -> (Vec<String>, Vec<String>) {
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    catalog::init(&client)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    let r = rpg::call(
+        &url,
+        vec!["QGPL".to_string()],
+        "QSECOFR".to_string(),
+        None,
+        None,
+        None,
+        name.to_string(),
+        source.to_string(),
+        vec![],
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{name}: {e:#}"));
+    assert!(r.error.is_none(), "{name}: {:?}", r.error);
+    let printed = r
+        .printed
+        .iter()
+        .filter(|l| !l.trim().is_empty() && l.as_str() != "\x0c")
+        .cloned()
+        .collect();
+    (r.messages, printed)
+}
+
 async fn expect(name: &str, source: &str, want: &[&str]) {
     let got = shown(name, source).await;
     assert_eq!(got, want, "{name}");
@@ -2371,4 +2404,123 @@ async fn native_unit_lowered_data_imports() {
         Err(e) => panic!("NDATAIMP: {e:#}"),
     };
     assert_eq!(got, ["DSPLY  100 x 105 mod5x 2 mod1y"], "NDATAIMP");
+}
+
+// Review of S2.79 (2026-11-18): blank after of a varying field and an
+// edit word named by a constant, printed from a procedure.
+// Source: golden capture tools/golden/native92 n92_except (PUB400, IBM i 7.5, 2026-11-18)
+//
+// Checked here: what IBM i and as4tainr's interpreter both do. Left out,
+// interpreter defects recorded in docs/native/fidelity.md ("EXCEPT and a
+// printer's INFDS"): INZ of a varying subfield leaves x'00' after its
+// value, not blanks; blank after clears the field's bytes, not only its
+// length; a varying field prints at its current length, not its
+// declared one (the first printed line); the procedure's own constant
+// is taken as the edit word, not the module's (the third printed line).
+#[tokio::test]
+async fn native_unit_except_blank_after_and_edit_word() {
+    let _ = require_db!();
+    let (shown, printed) = shown_and_printed("NEXCPT2", include_str!("native/NEXCPT2.rpgle")).await;
+    // The lengths before and after the blank after (3, then 0); the
+    // bytes in brackets are left out (above).
+    let lengths: Vec<&str> = shown
+        .iter()
+        .map(|l| l.split(" [").next().unwrap_or(""))
+        .collect();
+    assert_eq!(lengths, ["B 3", "A 0"], "NEXCPT2 {shown:?}");
+    // The number edited by the module's constant, printed from the main
+    // procedure.
+    assert_eq!(
+        printed.get(1).map(String::as_str),
+        Some("                         12.50"),
+        "NEXCPT2 {printed:?}"
+    );
+    assert_eq!(printed.len(), 3, "NEXCPT2 {printed:?}");
+}
+
+// Review of S2.79 (2026-11-18): a printer file's INFDS after WRITE and
+// CLOSE.
+// Source: golden capture tools/golden/native92 n92_infds (PUB400, IBM i 7.5, 2026-11-18)
+//
+// Checked here: the operation, status, line and page after each WRITE,
+// and the operation, record, status and page after the CLOSE. Left out,
+// interpreter defects recorded in docs/native/fidelity.md ("EXCEPT and a
+// printer's INFDS"): *RECORD after a WRITE is blank, not the record
+// format; the line after the CLOSE is 1, not 3.
+#[tokio::test]
+async fn native_unit_printer_infds() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    use as4tainr_core::source;
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    catalog::init(&client)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    let _ = source::create_file(&client, "QGPL", "QDDSSRC", "").await;
+    source::put_member(
+        &client,
+        &source::Member {
+            library: "QGPL".into(),
+            file: "QDDSSRC".into(),
+            name: "NPRTINFP".into(),
+            srctype: "PRTF".into(),
+            text: "native unit NPRTINF".into(),
+            source: include_str!("native/NPRTWP.prtf").into(),
+            ..Default::default()
+        },
+        true,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    let env = Environment {
+        database_url: String::new(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    let _ = job.run("DLTF FILE(QGPL/NPRTINFP)").await;
+    job.run("CRTPRTF FILE(QGPL/NPRTINFP) SRCFILE(QGPL/QDDSSRC) SRCMBR(NPRTINFP)")
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    let (shown, printed) = shown_and_printed("NPRTINF", include_str!("native/NPRTINF.rpgle")).await;
+    // opcode|record|status|line|page, as the capture shows them; the
+    // parts left out (above) are not compared.
+    let parts: Vec<Vec<&str>> = shown.iter().map(|l| l.split('|').collect()).collect();
+    let pick = |k: usize, idx: &[usize]| -> Vec<&str> {
+        idx.iter()
+            .map(|i| parts.get(k).and_then(|p| p.get(*i)).copied().unwrap_or("?"))
+            .collect()
+    };
+    assert_eq!(shown.len(), 3, "NPRTINF {shown:?}");
+    assert_eq!(
+        pick(0, &[0, 2, 3, 4]),
+        ["WRITER", "0", "2", "1"],
+        "NPRTINF {shown:?}"
+    );
+    assert_eq!(
+        pick(1, &[0, 2, 3, 4]),
+        ["WRITER", "0", "3", "1"],
+        "NPRTINF {shown:?}"
+    );
+    assert_eq!(
+        pick(2, &[0, 1, 2, 4]),
+        ["CLOSEF", "", "0", "1"],
+        "NPRTINF {shown:?}"
+    );
+    assert_eq!(
+        printed,
+        ["    REPORT         1", "  ALPHA       1,234.50      7"],
+        "NPRTINF"
+    );
 }

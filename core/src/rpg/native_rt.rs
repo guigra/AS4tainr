@@ -4166,23 +4166,25 @@ impl Rt<'_, '_> {
     }
 
     /// The field a blank-after output field names, cleared (interp.rs
-    /// print_line's CLEAR of it): blanks, an empty varying field, zero.
+    /// print_line's CLEAR of it, the Sym::Var arm): its type's initial
+    /// image over all its storage (blanks, zeros; a varying field's
+    /// length and every byte after it, as the review of 2026-11-18 found
+    /// an empty value alone left them).
     fn out_clear_n(&mut self, name: &str, fields: &[rpgrt::native::OutSlot]) -> NResult<()> {
         let f = Self::out_slot(name, fields)?;
-        let v = if f.ty.is_numeric() {
-            Value::Num(Dec::ZERO)
-        } else {
-            Value::Char(Vec::new())
-        };
-        rpgrt::native::store(
-            &mut self.m.bufs,
-            f.buf,
-            f.off,
-            f.ty,
-            &v,
-            rpgrt::rpg::data::Fit::Truncate { half_adjust: false },
-            false,
-        )
+        let img = f.ty.initial();
+        let end = f
+            .off
+            .checked_add(img.len())
+            .ok_or_else(|| anyhow!("native: {name} past the end of storage"))?;
+        let dst = self
+            .m
+            .bufs
+            .get_mut(f.buf)
+            .and_then(|b| b.get_mut(f.off..end))
+            .ok_or_else(|| anyhow!("native: {name} past the end of its storage"))?;
+        dst.copy_from_slice(&img);
+        Ok(())
     }
 
     /// interp.rs out_text: a literal; PAGE (to PAGE7), UDATE and *DATE;

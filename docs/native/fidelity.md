@@ -111,3 +111,27 @@ When a number gives a length, start position or count, the two engines differ on
 IBM i rejects such a length or start: the operation's error, as for a length past the string. No capture has been made of the CAT blanks or the `%STR` maximum yet.
 
 These were found by an independent review (codex, read-only) of native_rt.rs against the interpreter. They are left as they are until a PUB400 capture says which behavior is right. Fields of such a size are not seen in practice.
+
+## EXCEPT and a printer's INFDS (found 2026-11-18)
+
+An independent review (codex, read-only) of the printer functions of native_rt.rs against the interpreter found two differences between the engines. Both were made to follow the interpreter:
+- **A varying field printed with blank after.** The native runtime set only its length. It now writes the type's initial image over all of the field's storage, as interp.rs print_line's CLEAR does.
+- **An edit word named by a constant, in a procedure that has its own constant of that name.** The native runtime took the module's constant. Lowering now leaves such an EXCEPT to the interpreter, which takes the procedure's.
+
+The review also found that a printer file with an INFDS was lowered, although errors.rs file_op's infds_update is not written again natively. Its WRITE, OPEN, CLOSE and FEOD now stay with the interpreter (lower.rs `has_infds`), as database reads already did.
+
+PUB400 then showed the interpreter itself wrong in five places (tools/golden/native92: n92_except and n92_infds, IBM i 7.5, 2026-11-18):
+
+| Case | IBM i | Interpreter |
+|---|---|---|
+| INZ('ABC') of a varchar(5) subfield | blanks after the value (`ABC  `) | x'00' bytes (`ABC00`) |
+| Blank after of a varying field | length 0, the bytes are kept (`ABC  `) | the initial image, x'00' bytes |
+| A varying field in output specifications | its declared length: ABC in 6-8 for end position 10 | its current length: ABC in 8-10 |
+| An edit word constant in a procedure with its own constant of that name | the module's | the procedure's |
+| A printer's INFDS | *RECORD after WRITE is the format (HDR, DTL); the line after CLOSE is 3 | *RECORD is blank; the line after CLOSE is 1 |
+
+The native units NEXCPT2 and NPRTINF check only what IBM i and the interpreter both do, and leave out these parts with a comment. These are upstream interpreter defects, held for Kyle with the captures.
+
+Two more of the review's findings are numbers out of range and are left as they are:
+- a spooled file number or page at i32::MAX: the interpreter's `+ 1` overflows, the native runtime saturates;
+- PAGE named with blank after: the two engines give different error texts before printing.
