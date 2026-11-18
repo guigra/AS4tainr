@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.66: OPTIONS(*STRING) for C functions (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native66.txt -f tools/golden/native66
+n66_crt_str|!system "CRTSQLRPGI OBJ(@LIB@/GN66STR) SRCSTMF('@HOME@/gld/gn66str.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n66_str|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN66STR)"; cat gn1.out; rm -f gn1.out
