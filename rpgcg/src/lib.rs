@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.86");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.87");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -964,6 +964,9 @@ pub mod ir {
         },
         /// %ALLOC(n) (S2.50): new heap storage.
         Alloc(NumExpr),
+        /// %PADDR (S2.87): a procedure pointer to the procedure of this
+        /// name (as the interpreter's PADDR arm resolves the argument).
+        Paddr(String),
         /// *NULL as an argument (S2.51).
         Null,
         /// %REALLOC(p: n) (S2.50): the heap storage made n bytes, the
@@ -1608,6 +1611,7 @@ fn ptr_val(pc: usize, pv: &ir::PtrVal, helpers: &mut String) -> Option<String> {
             code
         }
         ir::PtrVal::Null => fig(&ir::FigOp::Null),
+        ir::PtrVal::Paddr(n) => format!("rt.paddr({})?", json_str(n)),
         ir::PtrVal::Alloc(n) => {
             let n = num_expr(pc, n, helpers);
             format!("{{\n    let n = {n};\n    rt.alloc(&n)?\n    }}")

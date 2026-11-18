@@ -317,6 +317,9 @@ pub trait Runtime {
         exprs: Vec<String>,
         outs: Vec<Option<SqlSlot>>,
     ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.87): %PADDR of the procedure `name`: a procedure
+    /// pointer with where the procedure is (interp.rs bif's PADDR arm).
+    fn paddr(&mut self, name: &str) -> NResult<Value>;
     /// Stage 2 (S2.86): SORTA of the array at `arr` (ops.rs sorta:
     /// descending when `descend`; whole elements of the overlaid array
     /// moved when `lead` or the stride says it overlays one).

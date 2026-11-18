@@ -2579,7 +2579,13 @@ fn call_of(
         Some(pi) => (&pi.params, Some(pi)),
         None => {
             let pr = proto(cx, &name)?;
-            if !pr.overload.is_empty() || pr.extproc_ptr.is_some() {
+            // EXTPROC(procedure pointer) (S2.87): a pointer field, which the
+            // runtime reads when the call is made (call_proto).
+            if !pr.overload.is_empty()
+                || pr.extproc_ptr.as_ref().is_some_and(|v| {
+                    !matches!(sym(cx, v), Some(Sym::Var(vi)) if vi.dtype == DType::Pointer && vi.dim == 0)
+                })
+            {
                 return None;
             }
             let local = match &pr.extpgm {
@@ -3123,6 +3129,29 @@ fn ptr_val(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
         v if is_pointer_name(cx, v) => ir::PtrVal::Var(variable(cx, v, used)?),
         // %ALLOC(n) and %REALLOC(p: n) (S2.50), the interpreter's bif
         // arguments in order. %REALLOC's pointer is a pointer field.
+        // %PADDR (S2.87): the procedure's name as interp.rs bif's PADDR arm
+        // takes it (a literal; a name: its prototype's EXTPROC, a named
+        // constant's value, or itself); where it is, the runtime's.
+        Expr::Bif(b, args) if b == "PADDR" => {
+            let n = match args.as_slice() {
+                [Expr::Str(b)] => super::super::data::a(b).trim().to_ascii_uppercase(),
+                [Expr::Name { parts, args: None }] if parts.len() == 1 => {
+                    let n = parts.first()?.to_ascii_uppercase();
+                    match proto(cx, &n).and_then(|p| p.extproc.clone()) {
+                        Some(e) => e.to_ascii_uppercase(),
+                        None => match sym(cx, &n) {
+                            Some(Sym::Const(v)) => super::super::data::a(&v.chars().ok()?)
+                                .trim()
+                                .to_ascii_uppercase(),
+                            _ => n,
+                        },
+                    }
+                }
+                _ => return None,
+            };
+            used.push(format!("paddr {n}"));
+            ir::PtrVal::Paddr(n)
+        }
         Expr::Bif(b, args) if b == "ALLOC" => match args.as_slice() {
             [n] => ir::PtrVal::Alloc(num_expr(cx, n, used, at_path(ALLOC_PATH))?),
             _ => return None,

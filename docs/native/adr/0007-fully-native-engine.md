@@ -1034,3 +1034,26 @@ native_tripwire.rs watches array_op, lookup and num_inds.
 - MOVEA of an array into a field, of a field into an array from index 2, and of a literal with and without P.
 
 native_tripwire.rs watches sorta, movea_parts and movea.
+
+## S2.87: procedure pointers
+
+**Lowered:**
+- %PADDR of a literal or a name, resolved as interp.rs bif's PADDR arm resolves it: the prototype's EXTPROC, a named constant's value, or the name itself;
+- calls through a prototype with EXTPROC(pointer), where the pointer is a scalar pointer field.
+
+**Runtime.**
+- `paddr_n` writes again the arm's search for where the procedure is: this module, with its service program and module when it is not exported; *MODULE for a module bound into a program; *PGM for a program's entry module; else what the binder found. The procedure pointer it makes is proc_id's.
+- `procptr_target_n` writes again call_named_inner's EXTPROC(pointer) branch:
+  - the pointer field read when the call is made (MCH3601 when it is not a valid procedure pointer, or not set);
+  - a procedure of another program, module or service program called there through call_bound_in, the interpreter's call services (ADR 0007's external calls);
+  - one of this activation going on as a call by its name (`call_proto_target_n`, call_proto's end split off).
+
+**Verified by** the native unit NPROCPTR, under both engines. The program captured on PUB400 (tools/golden/native87.txt n87_procptr) runs:
+- %PADDR by name and by literal;
+- calls through the pointer as it changes (ADD 5, MUL 6);
+- comparisons of procedure pointers;
+- a call through a *NULL pointer caught by MONITOR.
+
+A procedure this activation has is called as call_proc calls it: more arguments than it has parameters are passed through a prototype that lists more (it does not see them; %PARMS counts them), so `call_frame` checks the count only for a call by the procedure's own name (`checked`), as call_named_inner's args_for does. OSSILE's OSSPARMS (rla_test's rpg_features_found_by_the_ossile_corpus) calls a one-parameter procedure through a two-parameter pointer prototype, and failed in the first native-diff of S2.87 before this.
+
+The call through *NULL is status 202 on IBM i but 222 in as4tainr, an interpreter defect (fidelity.md); NPROCPTR does not check that status.
