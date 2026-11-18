@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.89: FOR-EACH over whole arrays (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native89.txt -f tools/golden/native89
+n89_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN89EACH) SRCSTMF('@HOME@/gld/gn89each.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n89_foreach|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN89EACH)"; cat gn1.out; rm -f gn1.out

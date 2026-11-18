@@ -243,6 +243,31 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             },
             down: *down,
         },
+        // FOR-EACH over a whole global array of fixed dimension (S2.89):
+        // list_of's array, the EachNext arm's assignment to a field.
+        Ins::EachInit {
+            list: Expr::Name { parts, args: None },
+        } => {
+            let name = parts.join(".");
+            let Some(Sym::Var(v)) = sym(cx, &name) else {
+                return None;
+            };
+            if v.dim == 0 || v.local || cx.prog.varying.contains_key(&name) {
+                return None;
+            }
+            let ty = global_elem_ty(v.dtype, true)?;
+            used.push(format!("each {name} stride {} dim {}", v.stride, v.dim));
+            ir::Lowered::EachArray {
+                arr: (v.buf, v.off, v.stride, v.dim, ty),
+            }
+        }
+        Ins::EachNext { var, .. } => {
+            let o = variable(cx, var, &mut used)?;
+            if !matches!(o, ir::Operand::Var { based: None, .. }) {
+                return None;
+            }
+            ir::Lowered::EachNext { var: o }
+        }
         Ins::LoopStep { var, by, down } => ir::Lowered::LoopStep {
             var: num_variable(cx, var, &mut used)?,
             by: match by {

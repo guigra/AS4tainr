@@ -508,6 +508,12 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    pub(super) fn ensure_printer(&mut self, file: &str) -> Result<()> {",
             "    ",
         ),
+        // S2.89: FOR-EACH over a whole array (its arms are run_code_at's).
+        function(
+            BIFS,
+            "    pub(super) fn list_of(&mut self, e: &Expr) -> Result<Vec<Value>> {",
+            "    ",
+        ),
         // S2.88: %STR as a value.
         function(
             PTRS,
@@ -705,9 +711,9 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // op_error and string_op, S2.84 ops.rs bit_op and bit_mask and
     // interp.rs set_result_inds, S2.85 ops.rs array_op and lookup and
     // interp.rs num_inds, S2.86 ops.rs sorta, movea_parts and movea, S2.88
-    // ptrs.rs str_at;
+    // ptrs.rs str_at, S2.89 bifs.rs list_of;
     // upstream still dd47e28.
-    let reviewed = "f92a682dd3c73123463928a35cd4a7eac00566932e3a9194d5fcd6fc76085066";
+    let reviewed = "d998832ea54835be22f30a8ee4659a0782648577993e5780c103a32aec798a8d";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

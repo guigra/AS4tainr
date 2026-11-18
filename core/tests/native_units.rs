@@ -2265,3 +2265,21 @@ async fn native_unit_lowered_str_value() {
     )
     .await;
 }
+
+// Stage 2, S2.89: FOR-EACH over whole arrays lowered to Rust.
+// Source: golden capture tools/golden/native89 n89_foreach (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_for_each() {
+    let _ = require_db!();
+    expect(
+        "NFOREACH2",
+        include_str!("native/NFOREACH2.rpgle"),
+        &[
+            "SUM 8.50 LAST .75 alp bet gam",
+            // The capture's line is cut at varchar(52), its last character
+            // a blank; DSPLY's lines are compared without trailing blanks.
+            "LEAVE 1.25 10.00 NEST alpha1.25 alpha10.00 beta1.25",
+        ],
+    )
+    .await;
+}

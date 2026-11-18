@@ -612,6 +612,42 @@ impl Runtime for Rt<'_, '_> {
         Ok(())
     }
 
+    fn each_array(&mut self, pc: usize, arr: rpgrt::native::ArrPlace) -> NResult<()> {
+        // list_of of an array with no index: its elements in use (every
+        // one, an array of fixed dimension), loaded in order; then the
+        // EachInit arm's state under the same key.
+        if !matches!(&at(self.code, pc)?.ins, Ins::EachInit { .. }) {
+            return Err(mismatch(pc, "a FOR-EACH start"));
+        }
+        let mut vals = Vec::new();
+        for k in 0..usize::try_from(arr.dim)? {
+            let at = k
+                .checked_mul(arr.stride)
+                .and_then(|d| arr.off.checked_add(d))
+                .ok_or_else(|| anyhow!("native: an element's place"))?;
+            vals.push(rpgrt::native::load(&self.m.bufs, arr.buf, at, arr.ty)?);
+        }
+        let key = (self.code.as_ptr().addr(), pc, self.m.frames.len());
+        self.m.each.insert(key, (vals, 0));
+        Ok(())
+    }
+
+    fn each_take(&mut self, pc: usize) -> NResult<Option<Value>> {
+        let Ins::EachNext { init, .. } = &at(self.code, pc)?.ins else {
+            return Err(mismatch(pc, "a FOR-EACH step"));
+        };
+        let key = (self.code.as_ptr().addr(), *init, self.m.frames.len());
+        let next = self.m.each.get_mut(&key).and_then(|(v, at)| {
+            let x = v.get(*at).cloned();
+            *at = at.saturating_add(1);
+            x
+        });
+        if next.is_none() {
+            self.m.each.remove(&key);
+        }
+        Ok(next)
+    }
+
     fn each_next(&mut self, pc: usize) -> NResult<bool> {
         let Ins::EachNext { var, init, .. } = &at(self.code, pc)?.ins else {
             return Err(mismatch(pc, "a FOR-EACH step"));

@@ -1070,3 +1070,20 @@ The call through *NULL is status 202 on IBM i but 222 in as4tainr, an interprete
 - of a pointer field moved past the first null;
 - of a moved address with a maximum;
 - %LEN of a %STR.
+
+## S2.89: FOR-EACH over whole arrays
+
+**Lowered:**
+- FOR-EACH's start over a whole global array of fixed dimension;
+- its step into a field that is not based. The step is lowered on its own, so a loop over another list (%LIST, %SPLIT) still steps natively.
+
+**Runtime.**
+- `each_array` writes again bifs.rs list_of for an array with no index: every element in order. It keeps them under run_code_at's EachInit key (the code, the start's instruction, the call depth), in the interpreter's own `each` state, so either engine can take the loop's next value.
+- `each_take` is the EachNext arm's next value, or none at the end, which drops the state.
+- Generated code stores the value with the strict fit, as the arm's assign does, or jumps to the loop's end.
+
+**Verified by** the native unit NFOREACH2, under both engines. The program captured on PUB400 (tools/golden/native89.txt n89_foreach) runs:
+- a packed array summed, its item keeping the last value;
+- a character array into a shorter field (cut);
+- LEAVE inside the loop;
+- two loops nested.
