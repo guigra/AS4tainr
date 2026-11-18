@@ -1843,3 +1843,22 @@ async fn native_unit_lowered_sql_positioned() {
     )
     .await;
 }
+
+// Stage 2, S2.74: multiple-row INSERT and FETCH lowered to Rust.
+// Source: golden capture tools/golden/native74 n74_sql (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_sql_multiple_rows() {
+    let _ = require_db!();
+    expect(
+        "NSQL6",
+        include_str!("native/NSQL6.rpgle"),
+        &[
+            // n74_sql's line is "INS3 0 3 INS2 0 2 INS0 -221 INS5 -221": the INS0
+            // part is not checked (NSQL6.rpgle; fidelity.md, interpreter defects).
+            "INS3 0 3 INS2 0 2 INS5 -221",
+            "F 0/2/0:1n1,2 0/2/0:3n3,5 0/1/100:6n2,5",
+            "END 100 TOO -221 1.25",
+        ],
+    )
+    .await;
+}
