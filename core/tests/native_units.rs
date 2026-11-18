@@ -27,6 +27,13 @@ macro_rules! require_db {
     };
 }
 
+/// One test at a time among those that make or drop database objects
+/// (tables, physical and printer files). The catalog's DDL run by two of
+/// them at once can deadlock or fail with "tuple concurrently updated"
+/// in PostgreSQL (S2.74 and S2.77's runs: an upstream fragility, also seen
+/// under the interpreter); the checks are unchanged.
+static DDL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Run a program and give its DSPLY lines (without the DSPLY prefix).
 async fn shown(name: &str, source: &str) -> Vec<String> {
     let url = require_db_url();
@@ -1480,6 +1487,7 @@ async fn native_unit_lowered_ds_array_subfields() {
 #[tokio::test]
 async fn native_unit_lowered_file_reads() {
     let url = require_db!();
+    let _ddl = DDL.lock().await;
     let mut client = runtime::connect_db(&url)
         .await
         .unwrap_or_else(|e| panic!("{e:#}"));
@@ -1571,6 +1579,7 @@ async fn native_unit_lowered_file_reads() {
 #[tokio::test]
 async fn native_unit_lowered_file_writes() {
     let url = require_db!();
+    let _ddl = DDL.lock().await;
     let mut client = runtime::connect_db(&url)
         .await
         .unwrap_or_else(|e| panic!("{e:#}"));
@@ -1768,6 +1777,7 @@ async fn native_unit_lowered_array_functions() {
 #[tokio::test]
 async fn native_unit_lowered_static_sql() {
     let _ = require_db!();
+    let _ddl = DDL.lock().await;
     expect(
         "NSQL1",
         include_str!("native/NSQL1.rpgle"),
@@ -1789,6 +1799,7 @@ async fn native_unit_lowered_static_sql() {
 #[tokio::test]
 async fn native_unit_lowered_sql_host_variables() {
     let _ = require_db!();
+    let _ddl = DDL.lock().await;
     expect(
         "NSQL2",
         include_str!("native/NSQL2.rpgle"),
@@ -1816,6 +1827,7 @@ async fn native_unit_lowered_sql_host_variables() {
 #[tokio::test]
 async fn native_unit_lowered_dynamic_sql() {
     let _ = require_db!();
+    let _ddl = DDL.lock().await;
     expect(
         "NSQL3",
         include_str!("native/NSQL3.rpgle"),
@@ -1842,6 +1854,7 @@ async fn native_unit_lowered_dynamic_sql() {
 #[tokio::test]
 async fn native_unit_lowered_sql_cursors() {
     let _ = require_db!();
+    let _ddl = DDL.lock().await;
     expect(
         "NSQL4",
         include_str!("native/NSQL4.rpgle"),
@@ -1862,6 +1875,7 @@ async fn native_unit_lowered_sql_cursors() {
 #[tokio::test]
 async fn native_unit_lowered_sql_positioned() {
     let _ = require_db!();
+    let _ddl = DDL.lock().await;
     expect(
         "NSQL5",
         include_str!("native/NSQL5.rpgle"),
@@ -1881,6 +1895,7 @@ async fn native_unit_lowered_sql_positioned() {
 #[tokio::test]
 async fn native_unit_lowered_sql_multiple_rows() {
     let _ = require_db!();
+    let _ddl = DDL.lock().await;
     expect(
         "NSQL6",
         include_str!("native/NSQL6.rpgle"),
@@ -1900,6 +1915,7 @@ async fn native_unit_lowered_sql_multiple_rows() {
 #[tokio::test]
 async fn native_unit_lowered_sql_call() {
     let _ = require_db!();
+    let _ddl = DDL.lock().await;
     expect(
         "NSQL7",
         include_str!("native/NSQL7.rpgle"),
@@ -1966,6 +1982,7 @@ async fn native_unit_lowered_except() {
 #[tokio::test]
 async fn native_unit_lowered_printer_write() {
     let _ = require_db!();
+    let _ddl = DDL.lock().await;
     use as4tainr_core::commands::{Environment, Job};
     use as4tainr_core::source;
     let url = require_db_url();
