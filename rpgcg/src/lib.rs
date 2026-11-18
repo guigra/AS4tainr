@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.71");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.72");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -362,6 +362,32 @@ pub mod ir {
             name: String,
             text: Option<Operand>,
             inputs: Vec<Vec<SqlIn>>,
+        },
+        /// OPEN (S2.72): the cursor's name; a declared query's text in
+        /// pieces around its host variables and their inputs, or the
+        /// prepared statement's name and the USING inputs (one group per
+        /// host variable); then the SQLCA.
+        SqlOpen {
+            sqlca: Box<[Operand; 5]>,
+            name: String,
+            pieces: Vec<String>,
+            inputs: Vec<SqlIn>,
+            prepared: Option<String>,
+            using: Vec<Vec<SqlIn>>,
+        },
+        /// FETCH (S2.72): the cursor, the orientation and its number, the
+        /// INTO targets (None with no INTO); then the SQLCA.
+        SqlFetch {
+            sqlca: Box<[Operand; 5]>,
+            name: String,
+            orient: String,
+            n: i64,
+            outputs: Option<Vec<SqlOut>>,
+        },
+        /// CLOSE (S2.72): the cursor; then the SQLCA.
+        SqlClose {
+            sqlca: Box<[Operand; 5]>,
+            name: String,
         },
         /// GET DIAGNOSTICS (S2.71): CONDITION or not, each item's name and
         /// the fields it is assigned to; then the SQLCA.
@@ -1933,6 +1959,131 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("sd{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::SqlOpen {
+                sqlca,
+                name,
+                pieces,
+                inputs,
+                prepared,
+                using,
+            },
+        ) => {
+            // exec_sql.rs sql_open: the declared query's host literals
+            // (bind_host) or the USING literals (using_values), then the
+            // runtime; then the SQLCA.
+            let mut body = String::new();
+            let qm = if inputs.is_empty() { "" } else { "mut " };
+            let _ = writeln!(body, "    let {qm}qlits: Vec<String> = Vec::new();");
+            for i in inputs {
+                let null = match &i.ind {
+                    Some(ind) => format!("{}.is_negative()", number(ind)),
+                    None => "false".to_string(),
+                };
+                let cl = match i.char_len {
+                    Some(n) => format!("Some({n})"),
+                    None => "None".to_string(),
+                };
+                let _ = writeln!(
+                    body,
+                    "    if {null} {{\n        qlits.push(\"NULL\".to_string());\n    }} else {{\n        let v = {};\n        qlits.push(rpgrt::native::sql_literal(&v, {cl})?);\n    }}",
+                    value(&i.value)
+                );
+            }
+            sql_inputs(&mut body, using);
+            let pcs: Vec<String> = pieces.iter().map(|p| json_str(p)).collect();
+            let prep = match prepared {
+                Some(p) => format!("Some({})", json_str(p)),
+                None => "None".to_string(),
+            };
+            let _ = writeln!(
+                body,
+                "    let o = rt.sql_open({pc}, {}, &[{}], qlits, {prep}, lits)?;",
+                json_str(name),
+                pcs.join(", ")
+            );
+            sqlca_store(&mut body, sqlca, &bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn so{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("so{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::SqlFetch {
+                sqlca,
+                name,
+                orient,
+                n,
+                outputs,
+            },
+        ) => {
+            // exec_sql.rs sql_fetch: the INTO targets' storage, then the
+            // runtime (the cursor's position, the row, assign_hosts); then
+            // the SQLCA.
+            let mut body = String::new();
+            let into = outputs.is_some();
+            let outs = outputs.as_deref().unwrap_or(&[]);
+            let om = if outs.is_empty() { "" } else { "mut " };
+            let _ = writeln!(
+                body,
+                "    let {om}outs: Vec<rpgrt::native::SqlSlot> = Vec::new();"
+            );
+            for o in outs {
+                let ir::Operand::Var { ty: t, .. } = &o.target else {
+                    return Err(bad());
+                };
+                let at = scalar_place(&o.target).ok_or_else(bad)?;
+                let ind = match &o.ind {
+                    Some(ind) => {
+                        let ir::Operand::Var { ty: it, .. } = ind else {
+                            return Err(bad());
+                        };
+                        let iat = scalar_place(ind).ok_or_else(bad)?;
+                        format!("{{ let (b, o) = {iat}; Some((b, o, {})) }}", ty(it))
+                    }
+                    None => "None".to_string(),
+                };
+                let _ = writeln!(
+                    body,
+                    "    {{\n        let (buf, off) = {at};\n        let ind = {ind};\n        outs.push(rpgrt::native::SqlSlot {{ buf, off, ty: {}, numeric: {}, ind }});\n    }}",
+                    ty(t),
+                    o.numeric
+                );
+            }
+            let _ = writeln!(
+                body,
+                "    let o = rt.sql_fetch({pc}, {}, {}, {n}, outs, {into})?;",
+                json_str(name),
+                json_str(orient)
+            );
+            sqlca_store(&mut body, sqlca, &bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn sf{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("sf{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::SqlClose { sqlca, name }) => {
+            let mut body = format!("    let o = rt.sql_close({pc}, {})?;\n", json_str(name));
+            sqlca_store(&mut body, sqlca, &bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn sc{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("sc{pc}(rt).map(|()| {next})"),
             )
         }
         (

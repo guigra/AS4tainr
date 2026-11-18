@@ -246,6 +246,32 @@ pub trait Runtime {
         text: Option<Value>,
         lits: Vec<String>,
     ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.72): OPEN the cursor `name` (exec_sql.rs sql_open):
+    /// its declared query from `pieces` with the `qlits` between them, or
+    /// the `prepared` statement with the USING literals; the outcome.
+    fn sql_open(
+        &mut self,
+        pc: usize,
+        name: &str,
+        pieces: &[&str],
+        qlits: Vec<String>,
+        prepared: Option<&str>,
+        lits: Vec<String>,
+    ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.72): FETCH from the cursor `name` (exec_sql.rs
+    /// sql_fetch): its new position by `orient` and `n`, then the row into
+    /// the `outs` when `into`; the outcome.
+    fn sql_fetch(
+        &mut self,
+        pc: usize,
+        name: &str,
+        orient: &str,
+        n: i64,
+        outs: Vec<SqlSlot>,
+        into: bool,
+    ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.72): CLOSE the cursor `name`; the outcome.
+    fn sql_close(&mut self, pc: usize, name: &str) -> NResult<SqlResult>;
     /// Stage 2 (S2.71): GET DIAGNOSTICS's items' values about the last
     /// statement (exec_sql.rs get_diagnostics), as many as were valid, and
     /// the outcome for the SQLCA (not kept as the last).

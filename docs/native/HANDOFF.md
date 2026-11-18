@@ -31,6 +31,17 @@ Steps 4 and 5 of the SQL plan wait on that answer:
 
 change_a_physical_file_with_a_logical_file_over_it failed in all three of S2.68's native-diff suites on jsr-test-2, interpreter included. It passes alone 4 times out of 4, and in the plain section 7 runs. It looks like an upstream flake in that environment, under QTEMP. Watch it in S2.70's run.
 
+**WHY pass over the whole suite (x86, 2026-11-18 04:30, with S2.71).** 197 refusals:
+- DSPLY 84: its operand's parts, each a few times. Packed fields refused as "other" (data imports), calls of local procedures that are not native themselves (ON-EXIT), %STR/%ADDR of pointers, arrays, floats, UCS-2, %NULLIND, procedure pointers, %CONCAT;
+- CALLP through prototypes 21;
+- assignments 50 or so: data imports (DATAMAIN, PP, PTRMAIN), floats (8), nested data structure paths (12), %LEN as a target.
+
+Each of those is a small feature of its own:
+- **data imports** need the module-to-module storage that ile.rs binds (interp.rs `binding`);
+- **floats** need the interpreter's type-dependent float rules (data.rs decode gives Num when the value fits; bifs.rs %CHAR by type), so they want an ADR-style plan first.
+
+**Upstream finding (held, after 2026-11-24):** two tests running in parallel can collide in QTEMP. change_a_physical_file_with_a_logical_file_over_it gave "CPF5813: File CHGLP already exists in library QTEMP", and dspmod_output_files_of_a_cl_module a duplicate key (library, file, seq) = (QTEMP, C4IX, 0) in file_fields: the catalog holds the name QTEMP itself, not the job's library. This happens with the interpreter, in the full suite only; both pass alone.
+
 **Next, after SQL:** the long tail the AS4TAINR_NATIVE_WHY pass lists, now with program and line:
 - temporal forms (%CHAR of time + duration, %DATE with *MDY or a number, %DEC of a date);
 - procedure pointers, %CONCAT, data imports;

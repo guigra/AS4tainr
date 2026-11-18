@@ -1804,3 +1804,23 @@ async fn native_unit_lowered_dynamic_sql() {
     )
     .await;
 }
+
+// Stage 2, S2.72: cursors lowered to Rust.
+// Source: golden capture tools/golden/native72 n72_sql (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_sql_cursors() {
+    let _ = require_db!();
+    expect(
+        "NSQL4",
+        include_str!("native/NSQL4.rpgle"),
+        &[
+            "OPEN 0 AGAIN -502",
+            "ROWS 2two 3three 4four END 100 02000",
+            "CLOSE 0 -501 FETCH -501",
+            "LAST 4 PRIOR 3 FIRST 1 REL 3",
+            "BEFORE 0 NOINTO 0 2 PAST 100",
+            "PREP two -1 three 0 four 0 END 100",
+        ],
+    )
+    .await;
+}
