@@ -2684,8 +2684,8 @@ fn call_of(
         }
     };
     if let Some(pi) = local {
+        // ON-EXIT (S2.90): the runtime's call_frame runs it as call_proc.
         if pi.routines.subroutines.contains_key("*PSSR")
-            || pi.on_exit.is_some()
             || !pi.ptr_inz.is_empty()
             || prog
                 .files

@@ -1087,3 +1087,20 @@ The call through *NULL is status 202 on IBM i but 222 in as4tainr, an interprete
 - a character array into a shorter field (cut);
 - LEAVE inside the loop;
 - two loops nested.
+
+## S2.90: ON-EXIT
+
+Native calls of this module's procedures now take procedures with ON-EXIT. Before, lowering kept every call of such a procedure in the interpreter.
+
+**Runtime.** `call_frame` writes again interp.rs call_proc's ON-EXIT:
+- it runs however the body ended, before the call stack entry is popped;
+- its indicator variable is on when the body ended abnormally;
+- a RETURN there replaces the value of a normal end;
+- an error there is the call's.
+
+The exit routine runs through dispatch, so natively, since the native table has it (native/mod.rs push_proc).
+
+**Verified by** the native unit NONEXIT2, under both engines. The program captured on PUB400 (tools/golden/native90.txt n90_onexit) runs:
+- a normal end (trace "normal", value 5);
+- an ON-EXIT RETURN replacing the value (99);
+- a division by zero in the body, the ON-EXIT run with its indicator on ("abnormal"), and the caller's MONITOR catching status 202.

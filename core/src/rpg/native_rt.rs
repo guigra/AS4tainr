@@ -271,7 +271,43 @@ impl<'a> Rt<'_, 'a> {
         let stack_id = crate::pgmmsg::stack_push(&job, (&lib, &pgm), &module, &ext, &actgrp);
         let saved_routine = std::mem::replace(&mut self.m.routine, pi.name.clone());
         let saved_line = self.m.line;
-        let r = self.call_body(pi, values);
+        let mut r = self.call_body(pi, values);
+        // ON-EXIT (S2.90), as interp.rs call_proc: it runs however the
+        // procedure ends, its indicator on when it ended abnormally; a
+        // RETURN there replaces the value of a normal end; an error there
+        // is the call's.
+        if let Some((ind, exit)) = &pi.on_exit {
+            let abnormal = r.is_err();
+            let x = (|| -> NResult<Option<Value>> {
+                if let Some(n) = ind {
+                    let Some(super::super::program::Sym::Var(v)) = self.m.sym(n) else {
+                        anyhow::bail!("native: the ON-EXIT indicator {n} has no storage");
+                    };
+                    rpgrt::native::store(
+                        &mut self.m.bufs,
+                        v.buf,
+                        v.off,
+                        v.dtype,
+                        &Value::Ind(abnormal),
+                        Fit::Strict { half_adjust: false },
+                        false,
+                    )?;
+                }
+                let flow = match dispatch(self.m, &exit.detail, 0) {
+                    Some(f) => f,
+                    None => self.m.run_code(&exit.detail),
+                }?;
+                Ok(match flow {
+                    Flow::Return(v) => v,
+                    _ => None,
+                })
+            })();
+            match x {
+                Ok(Some(v)) if !abnormal => r = Ok(Some(v)),
+                Ok(_) => {}
+                Err(e) => r = Err(e),
+            }
+        }
         crate::pgmmsg::stack_pop(&job, stack_id);
         self.m.frames.pop();
         self.m.bufs.truncate(base);
