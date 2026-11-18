@@ -16,6 +16,8 @@ Stage 1 (ADR 0001). Generated code compiles each routine's control flow and call
 
 ## Interpreter defects found (upstream; not fixed here)
 
+- **%SCANR with a start past the end and no length.** The interpreter's default length is `s.len() + 1 - start`. With a start more than one past the end of the string it subtracts past zero, which panics in a debug build. In a release build the length wraps, and the range check after it decides by accident. The native engine gives RNQ0100, as for any start or length outside the string, and as upstream's %SCANRPL fix (#23) does. No capture of IBM i for that form yet. The cases captured (tools/golden/native67.txt n67_str) agree in both engines.
+
 Each was observed on the interpreter and confirmed on a real IBM i: PUB400, IBM i 7.5, 2026-11-12, with `tools/golden/native1.txt` (the captures are in `target/ibmi/golden`, not committed). The backend reproduces each one, as section 4 requires, until upstream fixes it. They were reported upstream on 2026-11-12, after a clean build of upstream main (f20febb) reproduced each one: kyleturley-cyber/AS4tainr issues #3 (nested MONITOR), #4 (OVERLAY *NEXT), #5 (CONST parameters), #6 (%SUBST and %SCAN start), #7 (constant %SUBST checks) and #8 (MOVE with a float field).
 
 | Defect | IBM i | as4tainr | Source |

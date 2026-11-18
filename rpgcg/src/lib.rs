@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.66");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.67");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -384,6 +384,14 @@ pub mod ir {
     /// concatenation with `+`.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum CharExpr {
+        /// %LEFT (`left`) or %RIGHT of a character expression, with a
+        /// length that is a numeric literal or field (S2.67).
+        LeftRight {
+            left: bool,
+            s: Box<CharExpr>,
+            n: Operand,
+            path: Vec<u8>,
+        },
         /// An indicator as a part of a concatenation (S2.62): character
         /// data of length 1, '1' or '0' (Value::Ind's chars).
         Ind(String),
@@ -618,6 +626,15 @@ pub mod ir {
             pat: Box<CharExpr>,
             s: Box<CharExpr>,
             start: Option<Operand>,
+            path: Vec<u8>,
+        },
+        /// %SCANR of character expressions, with a start and a length
+        /// that are numeric literals or fields (S2.67).
+        ScanR {
+            pat: Box<CharExpr>,
+            s: Box<CharExpr>,
+            start: Option<Operand>,
+            len: Option<Operand>,
             path: Vec<u8>,
         },
     }
@@ -2128,6 +2145,16 @@ fn path_arg(path: &[u8]) -> String {
 fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
     match e {
         ir::CharExpr::Leaf(o) => value(o),
+        ir::CharExpr::LeftRight { left, s, n, path } => {
+            let name = format!("lr{pc}_{}", path_id(path));
+            let x = char_expr(pc, s, helpers);
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let s = {x}.chars()?;\n    let n = {};\n    rpgrt::native::left_right(&s, &n, {left})\n}}",
+                value(n)
+            );
+            format!("{name}(rt)?")
+        }
         ir::CharExpr::Ind(name) => format!(
             "rpgrt::rpg::data::Value::Char(vec![if rt.ind({}) {{ 0xF1 }} else {{ 0xF0 }}])",
             json_str(name)
@@ -2627,6 +2654,29 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             let _ = writeln!(
                 helpers,
                 "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::dec::Dec> {{\n    let p = {p}.chars()?;\n    let s = {x}.chars()?;\n    let st = {st};\n    rpgrt::native::scan(&p, &s, st.as_ref())\n}}"
+            );
+            format!("{name}(rt)?")
+        }
+        ir::NumExpr::ScanR {
+            pat,
+            s,
+            start,
+            len,
+            path,
+        } => {
+            let name = format!("n{pc}_{}", path_id(path));
+            let p = char_expr(pc, pat, helpers);
+            let x = char_expr(pc, s, helpers);
+            // As the interpreter: the pattern, the string, the start, the
+            // length.
+            let opt = |o: &Option<ir::Operand>| match o {
+                Some(o) => format!("Some({})", value(o)),
+                None => "None".to_string(),
+            };
+            let (st, ln) = (opt(start), opt(len));
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::dec::Dec> {{\n    let p = {p}.chars()?;\n    let s = {x}.chars()?;\n    let st = {st};\n    let ln = {ln};\n    rpgrt::native::scanr(&p, &s, st.as_ref(), ln.as_ref())\n}}"
             );
             format!("{name}(rt)?")
         }

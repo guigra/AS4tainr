@@ -1686,3 +1686,28 @@ async fn native_unit_lowered_options_string() {
     )
     .await;
 }
+
+// Stage 2, S2.67: %SCANR, %LEFT and %RIGHT lowered to Rust.
+// Source: golden capture tools/golden/native67 n67_str (PUB400, IBM i 7.5, 2026-11-17)
+#[tokio::test]
+async fn native_unit_lowered_scanr_left_right() {
+    let _ = require_db!();
+    expect(
+        "NSCANR",
+        include_str!("native/NSCANR.rpgle"),
+        &[
+            "R1 7",
+            "R2 7",
+            "R3 4",
+            "R4 0",
+            "R5 0",
+            "R6 17",
+            "L1 [ABC] [FGH]",
+            "L2 [] [ABCDEFGH]",
+            "L3 [ABCDEFGHx]",
+            "L4 ERR 100",
+            "R7 ERR 100",
+        ],
+    )
+    .await;
+}

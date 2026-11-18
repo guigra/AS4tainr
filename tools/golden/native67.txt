@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.67: %SCANR, %LEFT and %RIGHT (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native67.txt -f tools/golden/native67
+n67_crt_str|!system "CRTSQLRPGI OBJ(@LIB@/GN67STR) SRCSTMF('@HOME@/gld/gn67str.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n67_str|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN67STR)"; cat gn1.out; rm -f gn1.out
