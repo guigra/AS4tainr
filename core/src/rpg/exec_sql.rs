@@ -18,15 +18,15 @@ use crate::sql::{Exec, Session};
 
 #[derive(Default)]
 pub(super) struct SqlState {
-    session: Option<Session>,
+    pub(super) session: Option<Session>,
     cursors: HashMap<String, OpenCursor>,
     /// PREPARE: statement name → text (with ? markers).
-    prepared: HashMap<String, String>,
+    pub(super) prepared: HashMap<String, String>,
     /// How the last statement other than GET DIAGNOSTICS ended.
-    last: Option<Outcome>,
+    pub(super) last: Option<Outcome>,
     /// File names an override gives another file for SQL: name → what
     /// its temporary view shows.
-    ovr_views: HashMap<String, String>,
+    pub(super) ovr_views: HashMap<String, String>,
 }
 
 /// The cursors and prepared statements of a module that stays active (a
@@ -180,14 +180,14 @@ fn with_rrn(query: &str) -> Option<String> {
 
 /// How a statement ended: SQLCODE, SQLSTATE, rows (SQLERRD(3)), message.
 #[derive(Clone)]
-struct Outcome {
-    code: i64,
-    state: String,
-    rows: i64,
-    text: String,
+pub(super) struct Outcome {
+    pub(super) code: i64,
+    pub(super) state: String,
+    pub(super) rows: i64,
+    pub(super) text: String,
     /// SQLERRD(5): +100 after a multiple-row FETCH that fetched the last
     /// row (Db2 for i SQL Reference, SQLCA), else 0.
-    errd5: i64,
+    pub(super) errd5: i64,
 }
 
 impl Outcome {
