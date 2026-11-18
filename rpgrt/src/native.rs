@@ -317,6 +317,19 @@ pub trait Runtime {
         exprs: Vec<String>,
         outs: Vec<Option<SqlSlot>>,
     ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.79): OPEN, CLOSE or FEOD of a printer file (errors.rs
+    /// file_op around printer.rs printer_op).
+    fn printer_op(&mut self, pc: usize) -> NResult<()>;
+    /// Stage 2 (S2.79): WRITE of an externally described printer file's
+    /// record format (errors.rs file_op around printer.rs printer_write),
+    /// its fields read at `fields`, its indicators the INDDS structure at
+    /// `indds` or *IN01-*IN99.
+    fn printer_write(
+        &mut self,
+        pc: usize,
+        fields: Vec<OutSlot>,
+        indds: Option<OutSlot>,
+    ) -> NResult<()>;
     /// Stage 2 (S2.78): EXCEPT `name` (or the records with no name): the
     /// exception records whose conditions are met printed (interp.rs
     /// except, print_record, print_line, out_text), their program

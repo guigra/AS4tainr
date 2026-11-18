@@ -508,6 +508,27 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    pub(super) fn ensure_printer(&mut self, file: &str) -> Result<()> {",
             "    ",
         ),
+        // S2.79: WRITE, OPEN, CLOSE and FEOD of printer files.
+        function(
+            PRINTER,
+            "    pub(super) fn printer_op(&mut self, op: FileOp, i: usize, name: &str) -> Result<()> {",
+            "    ",
+        ),
+        function(
+            PRINTER,
+            "    fn printer_write(&mut self, i: usize, fmt: &str) -> Result<()> {",
+            "    ",
+        ),
+        function(
+            PRINTER,
+            "    fn printer_text(&mut self, f: &PField, page: i32) -> Result<String> {",
+            "    ",
+        ),
+        function(
+            PRINTER,
+            "    pub(super) fn print_ops(&mut self, i: usize, file: &str, ops: &[PrintOp]) -> Result<()> {",
+            "    ",
+        ),
         // S2.75: CALL.
         function(
             EXEC_SQL,
@@ -575,9 +596,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // positioned_change, S2.74 fetch_rows and sql_insert_rows, S2.75
     // sql_call, S2.78 conditions_met, out_cond, except, overflow_line,
     // overflow_routine, overflow_ind, out_text, print_record, print_line,
-    // flush_printer and printer.rs form_of and ensure_printer;
+    // flush_printer and printer.rs form_of and ensure_printer, S2.79
+    // printer.rs printer_op, printer_write, printer_text and print_ops;
     // upstream still dd47e28.
-    let reviewed = "a6074f967a53236d268414cbd7d172bc0024e02342ec228047044828f61b533a";
+    let reviewed = "f138c0b1ebb30ae9d52e90b9f7707386491c31e3303b41edf947b824be3f5f52";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

@@ -1959,3 +1959,64 @@ async fn native_unit_lowered_except() {
     let got = printed("NEXCPT", include_str!("native/NEXCPT.rpgle")).await;
     assert_eq!(got, want, "NEXCPT");
 }
+
+// Stage 2, S2.79: WRITE, OPEN and CLOSE of an externally described printer
+// file lowered to Rust.
+// Source: golden capture tools/golden/native79 n79_write (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_printer_write() {
+    let _ = require_db!();
+    use as4tainr_core::commands::{Environment, Job};
+    use as4tainr_core::source;
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    catalog::init(&client)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    // QGPL's QDDSSRC may be there already (other tests, an earlier run).
+    let _ = source::create_file(&client, "QGPL", "QDDSSRC", "").await;
+    source::put_member(
+        &client,
+        &source::Member {
+            library: "QGPL".into(),
+            file: "QDDSSRC".into(),
+            name: "NPRTWP".into(),
+            srctype: "PRTF".into(),
+            text: "native unit NPRTW".into(),
+            source: include_str!("native/NPRTWP.prtf").into(),
+            ..Default::default()
+        },
+        true,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    let env = Environment {
+        database_url: String::new(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    let _ = job.run("DLTF FILE(QGPL/NPRTWP)").await;
+    job.run("CRTPRTF FILE(QGPL/NPRTWP) SRCFILE(QGPL/QDDSSRC) SRCMBR(NPRTWP)")
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    // The capture's lines as PASE system printed them, less PUB400's own
+    // last line (its banner).
+    let want = [
+        "    REPORT         1",
+        "  ALPHA       1,234.50      7    FLAG",
+        "  BETA           42.00-     7",
+        " TOT     42.00-",
+    ];
+    let got = printed("NPRTW", include_str!("native/NPRTW.rpgle")).await;
+    assert_eq!(got, want, "NPRTW");
+}
