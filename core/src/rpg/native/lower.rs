@@ -1192,6 +1192,53 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
         }
         // %SCAN of character expressions, with a start that is a numeric
         // literal or field (S2.12).
+        // %XFOOT, %MAXARR, %MINARR of a whole global array (S2.68), the
+        // array as %LOOKUP takes it; no start or number of elements.
+        Expr::Bif(b, args)
+            if matches!(b.as_str(), "XFOOT" | "MAXARR" | "MINARR") && args.len() == 1 =>
+        {
+            let Some(Expr::Name { parts, args: None }) = args.first() else {
+                return None;
+            };
+            let name = parts.join(".");
+            let Some(Sym::Var(v)) = sym(cx, &name) else {
+                return None;
+            };
+            let prog = cx.prog;
+            if v.dim == 0
+                || v.local
+                || name.starts_with("TAB")
+                || prog.varying.contains_key(&name)
+                || prog.based.contains_key(&v.buf)
+                || prog.occurs.iter().any(|o| o.buf == v.buf)
+                || prog.data_imports.iter().any(|(n, _)| *n == name)
+                || prog.data_exports.iter().any(|(n, _)| *n == name)
+            {
+                return None;
+            }
+            let ty = match v.dtype {
+                DType::Packed(d, s) => ir::Ty::Packed(d, s),
+                DType::Zoned(d, s) => ir::Ty::Zoned(d, s),
+                DType::Binary(d, s) => ir::Ty::Binary(d, s),
+                DType::Int(n) => ir::Ty::Int(n),
+                DType::Uns(n) => ir::Ty::Uns(n),
+                // %MAXARR and %MINARR also compare characters.
+                DType::Char(n) if b != "XFOOT" => ir::Ty::Char(n),
+                _ => return None,
+            };
+            used.push(format!(
+                "{b} {name} {} {} {} {} {:?}",
+                v.buf, v.off, v.stride, v.dim, v.dtype
+            ));
+            Some(ir::NumExpr::ArrFold {
+                kind: b.clone(),
+                buf: v.buf,
+                off: v.off,
+                stride: v.stride,
+                dim: v.dim,
+                ty,
+            })
+        }
         // %SCANR of character expressions, with a start and a length that
         // are numeric literals or fields (S2.67).
         Expr::Bif(b, args) if b == "SCANR" => {

@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.68: %XFOOT, %MAXARR and %MINARR (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native68.txt -f tools/golden/native68
+n68_crt_arr|!system "CRTSQLRPGI OBJ(@LIB@/GN68ARR) SRCSTMF('@HOME@/gld/gn68arr.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n68_arr|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN68ARR)"; cat gn1.out; rm -f gn1.out

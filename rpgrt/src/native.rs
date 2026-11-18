@@ -649,6 +649,40 @@ pub fn scan(pat: &[u8], s: &[u8], start: Option<&Value>) -> NResult<Dec> {
     Ok(Dec::from_i64(i64::try_from(found)?))
 }
 
+/// %XFOOT, %MAXARR or %MINARR of a whole array (S2.68), the
+/// interpreter's arms: the sum of the elements' numbers; or the index of
+/// the first greatest, or smallest, element (data::compare), 0 for none.
+pub fn arr_fold(all: &[Value], kind: &str) -> NResult<Dec> {
+    use std::cmp::Ordering;
+    if kind == "XFOOT" {
+        let mut sum = Dec::ZERO;
+        for v in all {
+            sum = sum.add(&v.num()?)?;
+        }
+        return Ok(sum);
+    }
+    let want = if kind == "MAXARR" {
+        Ordering::Greater
+    } else {
+        Ordering::Less
+    };
+    let mut best: Option<(usize, &Value)> = None;
+    for (k, v) in all.iter().enumerate() {
+        let better = match &best {
+            None => true,
+            Some((_, bv)) => data::compare(v, bv)? == want,
+        };
+        if better {
+            best = Some((
+                k.checked_add(1)
+                    .ok_or_else(|| anyhow::anyhow!("%{kind}: index"))?,
+                v,
+            ));
+        }
+    }
+    Ok(Dec::from_i64(i64::try_from(best.map_or(0, |b| b.0))?))
+}
+
 /// %SCANR (S2.67): the position of the last occurrence of `pat` in `s`
 /// from `start` (1 if none) for `len` bytes (to the end if none), 0 if it
 /// is not there or `pat` is empty; the interpreter's "SCANR" arm. A start
