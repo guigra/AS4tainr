@@ -39,6 +39,12 @@ Each of those is a small feature of its own:
 
 **Upstream finding (held, after 2026-11-24):** two tests running in parallel can collide in QTEMP. change_a_physical_file_with_a_logical_file_over_it gave "CPF5813: File CHGLP already exists in library QTEMP", and dspmod_output_files_of_a_cl_module a duplicate key (library, file, seq) = (QTEMP, C4IX, 0) in file_fields: the catalog holds the name QTEMP itself, not the job's library. This happens with the interpreter, in the full suite only; both pass alone.
 
+**S2.74 on jsr-test-2:** level2-auto FAIL, from the reference run alone. Under the interpreter, NSQL1's final `drop table QGPL/NSQL1T` failed with "tuple concurrently updated", while the auto run passed and level 2 rust passed (674 of 697).
+
+This is the upstream race sql.rs already retries elsewhere: each test process's catalog::init grants on all tables, while other tests run DDL. S2.74 is committed on S2.76's run, whose tree contains it.
+
+Upstream finding (held): DROP TABLE in embedded SQL is not retried against that race.
+
 **Next, after SQL:** the long tail the AS4TAINR_NATIVE_WHY pass lists, now with program and line:
 - temporal forms (%CHAR of time + duration, %DATE with *MDY or a number, %DEC of a date);
 - procedure pointers, %CONCAT, data imports;

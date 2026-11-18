@@ -3,10 +3,13 @@
 // variable bound at OPEN, fetched into a data structure to the end, OPEN
 // of an open cursor, FETCH and CLOSE of a closed one, a scroll cursor, a
 // cursor over a prepared statement opened with USING, a null with an
-// indicator. The program captured on PUB400, with the table in QGPL and
+// indicator. The program captured on PUB400, with the table in QTEMP and
 // DSPLY for its output.
 // Source: golden capture tools/golden/native72 n72_sql (PUB400, IBM i
 // 7.5, 2026-11-18).
+// QTEMP, not QGPL: each test's catalog::init may grant on all of QGPL's
+// tables while this program drops its own ("tuple concurrently updated",
+// an upstream race; HANDOFF.md). QTEMP's libraries are never granted on.
 ctl-opt dftactgrp(*no);
 dcl-s lim packed(5:0);
 dcl-s nm char(10);
@@ -20,12 +23,12 @@ dcl-ds r qualified;
   name char(10);
 end-ds;
 exec sql set option commit = *none;
-exec sql drop table QGPL/NSQL4T;
-exec sql create table QGPL/NSQL4T (id int not null, name char(10),
+exec sql drop table QTEMP/NSQL4T;
+exec sql create table QTEMP/NSQL4T (id int not null, name char(10),
                                        amt decimal(7, 2));
-exec sql insert into QGPL/NSQL4T values (1, 'one', 1.50),
+exec sql insert into QTEMP/NSQL4T values (1, 'one', 1.50),
   (2, 'two', null), (3, 'three', 3.00), (4, 'four', 4.25);
-exec sql declare c1 cursor for select id, name from QGPL/NSQL4T
+exec sql declare c1 cursor for select id, name from QTEMP/NSQL4T
   where id > :lim order by id for read only;
 lim = 1;
 exec sql open c1;
@@ -48,7 +51,7 @@ exec sql close c1;
 line += ' ' + %char(sqlcode);
 exec sql fetch c1 into :id;
 dsply (line + ' FETCH ' + %char(sqlcode));
-exec sql declare c2 scroll cursor for select id from QGPL/NSQL4T
+exec sql declare c2 scroll cursor for select id from QTEMP/NSQL4T
   order by id;
 exec sql open c2;
 exec sql fetch last from c2 into :id;
@@ -69,7 +72,7 @@ line += ' ' + %char(id);
 exec sql fetch relative 9 from c2 into :id;
 dsply (line + ' PAST ' + %char(sqlcode));
 exec sql close c2;
-stmt = 'select name, amt from QGPL/NSQL4T where id >= ? order by id';
+stmt = 'select name, amt from QTEMP/NSQL4T where id >= ? order by id';
 exec sql prepare s3 from :stmt;
 exec sql declare c3 cursor for s3;
 lim = 2;
@@ -85,5 +88,5 @@ dow 1 = 1;
 enddo;
 dsply (line + ' END ' + %char(sqlcode));
 exec sql close c3;
-exec sql drop table QGPL/NSQL4T;
+exec sql drop table QTEMP/NSQL4T;
 *inlr = *on;
