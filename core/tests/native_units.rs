@@ -1661,3 +1661,28 @@ async fn native_unit_lowered_addr_of_locals() {
     )
     .await;
 }
+
+// Stage 2, S2.66: OPTIONS(*STRING) for C functions lowered to Rust.
+// Source: golden capture tools/golden/native66 n66_str (PUB400, IBM i 7.5, 2026-11-17)
+#[tokio::test]
+async fn native_unit_lowered_options_string() {
+    let _ = require_db!();
+    expect(
+        "NSTRING",
+        include_str!("native/NSTRING.rpgle"),
+        &[
+            "LEN LIT 5",
+            "LEN FIXED 10",
+            "LEN TRIM 3",
+            "LEN VARY 5",
+            "LEN CAT 15",
+            "ATOI 42",
+            "ATOI NEG -7",
+            "CMP EQ",
+            "CMP GT",
+            "NCMP EQ",
+            "LEN HEX 3",
+        ],
+    )
+    .await;
+}

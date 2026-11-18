@@ -402,6 +402,28 @@ impl<'a> Rt<'_, 'a> {
             let mut a = Vec::with_capacity(args.len());
             for (k, arg) in args.into_iter().enumerate() {
                 let konst = k < n && pr.params.get(k).is_some_and(|p| p.konst);
+                // OPTIONS(*STRING) (S2.66, args_for): a character value for
+                // a pointer parameter goes as a pointer to a copy of it with
+                // a null byte after, in the heap until the call ends.
+                let string = k < n
+                    && pr
+                        .params
+                        .get(k)
+                        .is_some_and(|p| p.string && p.dtype == data::DType::Pointer);
+                if let (true, CallArg::Val(Value::Char(chars))) = (string, &arg) {
+                    let mut bytes = chars.clone();
+                    bytes.push(0);
+                    let h = self.m.bufs.heap.alloc(bytes.len());
+                    if let Some(b) = self.m.bufs.heap.blocks.get_mut(h) {
+                        *b = bytes;
+                    }
+                    self.m.temp_strings.push(h);
+                    let at = rpgrt::rpg::mem::HEAP_BASE
+                        .checked_add(h)
+                        .ok_or_else(|| anyhow!("native: a heap block"))?;
+                    a.push(super::Arg::Val(self.addr_of(at, 0)));
+                    continue;
+                }
                 a.push(match arg {
                     CallArg::Ref { buf, off, dtype } if konst => {
                         if super::crt::C_OUT_BUFFERS.contains(&(sym.as_str(), k)) {
@@ -759,6 +781,8 @@ impl Runtime for Rt<'_, '_> {
         let _ = pc;
         let job = self.m.io.job_key.clone();
         crate::pgmmsg::stack_line(&job, self.m.line);
+        // The OPTIONS(*STRING) copies made for this call (S2.66).
+        let mark = self.m.temp_strings.len();
         // AS4TAINR_TRACE_CALLS=1, as call_named prints it.
         let trace = std::env::var("AS4TAINR_TRACE_CALLS").is_ok();
         if trace {
@@ -803,6 +827,22 @@ impl Runtime for Rt<'_, '_> {
             self.m.last.code = 0;
             if let Some(ds) = self.m.prog.psds.clone() {
                 self.m.ds_zoned(&ds, 11, 5, 0);
+            }
+        }
+        // call_named: the OPTIONS(*STRING) copies last as long as the call
+        // (S2.66).
+        let made = if mark < self.m.temp_strings.len() {
+            self.m.temp_strings.split_off(mark)
+        } else {
+            Vec::new()
+        };
+        for h in made {
+            if let (Some(f), Some(b)) = (
+                self.m.bufs.heap.freed.get_mut(h),
+                self.m.bufs.heap.blocks.get_mut(h),
+            ) {
+                *f = true;
+                *b = Vec::new();
             }
         }
         r

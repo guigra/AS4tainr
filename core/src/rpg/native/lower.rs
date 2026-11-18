@@ -2072,7 +2072,18 @@ fn call_of(
         // OPTIONS(*VARSIZE) (S2.51) only for a program or a bound
         // procedure, whose arguments go as the interpreter's loc_of gives
         // them (the argument's own size and type).
-        if p.file || p.omit || p.string || p.trim || p.convert || (p.varsize && local.is_some()) {
+        // OPTIONS(*STRING) (S2.66): for a pointer parameter of a C
+        // function passed by value or CONST (call_proto's C path makes the
+        // copy args_for makes).
+        let string_ok =
+            c_extra && p.dtype == DType::Pointer && (p.by_value || p.konst) && !p.varsize;
+        if p.file
+            || p.omit
+            || (p.string && !string_ok)
+            || p.trim
+            || p.convert
+            || (p.varsize && local.is_some())
+        {
             return None;
         }
         // A parameter that is a data structure (LIKEDS), or a whole data
@@ -2110,6 +2121,15 @@ fn call_of(
             },
             _ => false,
         };
+        // A character value for an OPTIONS(*STRING) pointer parameter
+        // (S2.66): args_for's eval of it is character data, so it goes as
+        // its characters, and the runtime makes the null-terminated copy.
+        if p.string {
+            if let Some(c) = char_expr(cx, a, used, ap.clone()) {
+                out.push(ir::CallArg::Char(c));
+                continue;
+            }
+        }
         let by_ref = !p.by_value && !p.konst;
         let const_ref =
             p.konst && !p.by_value && matches!(a, Expr::Name { args: None, .. }) && field(a);

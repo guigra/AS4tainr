@@ -539,3 +539,20 @@ A subfield that is an array, a based or local one, and the whole data structure 
 - changes a local through a based field;
 - walks a local array with pointer arithmetic;
 - writes into the caller's storage through the address of a parameter passed by reference.
+
+## S2.66: OPTIONS(*STRING) for C functions
+
+A pointer parameter of a C function with OPTIONS(*STRING), passed by value or CONST, now takes a character argument in lowered code. The interpreter does it in three places, and native_rt now does the same:
+- **Lowering** passes the argument as its characters (args_for's eval of it is character data).
+- **call_proto's C path** does what args_for does for *STRING: a copy of the characters with a null byte after, in a heap block, and a pointer to it as the argument.
+- **call** frees the copies when the call ends, as call_named does: it marks temp_strings before the call and frees what was added after it.
+
+A pointer argument for such a parameter still goes as a pointer. *STRING for a program or a bound procedure stays in the interpreter.
+
+**Verified by** the native unit NSTRING, under both engines. The program captured on PUB400 (tools/golden/native66.txt n66_str) calls strlen, atoi, strcmp and strncmp with these arguments:
+- a literal;
+- a fixed field, trailing blanks included;
+- %TRIM of that field;
+- a varying field;
+- a concatenation;
+- a hexadecimal literal.
