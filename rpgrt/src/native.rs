@@ -317,6 +317,16 @@ pub trait Runtime {
         exprs: Vec<String>,
         outs: Vec<Option<SqlSlot>>,
     ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.80): IN or OUT (`input`), with *LOCK (`lock`), of the
+    /// data areas of `fields` in order (interp.rs data_area and
+    /// local_data_area).
+    fn data_area(
+        &mut self,
+        pc: usize,
+        input: bool,
+        lock: bool,
+        fields: Vec<DtaSlot>,
+    ) -> NResult<()>;
     /// Stage 2 (S2.79): OPEN, CLOSE or FEOD of a printer file (errors.rs
     /// file_op around printer.rs printer_op).
     fn printer_op(&mut self, pc: usize) -> NResult<()>;
@@ -380,6 +390,15 @@ pub struct SqlResult {
     pub text: String,
     pub rows: i64,
     pub errd5: i64,
+}
+
+/// A data area's field for IN and OUT (S2.80): its name (the program's
+/// DEFINE *DTAARA or DTAARA keyword), its storage, and the field holding
+/// the data area's name for DTAARA(*VAR:name).
+#[derive(Clone, Debug)]
+pub struct DtaSlot {
+    pub field: OutSlot,
+    pub var: Option<OutSlot>,
 }
 
 /// A program field an output specification prints (S2.78): its name as

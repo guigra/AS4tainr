@@ -1120,6 +1120,22 @@ impl Runtime for Rt<'_, '_> {
         self.printer_op_n(pc)
     }
 
+    fn data_area(
+        &mut self,
+        pc: usize,
+        input: bool,
+        lock: bool,
+        fields: Vec<rpgrt::native::DtaSlot>,
+    ) -> NResult<()> {
+        if !matches!(&at(self.code, pc)?.ins, Ins::Stmt(_)) {
+            return Err(mismatch(pc, "an IN or OUT"));
+        }
+        for f in &fields {
+            self.data_area_n(input, lock, f)?;
+        }
+        Ok(())
+    }
+
     fn except(
         &mut self,
         pc: usize,
@@ -4484,6 +4500,173 @@ impl Rt<'_, '_> {
         }
         if full {
             self.flush_printer_n(file)?;
+        }
+        Ok(())
+    }
+}
+
+// ---- data areas: IN and OUT (S2.80) -----------------------------------
+
+impl Rt<'_, '_> {
+    /// interp.rs data_area: the data area the field names (the program's
+    /// DEFINE or DTAARA; *VAR: the name in a field); *LDA (the local data
+    /// area); *GDA and *PDA not available; else found on the library
+    /// list. IN: *USE authority, *LOCK's *EXCLRD object lock (waiting
+    /// the job's default wait, MCH5802), the value (a number parsed, or
+    /// characters) into the field; OUT: *CHANGE authority, the field's
+    /// value written, the program's and the job's locks given back.
+    fn data_area_n(&mut self, input: bool, lock: bool, f: &rpgrt::native::DtaSlot) -> NResult<()> {
+        let field = f.field.name.as_str();
+        let name = self
+            .m
+            .prog
+            .dtaaras
+            .get(field)
+            .cloned()
+            .ok_or_else(|| anyhow!("{field} is not defined as a data area (DEFINE *DTAARA)"))?;
+        let name = match name.strip_prefix("*VAR:") {
+            Some(_) => {
+                let v = f
+                    .var
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("native: the *VAR field of {field}"))?;
+                let n = rpgrt::native::load(&self.m.bufs, v.buf, v.off, v.ty)?.chars()?;
+                a(&n).trim().to_ascii_uppercase()
+            }
+            None => name,
+        };
+        if name == "*LDA" {
+            return self.local_data_area_n(input, &f.field);
+        }
+        if name == "*GDA" || name == "*PDA" {
+            return Err(anyhow!("RNX0402: Data area {name} is not available: this job is not a group or prestart job."));
+        }
+        let libl = self.m.io.libl.clone();
+        let cur = crate::commands::DEFAULT_CURRENT_LIBRARY;
+        let client = self.m.io.client;
+        let d = self
+            .m
+            .block(crate::dtaara::resolve(client, &name, &libl, cur))?;
+        let key = (d.library.clone(), d.name.clone());
+        let held = self.m.dtaara_locks.contains(&key);
+        if input {
+            self.m.block(crate::authority::check(
+                client,
+                &self.m.io.user,
+                &d.library,
+                &d.name,
+                "*DTAARA",
+                crate::authority::Aut::Use,
+            ))?;
+            let take = lock && !held;
+            if take {
+                let t = crate::objlock::Target {
+                    library: d.library.clone(),
+                    name: d.name.clone(),
+                    objtype: "*DTAARA".into(),
+                };
+                let wait = crate::objlock::default_wait(&self.m.io.job_key);
+                let owner = self.m.io.job_key.clone();
+                if !self.m.block(crate::objlock::allocate(
+                    client,
+                    &t,
+                    "*EXCLRD",
+                    Some(wait),
+                    &owner,
+                ))? {
+                    return Err(anyhow!(
+                        "MCH5802: Data area {} in library {} is locked by another job; IN *LOCK could not lock it.",
+                        d.name,
+                        crate::qtemp::logical(&d.library)
+                    ));
+                }
+            }
+            let d = self
+                .m
+                .block(crate::dtaara::read(client, &name, &libl, cur, take))?;
+            if take {
+                self.m.dtaara_locks.push(key);
+            }
+            let slot = &f.field;
+            let v = if slot.ty.is_numeric() {
+                Value::Num(Dec::parse(d.value.trim())?)
+            } else {
+                Value::str(&d.value)
+            };
+            rpgrt::native::store(
+                &mut self.m.bufs,
+                slot.buf,
+                slot.off,
+                slot.ty,
+                &v,
+                Fit::Truncate { half_adjust: false },
+                false,
+            )?;
+        } else {
+            self.m.block(crate::authority::check(
+                client,
+                &self.m.io.user,
+                &d.library,
+                &d.name,
+                "*DTAARA",
+                crate::authority::Aut::Change,
+            ))?;
+            let slot = &f.field;
+            let v = rpgrt::native::load(&self.m.bufs, slot.buf, slot.off, slot.ty)?;
+            let text = match v {
+                Value::Num(n) => n.to_string(),
+                other => a(&other.chars()?).trim_end().to_string(),
+            };
+            self.m
+                .block(crate::dtaara::write(client, &d, &text, held))?;
+            self.dtaara_unlock_object_n(&d.library, &d.name);
+            self.m.dtaara_locks.retain(|k| *k != key);
+        }
+        Ok(())
+    }
+
+    /// interp.rs dtaara_unlock_object: the *EXCLRD object lock of IN
+    /// *LOCK given back, and the job's kept one (errors ignored, as there).
+    fn dtaara_unlock_object_n(&mut self, library: &str, name: &str) {
+        let t = crate::objlock::Target {
+            library: library.to_string(),
+            name: name.to_string(),
+            objtype: "*DTAARA".into(),
+        };
+        let _ = self
+            .m
+            .block(crate::objlock::deallocate(self.m.io.client, &t, "*EXCLRD"));
+        let key = self.m.io.job_key.clone();
+        let _ = self
+            .m
+            .block(crate::objlock::release_kept(&key, &t, "*EXCLRD"));
+    }
+
+    /// interp.rs local_data_area: the local data area's bytes into the
+    /// field (as long as it is), or the field's bytes over its start.
+    fn local_data_area_n(&mut self, input: bool, slot: &rpgrt::native::OutSlot) -> NResult<()> {
+        let job = self.m.io.job.as_ref().map(|j| j.number);
+        let client = self.m.io.client;
+        let mut lda = self.m.block(crate::dtaara::lda_read(client, job))?;
+        let n = slot.ty.size().min(lda.len());
+        let end = slot
+            .off
+            .checked_add(n)
+            .ok_or_else(|| anyhow!("native: the local data area's field"))?;
+        let buf = self
+            .m
+            .bufs
+            .get_mut(slot.buf)
+            .and_then(|b| b.get_mut(slot.off..end))
+            .ok_or_else(|| anyhow!("native: the local data area's field"))?;
+        let part = lda
+            .get_mut(..n)
+            .ok_or_else(|| anyhow!("native: the local data area"))?;
+        if input {
+            buf.copy_from_slice(part);
+        } else {
+            part.copy_from_slice(buf);
+            self.m.block(crate::dtaara::lda_write(client, job, &lda))?;
         }
         Ok(())
     }

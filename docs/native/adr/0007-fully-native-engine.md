@@ -904,3 +904,32 @@ Both are lowered for a file of the program, not of a procedure. The fields the f
 The unit compares the printed lines that have text, as S2.78's does. NEXCPT now also has the capture's CLOSE.
 
 native_tripwire.rs watches printer_op, printer_write, printer_text and print_ops.
+
+## S2.80: IN and OUT of data areas
+
+**Lowered:** IN and OUT ([*LOCK] field, or *DTAARA: every data area of the program in name order), with no error extender or indicators, as interp.rs's IN/OUT arm loops. Each field must be:
+- a data area of the program (DEFINE *DTAARA or DTAARA);
+- a character, varying or numeric field, or a data structure, with no index;
+- when its DTAARA is *VAR:name, with a character field `name` that holds the data area's name.
+
+**Runtime.** `data_area_n`, `dtaara_unlock_object_n` and `local_data_area_n` write again interp.rs data_area, dtaara_unlock_object and local_data_area:
+- *LDA is the local data area's bytes; *GDA and *PDA are not available (RNX0402);
+- any other data area is resolved on the library list;
+- IN: *USE authority, IN *LOCK's *EXCLRD lock (MCH5802 after the wait), and the value parsed for a numeric field;
+- OUT: *CHANGE authority, the value written, and the program's and the job's locks given back.
+
+The program's held locks are the interpreter's (`dtaara_locks`), so its end and errors release them as before.
+
+**Verified by** the native unit NDTAARA, under both engines. The program captured on PUB400 (tools/golden/native80.txt n80_dtaara) runs:
+- a character data area: IN, IN *LOCK with OUT twice;
+- a decimal one: IN *LOCK, add, OUT, IN;
+- a fixed-form DTAARA(*VAR:name);
+- IN of *DTAARA;
+- the local data area as a data structure.
+
+Three IBM i behaviors are not as4tainr's (fidelity.md):
+- *DTAARA in free form: NDTAARA reads the two data areas one by one instead;
+- DTAARA(name) in free form;
+- OUT with no lock held.
+
+native_tripwire.rs watches the three functions.

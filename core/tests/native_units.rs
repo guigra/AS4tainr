@@ -2037,3 +2037,57 @@ async fn native_unit_lowered_printer_write() {
     let got = printed("NPRTW", include_str!("native/NPRTW.rpgle")).await;
     assert_eq!(got, want, "NPRTW");
 }
+
+// Stage 2, S2.80: IN and OUT of data areas lowered to Rust.
+// Source: golden capture tools/golden/native80 n80_dtaara (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_data_areas() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    catalog::init(&client)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    let env = Environment {
+        database_url: String::new(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    // As the capture made GN80C and GN80N before its call.
+    for cmd in [
+        "DLTDTAARA DTAARA(QGPL/NDTAC)",
+        "DLTDTAARA DTAARA(QGPL/NDTAN)",
+    ] {
+        let _ = job.run(cmd).await;
+    }
+    for cmd in [
+        "CRTDTAARA DTAARA(QGPL/NDTAC) TYPE(*CHAR) LEN(20) VALUE('hello')",
+        "CRTDTAARA DTAARA(QGPL/NDTAN) TYPE(*DEC) LEN(7 2) VALUE(12.50)",
+    ] {
+        job.run(cmd)
+            .await
+            .unwrap_or_else(|e| panic!("{cmd}: {e:#}"));
+    }
+    expect(
+        "NDTAARA",
+        include_str!("native/NDTAARA.rpgle"),
+        &[
+            "IN hello LOCK changed VAR again",
+            "NUM 12.50 13.75 ALL again 13.75",
+            "LDA local",
+        ],
+    )
+    .await;
+}
