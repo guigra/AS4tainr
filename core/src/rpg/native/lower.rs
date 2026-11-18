@@ -473,6 +473,22 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             };
             ir::Lowered::SetOccur { buf, to, result }
         }
+        // EXCEPT (S2.78): the exception records of that name printed by
+        // the runtime (interp.rs except); the program fields their output
+        // specifications name, placed.
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1: None,
+            f2,
+            result: None,
+            ext,
+            ind,
+        }) if code == "EXCEPT" && !ext.error && ext.other.is_empty() && ind.is_empty() => {
+            let name = except_name(f2);
+            let fields = except_fields(cx, name.as_deref(), &mut used)?;
+            used.push(format!("except {name:?} {} fields", fields.len()));
+            ir::Lowered::Except { name, fields }
+        }
         // EXEC SQL, step 1 (S2.69): a statement with no host variable that
         // exec_sql.rs's sql_statement runs without cursors, INTO, CALL,
         // dynamic SQL or GET DIAGNOSTICS; the SQLCA's fields as operands.
@@ -4446,4 +4462,96 @@ fn sql_call(
         name,
         args: out,
     })
+}
+
+/// interp.rs expr_name: EXCEPT's factor 2 as a name.
+fn except_name(e: &Option<Expr>) -> Option<String> {
+    match e {
+        Some(Expr::Name { parts, args: None }) => Some(parts.join(".")),
+        _ => None,
+    }
+}
+
+/// The program fields the output records an EXCEPT may print name
+/// (S2.78): its exception records, and the overflow lines of their
+/// printers when one fetches overflow (any heading, detail or total line
+/// of the file). Every one of those records must be to a printer file;
+/// each field a character, varying or numeric field with no index (a
+/// whole data structure as its bytes, not cleared after); an edit word
+/// that is a name, a named constant of the program.
+fn except_fields(
+    cx: &Cx<'_>,
+    name: Option<&str>,
+    used: &mut Vec<String>,
+) -> Option<Vec<(String, ir::Operand)>> {
+    let prog = cx.prog;
+    let records: Vec<&super::super::ast::OutRec> = prog
+        .outputs
+        .iter()
+        .filter(|r| r.kind == 'E' && r.name.as_deref() == name)
+        .collect();
+    let mut all: Vec<&super::super::ast::OutRec> = records.clone();
+    for r in &records {
+        if r.fetch_overflow {
+            all.extend(
+                prog.outputs
+                    .iter()
+                    .filter(|o| o.file == r.file && matches!(o.kind, 'H' | 'D' | 'T')),
+            );
+        }
+    }
+    let mut fields: Vec<(String, ir::Operand)> = Vec::new();
+    for r in all {
+        let f = prog.files.get(prog.file_index(&r.file)?)?;
+        if f.decl.device != "PRINTER" {
+            return None;
+        }
+        for of in &r.fields {
+            if let Some(w) = &of.edit_word {
+                if let Some(n) = w.strip_prefix('\u{1}') {
+                    if !matches!(sym(cx, n), Some(Sym::Const(_)))
+                        || !matches!(prog.syms.get(n), Some(Sym::Const(_)))
+                    {
+                        return None;
+                    }
+                }
+            }
+            if of.literal.is_some() {
+                continue;
+            }
+            let n = of.name.clone().unwrap_or_default();
+            if matches!(
+                n.as_str(),
+                "PAGE"
+                    | "PAGE1"
+                    | "PAGE2"
+                    | "PAGE3"
+                    | "PAGE4"
+                    | "PAGE5"
+                    | "PAGE6"
+                    | "PAGE7"
+                    | "UDATE"
+                    | "*DATE"
+            ) || fields.iter().any(|(k, _)| *k == n)
+            {
+                continue;
+            }
+            if of.blank_after && matches!(sym(cx, &n), Some(Sym::Ds(_))) {
+                return None;
+            }
+            let o = sql_field(cx, &Expr::name(&n), used)?;
+            if !matches!(
+                o,
+                ir::Operand::Var {
+                    index: None,
+                    based: None,
+                    ..
+                }
+            ) {
+                return None;
+            }
+            fields.push((n, o));
+        }
+    }
+    Some(fields)
 }

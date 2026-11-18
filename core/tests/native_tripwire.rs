@@ -15,6 +15,7 @@ const PTRS: &str = include_str!("../src/rpg/ptrs.rs");
 const CYCLE: &str = include_str!("../src/rpg/cycle.rs");
 const EXEC_SQL: &str = include_str!("../src/rpg/exec_sql.rs");
 const OPS: &str = include_str!("../src/rpg/ops.rs");
+const PRINTER: &str = include_str!("../src/rpg/printer.rs");
 
 /// The text of a function, from its signature to its closing brace at
 /// the same indentation.
@@ -446,6 +447,67 @@ fn native_runtime_matches_the_interpreter_it_copies() {
         ),
         function(EXEC_SQL, "fn strip_cursor_clauses(query: &str) -> String {", ""),
         function(EXEC_SQL, "fn with_rrn(query: &str) -> Option<String> {", ""),
+        // S2.78: EXCEPT to a printer file.
+        function(
+            INTERP,
+            "    fn conditions_met(&self, cond: &Conditions) -> bool {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn out_cond(&self, groups: &[Conditions]) -> bool {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn except(&mut self, name: Option<&str>) -> Result<()> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn overflow_line(&self, r: &OutRec) -> bool {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    pub(super) fn overflow_routine(&mut self, only: Option<&str>) -> Result<()> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn overflow_ind(&self, file: &str) -> Option<String> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn out_text(&mut self, f: &OutField, page: i32) -> Result<String> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn print_record(&mut self, r: &OutRec) -> Result<()> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn print_line(&mut self, r: &OutRec) -> Result<()> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn flush_printer(&mut self, file: &str) -> Result<()> {",
+            "    ",
+        ),
+        function(
+            PRINTER,
+            "    pub(super) fn form_of(&self, i: usize) -> (i32, i32) {",
+            "    ",
+        ),
+        function(
+            PRINTER,
+            "    pub(super) fn ensure_printer(&mut self, file: &str) -> Result<()> {",
+            "    ",
+        ),
         // S2.75: CALL.
         function(
             EXEC_SQL,
@@ -511,9 +573,11 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // strip_cursor_clauses and with_rrn (OpenCursor and cursors made
     // pub(super), the user's second authorization of 2026-11-18), S2.73
     // positioned_change, S2.74 fetch_rows and sql_insert_rows, S2.75
-    // sql_call;
+    // sql_call, S2.78 conditions_met, out_cond, except, overflow_line,
+    // overflow_routine, overflow_ind, out_text, print_record, print_line,
+    // flush_printer and printer.rs form_of and ensure_printer;
     // upstream still dd47e28.
-    let reviewed = "385ce9e41c3e6712194d2c797efa452f0c1bf20de47611fe301e28c8ee3d5b6b";
+    let reviewed = "a6074f967a53236d268414cbd7d172bc0024e02342ec228047044828f61b533a";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

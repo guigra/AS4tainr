@@ -1107,6 +1107,18 @@ impl Runtime for Rt<'_, '_> {
         Ok(sql_result(o))
     }
 
+    fn except(
+        &mut self,
+        pc: usize,
+        name: Option<&str>,
+        fields: Vec<rpgrt::native::OutSlot>,
+    ) -> NResult<()> {
+        if !matches!(&at(self.code, pc)?.ins, Ins::Stmt(_)) {
+            return Err(mismatch(pc, "an EXCEPT"));
+        }
+        self.except_n(name, &fields)
+    }
+
     fn sql_close(&mut self, pc: usize, name: &str) -> NResult<rpgrt::native::SqlResult> {
         let o = self.sql_cursor_n(pc, |rt| {
             Ok(match rt.m.sql.cursors.remove(name) {
@@ -3670,4 +3682,479 @@ fn sql_with_rrn(query: &str) -> Option<String> {
 fn sql_row_count(count: &Dec) -> NResult<usize> {
     let n = count.to_i128()?.max(0);
     Ok(usize::try_from(n).unwrap_or(usize::MAX))
+}
+
+// ---- printer files: EXCEPT (S2.78) ------------------------------------
+
+impl Rt<'_, '_> {
+    /// interp.rs conditions_met: indicator groups joined by OR, each met
+    /// when every indicator is as wanted.
+    fn conditions_met_n(&self, cond: &super::super::ast::Conditions) -> bool {
+        cond.split(|(_, i)| i == crate::rpg::parse::OR_MARK)
+            .any(|g| g.iter().all(|(neg, i)| self.m.ind(i) != *neg))
+    }
+
+    /// interp.rs out_cond: a record with no conditions, or one group met.
+    fn out_cond_n(&self, groups: &[super::super::ast::Conditions]) -> bool {
+        groups.iter().all(|g| g.is_empty())
+            || groups
+                .iter()
+                .any(|g| !g.is_empty() && self.conditions_met_n(g))
+    }
+
+    /// interp.rs except: the exception records with that name (or none)
+    /// whose conditions are met, printed in order.
+    fn except_n(&mut self, name: Option<&str>, fields: &[rpgrt::native::OutSlot]) -> NResult<()> {
+        let prog = self.m.prog;
+        for r in &prog.outputs {
+            if r.kind == 'E' && r.name.as_deref() == name && self.out_cond_n(&r.cond) {
+                self.print_record_n(r, fields)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// interp.rs overflow_ind: a printer file's OFLIND indicator.
+    fn overflow_ind_n(&self, file: &str) -> Option<String> {
+        let i = self.m.prog.file_index(file)?;
+        let f = self.m.prog.files.get(i)?;
+        super::super::ast::keyword(&f.decl.keywords, "OFLIND")
+            .and_then(|k| k.args.first())
+            .map(|a| {
+                let a = a.trim().to_ascii_uppercase();
+                a.strip_prefix("*IN").map(str::to_string).unwrap_or(a)
+            })
+    }
+
+    /// interp.rs overflow_line: a heading, detail or total line
+    /// conditioned by its printer's overflow indicator, which is on.
+    fn overflow_line_n(&self, r: &super::super::ast::OutRec) -> bool {
+        if !matches!(r.kind, 'H' | 'D' | 'T') {
+            return false;
+        }
+        let Some(of) = self.overflow_ind_n(&r.file).map(|o| ind_name(&o)) else {
+            return false;
+        };
+        self.m.ind(&of)
+            && r.cond
+                .iter()
+                .any(|g| g.iter().any(|(neg, i)| !neg && ind_name(i) == of))
+    }
+
+    /// interp.rs overflow_routine: for each printer (or the one given)
+    /// whose overflow indicator is on and whose overflow lines were not
+    /// printed yet, those lines whose conditions are met; once each time
+    /// overflow occurs.
+    fn overflow_routine_n(
+        &mut self,
+        only: Option<&str>,
+        fields: &[rpgrt::native::OutSlot],
+    ) -> NResult<()> {
+        let prog = self.m.prog;
+        let files: Vec<String> = self
+            .m
+            .ofl_inds
+            .iter()
+            .filter(|(ind, f)| {
+                self.m.ind(ind) && !self.m.ofl_written.contains(f) && only.is_none_or(|o| o == f)
+            })
+            .map(|(_, f)| f.clone())
+            .collect();
+        for f in files {
+            self.m.ofl_written.insert(f.clone());
+            for r in &prog.outputs {
+                if r.file == f && self.overflow_line_n(r) && self.out_cond_n(&r.cond) {
+                    self.print_line_n(r, fields)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// interp.rs print_record: fetch overflow first (the overflow lines,
+    /// when overflow has occurred, unless the record is conditioned by
+    /// the overflow indicator itself), then the line.
+    fn print_record_n(
+        &mut self,
+        r: &super::super::ast::OutRec,
+        fields: &[rpgrt::native::OutSlot],
+    ) -> NResult<()> {
+        if r.fetch_overflow {
+            let of = self.overflow_ind_n(&r.file).map(|o| ind_name(&o));
+            let on_of = of.as_ref().is_some_and(|of| {
+                r.cond
+                    .iter()
+                    .any(|g| g.iter().any(|(_, i)| ind_name(i) == *of))
+            });
+            if !on_of {
+                self.overflow_routine_n(Some(&r.file), fields)?;
+            }
+        }
+        self.print_line_n(r, fields)
+    }
+
+    /// printer.rs form_of: FORMLEN and FORMOFL on the file, else the
+    /// printer file's page size and overflow line, else 66 and 60.
+    fn form_of_n(&self, i: usize) -> NResult<(i32, i32)> {
+        let f = self
+            .m
+            .prog
+            .files
+            .get(i)
+            .ok_or_else(|| anyhow!("native: a printer file"))?;
+        let kw = |k: &str| -> Option<i32> {
+            super::super::ast::keyword(&f.decl.keywords, k)
+                .and_then(|k| k.args.first())
+                .and_then(|a| a.trim().parse().ok())
+        };
+        let (len, ovf) = match f.page {
+            Some((l, _, o)) => (l, o),
+            None => (crate::spool::PAGE_LENGTH, crate::spool::OVERFLOW_LINE),
+        };
+        Ok((kw("FORMLEN").unwrap_or(len), kw("FORMOFL").unwrap_or(ovf)))
+    }
+
+    /// interp.rs print_line for a printer file: space and skip before (a
+    /// new page when the skip goes back, or past the page), the fields
+    /// where they end (an end position, +n after the previous one, or
+    /// right after it), a field cleared after it is printed (blank
+    /// after), the line kept, then space and skip after (nothing given:
+    /// one line); the overflow indicator on when the line was printed on
+    /// or past the overflow line or the spacing passed it; the buffer
+    /// written to the spooled file every 50 lines.
+    fn print_line_n(
+        &mut self,
+        r: &super::super::ast::OutRec,
+        fields: &[rpgrt::native::OutSlot],
+    ) -> NResult<()> {
+        let i = self
+            .m
+            .prog
+            .file_index(&r.file)
+            .ok_or_else(|| anyhow!("output to {}: not a file of this program", r.file))?;
+        let width = {
+            let decl = &self
+                .m
+                .prog
+                .files
+                .get(i)
+                .ok_or_else(|| anyhow!("native: a printer file"))?
+                .decl;
+            if decl.device != "PRINTER" {
+                return Err(anyhow!(
+                    "native: output to {} ({}) is not lowered",
+                    r.file,
+                    decl.device
+                ));
+            }
+            usize::try_from(decl.record_len.unwrap_or(132))?
+        };
+        let (page_length, overflow_line) = self.form_of_n(i)?;
+        self.ensure_printer_n(&r.file)?;
+        fn new_page(p: &mut super::Printer) {
+            p.page = p.page.saturating_add(1);
+            p.line = 1;
+            p.printed_on_page = false;
+        }
+        let page = {
+            let p = self
+                .m
+                .printers
+                .get_mut(&r.file)
+                .ok_or_else(|| anyhow!("native: the printer of {}", r.file))?;
+            if let Some(s) = r.skip_before.filter(|s| *s > 0) {
+                let s = i32::try_from(s)?;
+                if s < p.line || s == p.line && p.printed_on_page {
+                    new_page(p);
+                }
+                p.line = s;
+            }
+            if let Some(n) = r.space_before.filter(|n| *n > 0) {
+                p.line = p.line.saturating_add(i32::try_from(n)?);
+            }
+            if p.line > page_length {
+                new_page(p);
+            }
+            p.page
+        };
+        let mut buf = vec![' '; width];
+        let mut prev_end = 0usize;
+        for f in &r.fields {
+            if !f.cond.is_empty() && !self.conditions_met_n(&f.cond) {
+                continue;
+            }
+            let text: Vec<char> = self.out_text_n(f, page, fields)?.chars().collect();
+            let end = match (f.end, f.relative) {
+                (Some(e), _) => usize::try_from(e)?,
+                (None, Some(n)) => prev_end
+                    .saturating_add(usize::try_from(n)?)
+                    .saturating_add(text.len()),
+                (None, None) => prev_end.saturating_add(text.len()),
+            };
+            let start = end.saturating_sub(text.len());
+            for (k, c) in text.iter().enumerate() {
+                if let Some(slot) = start.checked_add(k).and_then(|x| buf.get_mut(x)) {
+                    *slot = *c;
+                }
+            }
+            prev_end = end;
+            if f.blank_after {
+                if let Some(n) = &f.name {
+                    self.out_clear_n(n, fields)?;
+                }
+            }
+        }
+        let text: String = buf.into_iter().collect::<String>().trim_end().to_string();
+        let overflow_ind = self.overflow_ind_n(&r.file);
+        let p = self
+            .m
+            .printers
+            .get_mut(&r.file)
+            .ok_or_else(|| anyhow!("native: the printer of {}", r.file))?;
+        p.buffer.push((p.page, p.line, text));
+        p.printed_on_page = true;
+        let (printed_page, printed_line) = (p.page, p.line);
+        let mut moved = false;
+        if let Some(s) = r.skip_after.filter(|s| *s > 0) {
+            let s = i32::try_from(s)?;
+            if s <= p.line {
+                new_page(p);
+            }
+            p.line = s;
+            moved = true;
+        }
+        if let Some(n) = r.space_after {
+            p.line = p.line.saturating_add(i32::try_from(n)?);
+            moved = true;
+        }
+        if !moved && r.skip_before.is_none() && r.space_before.is_none() {
+            p.line = p.line.saturating_add(1);
+        }
+        let overflow =
+            printed_line >= overflow_line || p.page == printed_page && p.line > overflow_line;
+        if p.line > page_length {
+            new_page(p);
+        }
+        let full = p.buffer.len() >= 50;
+        if overflow {
+            if let Some(of) = overflow_ind {
+                self.m.set_ind(&of, true);
+            }
+        }
+        if full {
+            self.flush_printer_n(&r.file)?;
+        }
+        Ok(())
+    }
+
+    /// A field of an output specification as lowering placed it.
+    fn out_slot<'f>(
+        name: &str,
+        fields: &'f [rpgrt::native::OutSlot],
+    ) -> NResult<&'f rpgrt::native::OutSlot> {
+        fields
+            .iter()
+            .find(|f| f.name == name)
+            .ok_or_else(|| anyhow!("O spec field {name} is not defined"))
+    }
+
+    /// The field a blank-after output field names, cleared (interp.rs
+    /// print_line's CLEAR of it): blanks, an empty varying field, zero.
+    fn out_clear_n(&mut self, name: &str, fields: &[rpgrt::native::OutSlot]) -> NResult<()> {
+        let f = Self::out_slot(name, fields)?;
+        let v = if f.ty.is_numeric() {
+            Value::Num(Dec::ZERO)
+        } else {
+            Value::Char(Vec::new())
+        };
+        rpgrt::native::store(
+            &mut self.m.bufs,
+            f.buf,
+            f.off,
+            f.ty,
+            &v,
+            rpgrt::rpg::data::Fit::Truncate { half_adjust: false },
+            false,
+        )
+    }
+
+    /// interp.rs out_text: a literal; PAGE (to PAGE7), UDATE and *DATE;
+    /// a character field's characters; a number edited by its edit word
+    /// (a named constant when it is not quoted), its edit code, or none
+    /// (its zoned digits, the sign in the last digit's zone).
+    fn out_text_n(
+        &mut self,
+        f: &super::super::ast::OutField,
+        page: i32,
+        fields: &[rpgrt::native::OutSlot],
+    ) -> NResult<String> {
+        if let Some(lit) = &f.literal {
+            return Ok(a(lit));
+        }
+        let name = f.name.clone().unwrap_or_default();
+        let (value, digits, decs) = match name.as_str() {
+            "PAGE" | "PAGE1" | "PAGE2" | "PAGE3" | "PAGE4" | "PAGE5" | "PAGE6" | "PAGE7" => {
+                (Dec::from_i64(i64::from(page)), 4, 0)
+            }
+            "UDATE" => (Dec::from_i64(super::today_num("UDATE")), 6, 0),
+            "*DATE" => (Dec::from_i64(super::today_num("*DATE")), 8, 0),
+            _ => {
+                let slot = Self::out_slot(&name, fields)?;
+                let v = rpgrt::native::load(&self.m.bufs, slot.buf, slot.off, slot.ty)?;
+                if !slot.ty.is_numeric() {
+                    return Ok(a(&v.chars()?));
+                }
+                let (p, s) = slot.ty.precision();
+                (v.num()?, p, s)
+            }
+        };
+        if let Some(w) = &f.edit_word {
+            let word = match w.strip_prefix('\u{1}') {
+                Some(n) => match self.m.prog.syms.get(n) {
+                    Some(super::super::program::Sym::Const(v)) => a(&v.chars()?),
+                    _ => return Err(anyhow!("edit word {n} is not a named constant")),
+                },
+                None => w.clone(),
+            };
+            return super::edit_word(&value, digits, decs, &word);
+        }
+        Ok(match f.edit_code {
+            Some(c) => super::edit_code_with(&value, digits, decs, c, self.m.prog.decedit()),
+            None => {
+                let t = super::super::data::DType::Zoned(digits, decs);
+                let mut b = t.initial();
+                data::store(
+                    &t,
+                    &Value::Num(value),
+                    &mut b,
+                    Fit::Truncate { half_adjust: false },
+                    false,
+                )?;
+                a(&b)
+            }
+        })
+    }
+
+    /// printer.rs ensure_printer: the printer of a file, its spooled file
+    /// opened on first use (OVRPRTF SPLFNAME and USRDTA in effect, of
+    /// this activation group or none; with a job of as4tainr's, in it;
+    /// in print-job mode, the user's print job, its lines also echoed;
+    /// else none), the job's last spooled file noted for QSPRILSP.
+    fn ensure_printer_n(&mut self, file: &str) -> NResult<()> {
+        if self.m.printers.contains_key(file) {
+            return Ok(());
+        }
+        let mut ovr = self
+            .m
+            .io
+            .cl
+            .as_ref()
+            .map(|c| c.overrides.clone())
+            .unwrap_or_default();
+        crate::ovr::merge_scoped(&self.m.io.job_key, &mut ovr);
+        let group = self.m.io.actgrp.clone();
+        ovr.retain(|o| o.actgrp.as_ref().is_none_or(|g| *g == group));
+        let o = crate::ovr::effective(&ovr, crate::ovr::Kind::Printer, file);
+        let name = o
+            .and_then(|o| o.splfname.clone())
+            .unwrap_or_else(|| file.to_string());
+        let usrdta = o
+            .and_then(|o| o.usrdta.clone())
+            .unwrap_or_else(|| self.m.prog.name.clone());
+        let rt = self.m.io.rt.clone();
+        let client = self.m.io.client;
+        let mut echo = false;
+        let mut print_job = None;
+        let spl = match &self.m.io.job {
+            Some(job) => Some(rt.block_on(crate::spool::open(client, job, &name, &usrdta))?),
+            None if crate::spool::print_job_mode() => {
+                echo = true;
+                let user = self.m.io.user.clone();
+                let pj = rt.block_on(crate::spool::print_job(client, &user))?;
+                let id = rt.block_on(crate::spool::open(client, &pj, &name, &usrdta))?;
+                crate::spool::note_temporary(id);
+                print_job = Some(pj);
+                Some(id)
+            }
+            None => None,
+        };
+        let number = match spl {
+            Some(id) => rt
+                .block_on(async {
+                    Ok::<i32, anyhow::Error>(
+                        client
+                            .query_one(
+                                "SELECT number FROM as4tainr.spooled_files WHERE id=$1",
+                                &[&id],
+                            )
+                            .await?
+                            .get::<_, i32>(0),
+                    )
+                })
+                .unwrap_or(1),
+            None => crate::rpg::last_spooled_file(&self.m.io.job_key)
+                .map_or(1, |l| l.4.saturating_add(1)),
+        };
+        let (jname, juser, jnbr) = match self.m.io.job.as_ref().or(print_job.as_ref()) {
+            Some(j) => (j.name.clone(), j.user.clone(), format!("{:06}", j.number)),
+            None => (String::new(), self.m.io.user.clone(), String::new()),
+        };
+        crate::rpg::set_last_spooled_file(
+            &self.m.io.job_key,
+            (name.clone(), jname, juser, jnbr, number),
+        );
+        self.m.printers.insert(
+            file.to_string(),
+            super::Printer {
+                spl,
+                page: 1,
+                line: 1,
+                printed_on_page: false,
+                buffer: Vec::new(),
+                out_pos: (1, 0),
+                echo,
+            },
+        );
+        Ok(())
+    }
+
+    /// interp.rs flush_printer: the lines kept written to the spooled
+    /// file; without one (or echoed), to the program's printed output:
+    /// a form feed for a new page, blank lines up to the line, a line
+    /// printed again over the last one.
+    fn flush_printer_n(&mut self, file: &str) -> NResult<()> {
+        let client = self.m.io.client;
+        let rt = self.m.io.rt.clone();
+        let Some(p) = self.m.printers.get_mut(file) else {
+            return Ok(());
+        };
+        let lines = std::mem::take(&mut p.buffer);
+        if let Some(id) = p.spl {
+            rt.block_on(crate::spool::write(client, id, &lines))?;
+        }
+        match (p.spl, p.echo) {
+            (Some(_), false) => {}
+            _ => {
+                for (page, line, text) in lines {
+                    if page > p.out_pos.0 {
+                        self.m.printed.push("\x0c".to_string());
+                        p.out_pos = (page, 0);
+                    }
+                    if line == p.out_pos.1 && line > 0 {
+                        if let Some(last) = self.m.printed.last_mut() {
+                            *last = super::overprint(last, &text);
+                            continue;
+                        }
+                    }
+                    while p.out_pos.1.saturating_add(1) < line {
+                        self.m.printed.push(String::new());
+                        p.out_pos.1 = p.out_pos.1.saturating_add(1);
+                    }
+                    self.m.printed.push(text);
+                    p.out_pos.1 = line;
+                }
+            }
+        }
+        Ok(())
+    }
 }

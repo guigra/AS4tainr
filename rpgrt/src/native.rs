@@ -317,6 +317,11 @@ pub trait Runtime {
         exprs: Vec<String>,
         outs: Vec<Option<SqlSlot>>,
     ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.78): EXCEPT `name` (or the records with no name): the
+    /// exception records whose conditions are met printed (interp.rs
+    /// except, print_record, print_line, out_text), their program
+    /// fields read and cleared at `fields`.
+    fn except(&mut self, pc: usize, name: Option<&str>, fields: Vec<OutSlot>) -> NResult<()>;
     /// Stage 2 (S2.72): CLOSE the cursor `name`; the outcome.
     fn sql_close(&mut self, pc: usize, name: &str) -> NResult<SqlResult>;
     /// Stage 2 (S2.71): GET DIAGNOSTICS's items' values about the last
@@ -362,6 +367,16 @@ pub struct SqlResult {
     pub text: String,
     pub rows: i64,
     pub errd5: i64,
+}
+
+/// A program field an output specification prints (S2.78): its name as
+/// the O spec gives it, its storage and type.
+#[derive(Clone, Debug)]
+pub struct OutSlot {
+    pub name: String,
+    pub buf: usize,
+    pub off: usize,
+    pub ty: DType,
 }
 
 /// A subfield of a host structure array (S2.74): its first element's
