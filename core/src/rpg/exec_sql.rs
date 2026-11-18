@@ -19,7 +19,7 @@ use crate::sql::{Exec, Session};
 #[derive(Default)]
 pub(super) struct SqlState {
     pub(super) session: Option<Session>,
-    cursors: HashMap<String, OpenCursor>,
+    pub(super) cursors: HashMap<String, OpenCursor>,
     /// PREPARE: statement name → text (with ? markers).
     pub(super) prepared: HashMap<String, String>,
     /// How the last statement other than GET DIAGNOSTICS ended.
@@ -99,13 +99,13 @@ impl SqlState {
     }
 }
 
-struct OpenCursor {
-    rows: Vec<Vec<Option<String>>>,
+pub(super) struct OpenCursor {
+    pub(super) rows: Vec<Vec<Option<String>>>,
     /// The current row: -1 before the first, rows.len() after the last.
-    pos: isize,
+    pub(super) pos: isize,
     /// A cursor over one table: each row's relative record number, for
     /// UPDATE and DELETE WHERE CURRENT OF.
-    rrns: Option<Vec<i64>>,
+    pub(super) rrns: Option<Vec<i64>>,
 }
 
 /// A cursor's query without its update or read-only clause.
