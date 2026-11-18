@@ -2220,3 +2220,20 @@ async fn native_unit_lowered_lookup_xfoot() {
     )
     .await;
 }
+
+// Stage 2, S2.86: fixed-form SORTA and MOVEA of character data lowered to
+// Rust.
+// Source: golden capture tools/golden/native86 n86_sortmovea (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_sorta_movea() {
+    let _ = require_db!();
+    expect(
+        "NSORTMV",
+        include_str!("native/NSORTMV.rpgle"),
+        &[
+            "S abcabdpqrxyz 30.0 -2.0 b2AA2c3MM3a1ZZ1",
+            "A abcabdpqrxyz|abc123456789|XY3456|XY       |",
+        ],
+    )
+    .await;
+}

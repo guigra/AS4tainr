@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.85");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.86");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -235,6 +235,18 @@ pub mod ir {
             input: Box<SqlIn>,
             out: Option<Box<SqlOut>>,
         },
+    }
+
+    /// A side of MOVEA (S2.86): an array (buf, off, stride, dim, type)
+    /// with its index field, a literal's bytes, or a field.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum MoveaOp {
+        Array {
+            arr: (usize, usize, usize, u32, Ty),
+            index: Option<Operand>,
+        },
+        Bytes(Vec<u8>),
+        Field(Operand),
     }
 
     /// A fixed-form array operation's parts (S2.85): LOOKUP's search
@@ -545,6 +557,18 @@ pub mod ir {
         /// indicators, the result.
         /// Boxed: the variants' sizes stay close (clippy::large_enum_variant).
         StrOp(Box<StrOpData>),
+        /// SORTA (S2.86): the array (buf, off, stride, dim, type, lead),
+        /// descending or not.
+        Sorta {
+            arr: (usize, usize, usize, u32, Ty, usize),
+            descend: bool,
+        },
+        /// MOVEA of character data (S2.86): factor 2 and the result.
+        Movea {
+            from: MoveaOp,
+            to: MoveaOp,
+            pad: bool,
+        },
         /// LOOKUP of an array or XFOOT (S2.85).
         ArrOp(Box<ArrOpData>),
         /// TESTN, TESTZ, TESTB, BITON or BITOFF (S2.84): the result field,
@@ -2521,6 +2545,72 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("sk{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::Sorta {
+                arr: (b, o, st, d, t, lead),
+                descend,
+            },
+        ) => guarded(
+            format!("rt.stmt({pc}).map(|()| {next})"),
+            format!(
+                "rt.sorta({pc}, rpgrt::native::ArrPlace {{ buf: {b}, off: {o}, stride: {st}, dim: {d}, ty: {}, lead: {lead} }}, {descend}).map(|()| {next})",
+                ty(t)
+            ),
+        ),
+        (ir::Kind::Stmt, ir::Lowered::Movea { from, to, pad }) => {
+            // ops.rs movea: the sides' places, then the runtime.
+            let side = |m: &ir::MoveaOp| -> Result<String, Error> {
+                Ok(match m {
+                    ir::MoveaOp::Array {
+                        arr: (b, o, st, d, t),
+                        index,
+                    } => format!(
+                        "rpgrt::native::MoveaSide::Array {{ arr: rpgrt::native::ArrPlace {{ buf: {b}, off: {o}, stride: {st}, dim: {d}, ty: {}, lead: 0 }}, index: {} }}",
+                        ty(t),
+                        match index {
+                            Some(i) => {
+                                let ir::Operand::Var { ty: it, .. } = i else {
+                                    return Err(bad());
+                                };
+                                let at = scalar_place(i).ok_or_else(bad)?;
+                                format!(
+                                    "{{ let (buf, off) = {at}; Some(rpgrt::native::OutSlot {{ name: String::new(), buf, off, ty: {} }}) }}",
+                                    ty(it)
+                                )
+                            }
+                            None => "None".to_string(),
+                        }
+                    ),
+                    ir::MoveaOp::Bytes(b) => format!("rpgrt::native::MoveaSide::Bytes(vec!{b:?})"),
+                    ir::MoveaOp::Field(f) => {
+                        let ir::Operand::Var { ty: ft, .. } = f else {
+                            return Err(bad());
+                        };
+                        let at = scalar_place(f).ok_or_else(bad)?;
+                        format!(
+                            "{{ let (buf, off) = {at}; rpgrt::native::MoveaSide::Field(rpgrt::native::OutSlot {{ name: String::new(), buf, off, ty: {} }}) }}",
+                            ty(ft)
+                        )
+                    }
+                })
+            };
+            let mut body = String::new();
+            let _ = writeln!(
+                body,
+                "    let from = {};\n    let to = {};\n    rt.movea({pc}, from, to, {pad})?;",
+                side(from)?,
+                side(to)?
+            );
+            let _ = writeln!(
+                helpers,
+                "\nfn mv{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("mv{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::ArrOp(d)) => {
