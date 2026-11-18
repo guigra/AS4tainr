@@ -60,6 +60,38 @@ fn require_db_url() -> String {
     db_url().unwrap_or_default()
 }
 
+/// Run a program and give the lines it printed with text in them (S2.78:
+/// PASE system's output of a spooled file, which the captures compare
+/// with, shows no blank lines and no page breaks).
+async fn printed(name: &str, source: &str) -> Vec<String> {
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    catalog::init(&client)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    let r = rpg::call(
+        &url,
+        vec!["QGPL".to_string()],
+        "QSECOFR".to_string(),
+        None,
+        None,
+        None,
+        name.to_string(),
+        source.to_string(),
+        vec![],
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{name}: {e:#}"));
+    assert!(r.error.is_none(), "{name}: {:?}", r.error);
+    r.printed
+        .iter()
+        .filter(|l| !l.trim().is_empty() && l.as_str() != "\x0c")
+        .cloned()
+        .collect()
+}
+
 async fn expect(name: &str, source: &str, want: &[&str]) {
     let got = shown(name, source).await;
     assert_eq!(got, want, "{name}");
@@ -1907,4 +1939,23 @@ async fn native_unit_lowered_path_two_indexes() {
         &["GV 10v1 20v2 30v3 L 40 1077952576", "ERROR 121"],
     )
     .await;
+}
+
+// Stage 2, S2.78: EXCEPT to a program-described printer file lowered to Rust.
+// Source: golden capture tools/golden/native78 n78_except (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_except() {
+    let _ = require_db!();
+    // The capture's lines as PASE system printed them, less PUB400's own
+    // last line (its "-=* https://pub400.com *=-" banner).
+    let want = [
+        "    REPORT         1",
+        "  ALPHA         1,234.50       7    FLAG",
+        "  BETA             42.00-      7",
+        "   UNNAMED",
+        "         7  TOT         42.00-",
+        "  BETA             42.00-",
+    ];
+    let got = printed("NEXCPT", include_str!("native/NEXCPT.rpgle")).await;
+    assert_eq!(got, want, "NEXCPT");
 }

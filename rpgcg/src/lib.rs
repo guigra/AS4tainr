@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.77");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.78");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -461,6 +461,12 @@ pub mod ir {
             sqlca: Box<[Operand; 5]>,
             name: String,
             args: Vec<SqlArg>,
+        },
+        /// EXCEPT (S2.78): the exception records' name, and the program
+        /// fields their output specifications name, with their places.
+        Except {
+            name: Option<String>,
+            fields: Vec<(String, Operand)>,
         },
         /// CLOSE (S2.72): the cursor; then the SQLCA.
         SqlClose {
@@ -2383,6 +2389,41 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("sk{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::Except { name, fields }) => {
+            // interp.rs except: the fields' places for this call, then the
+            // runtime prints the records.
+            let mut body = String::new();
+            let fm = if fields.is_empty() { "" } else { "mut " };
+            let _ = writeln!(
+                body,
+                "    let {fm}fields: Vec<rpgrt::native::OutSlot> = Vec::new();"
+            );
+            for (n, o) in fields {
+                let ir::Operand::Var { ty: t, .. } = o else {
+                    return Err(bad());
+                };
+                let at = scalar_place(o).ok_or_else(bad)?;
+                let _ = writeln!(
+                    body,
+                    "    {{\n        let (buf, off) = {at};\n        fields.push(rpgrt::native::OutSlot {{ name: {}.to_string(), buf, off, ty: {} }});\n    }}",
+                    json_str(n),
+                    ty(t)
+                );
+            }
+            let nm = match name {
+                Some(n) => format!("Some({})", json_str(n)),
+                None => "None".to_string(),
+            };
+            let _ = writeln!(body, "    rt.except({pc}, {nm}, fields)?;");
+            let _ = writeln!(
+                helpers,
+                "\nfn ex{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("ex{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::SqlClose { sqlca, name }) => {

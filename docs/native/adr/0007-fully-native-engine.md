@@ -850,3 +850,30 @@ The base place is the field's own, which program.rs gives at every index's first
 - uses an index that is itself such a path (`gv(s).m(gv(s).nm)`);
 - reads a subfield never set (blanks: x'40404040' as an int(10), 1077952576);
 - catches an inner index past its elements with MONITOR (ERROR 121).
+
+## S2.78: EXCEPT to a printer file
+
+**Lowered:** EXCEPT [name] with no error extender or indicators. Lowering looks at the records it may print:
+- its exception records;
+- when one fetches overflow, every heading, detail and total line of that printer.
+
+All of them must be to PRINTER files. Each program field they name must be a character, varying or numeric field with no index; a whole data structure prints as its bytes, but is not lowered when cleared after printing. An edit word given by name must be a named constant of the program. Generated code passes each field's place for this call (`OutSlot`), so the runtime reads a field when it prints it, and clears it after printing when the field is blank after.
+
+**Runtime.** It writes again interp.rs except, out_cond, conditions_met, print_record (fetch overflow), overflow_routine, overflow_line, overflow_ind, print_line, out_text and flush_printer, and printer.rs form_of and ensure_printer, without indexing and with checked arithmetic:
+- out_text: literals, PAGE to PAGE7, UDATE and *DATE, character fields, edit words, edit codes, and numbers with no edit code (zoned digits);
+- print_line: spacing and skipping, field ends, blank after, the overflow indicator, a flush every 50 lines;
+- ensure_printer: OVRPRTF SPLFNAME and USRDTA, the job's spooled file or the print job's, the last spooled file noted for QSPRILSP;
+- flush_printer: the spooled file, or the printed lines.
+
+The printers, the overflow state and the printed lines are the interpreter's. Its pure helpers edit_word, edit_code_with, today_num and overprint are called as they are.
+
+**Verified by** the native unit NEXCPT, under both engines. The program captured on PUB400 (tools/golden/native78.txt n78_except) prints:
+- HDR with PAGE edited Z;
+- DTL with a character field, edit codes J and Z, and a constant conditioned by an indicator, twice (on, then off);
+- an unnamed record with space after 2;
+- TOT with a field blank after and an edit word;
+- DTL again, the cleared field now blank.
+
+PASE system printed the spooled file on standard output. That shows no blank lines and adds PUB400's banner, so the unit compares the program's printed lines that have text, without the banner. Its program leaves out the capture's CLOSE and its reading of the spooled file with SQL (printer CLOSE is not lowered yet; the unit has no spooled file).
+
+native_tripwire.rs watches the functions written again.
