@@ -2091,3 +2091,28 @@ async fn native_unit_lowered_data_areas() {
     )
     .await;
 }
+
+// Stage 2, S2.81: %EDITC with a third argument lowered to Rust.
+// Source: golden capture tools/golden/native81 n81_editc (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_editc_third() {
+    let _ = require_db!();
+    expect(
+        "NEDITC3",
+        include_str!("native/NEDITC3.rpgle"),
+        &[
+            "A|*1,234.50 |*1,234.50|",
+            "C| $1,234.50 | $1,234.50  |",
+            "L| +1234.50| +1,234.50 |",
+            "A|****42.00-|****42.00|",
+            "C|    $42.00-|    $42.00CR|",
+            "L|   +42.00|    +42.00-|",
+            "A|******.00 |******.00|",
+            "C|      $.00 |      $.00  |",
+            // n81_editc's line is "L|     +.00|           |": the K part is not
+            // checked (NEDITC3.rpgle; fidelity.md, interpreter defects).
+            "L|     +.00|",
+        ],
+    )
+    .await;
+}

@@ -933,3 +933,17 @@ Three IBM i behaviors are not as4tainr's (fidelity.md):
 - OUT with no lock held.
 
 native_tripwire.rs watches the three functions.
+
+## S2.81: %EDITC's third argument
+
+**Lowered:** %EDITC (S2.26) with a third argument: *ASTFILL, *CURSYM, or a literal. Another expression is not lowered.
+
+**Runtime.** `rpgrt::native::editc_third` writes again interp.rs bif's EDITC arm on the edited text:
+- *ASTFILL puts asterisks for the leading blanks;
+- *CURSYM puts '$', and a literal its text without trailing blanks, right before the first character that is not blank.
+
+**Verified by** the native unit NEDITC3, under both engines. The program captured on PUB400 (tools/golden/native81.txt n81_editc) runs edit codes J, 1, A, 3 and K with each third argument over 1234.50, -42.00 and 0. PUB400's compiler takes no asterisk fill or floating symbol with Z (RNF6068).
+
+For zero with K and '+', IBM i gives all blanks, while the arm puts the '+' after them. That is an interpreter defect (fidelity.md); NEDITC3 leaves that part out.
+
+native_tripwire.rs watches bif, which holds the arm.

@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.81: %EDITC with a third argument (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native81.txt -f tools/golden/native81
+n81_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN81EDC) SRCSTMF('@HOME@/gld/gn81edc.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n81_editc|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN81EDC)"; cat gn1.out; rm -f gn1.out

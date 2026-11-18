@@ -932,8 +932,21 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
         // the code's first character (Z when it is empty), the program's
         // DECEDIT in the fingerprint, the interpreter's precision rule.
         Expr::Bif(b, args) if b == "EDITC" => {
-            let [x, Expr::Str(code)] = args.as_slice() else {
-                return None;
+            // A third argument (S2.81): *ASTFILL or *CURSYM, or a literal
+            // (another expression's value is not lowered).
+            let (x, code, third) = match args.as_slice() {
+                [x, Expr::Str(code)] => (x, code, None),
+                [x, Expr::Str(code), t] => {
+                    let third = match t {
+                        Expr::Name { parts, args: None } if matches!(parts.as_slice(), [p] if p == "*ASTFILL" || p == "*CURSYM") => {
+                            parts.first()?.clone()
+                        }
+                        Expr::Str(s) => super::super::data::a(s),
+                        _ => return None,
+                    };
+                    (x, code, Some(third))
+                }
+                _ => return None,
             };
             let mut ip = path.clone();
             ip.push(0);
@@ -947,6 +960,7 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                 code,
                 point,
                 zero,
+                third,
                 path,
             })
         }

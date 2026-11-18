@@ -1352,6 +1352,22 @@ pub fn editc(
     )?))
 }
 
+/// %EDITC's third argument (S2.81), as interp.rs's EDITC arm applies it
+/// to the edited text: *ASTFILL puts asterisks for its leading blanks;
+/// *CURSYM a '$', or another (a literal's text without its trailing
+/// blanks), right before its first character that is not blank.
+pub fn editc_third(edited: &Value, third: &str) -> NResult<Value> {
+    let out = data::a(&edited.chars()?);
+    let body = out.trim_start();
+    let lead = out.len().saturating_sub(body.len());
+    let head = out.get(..lead).unwrap_or("");
+    Ok(Value::str(&match third {
+        "*ASTFILL" => format!("{}{body}", "*".repeat(lead)),
+        "*CURSYM" => format!("{head}${body}"),
+        sym => format!("{head}{}{body}", sym.trim_end()),
+    }))
+}
+
 /// %LOOKUP's array (S2.27): the DIM elements of a global array, loaded as
 /// the interpreter's `list_of` loads them.
 pub fn lookup_list(

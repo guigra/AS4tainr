@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.80");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.81");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -644,6 +644,9 @@ pub mod ir {
             point: char,
             zero: bool,
             own: bool,
+            /// The third argument (S2.81): *ASTFILL, *CURSYM, or a literal's
+            /// text.
+            third: Option<String>,
             path: Vec<u8>,
         },
         /// %EDITW of a numeric expression with a literal edit word (S2.29);
@@ -3270,6 +3273,7 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
             point,
             zero,
             own,
+            third,
             path,
         } => {
             let name = format!("k{pc}_{}", path_id(path));
@@ -3288,7 +3292,14 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
             };
             let _ = writeln!(
                 helpers,
-                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let v = {x};\n{p}\n    rpgrt::native::editc(&v, p, {code:?}, {point:?}, {zero})\n}}"
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let v = {x};\n{p}\n    {}\n}}",
+                match third {
+                    None => format!("rpgrt::native::editc(&v, p, {code:?}, {point:?}, {zero})"),
+                    Some(t) => format!(
+                        "rpgrt::native::editc_third(&rpgrt::native::editc(&v, p, {code:?}, {point:?}, {zero})?, {})",
+                        json_str(t)
+                    ),
+                }
             );
             format!("{name}(rt)?")
         }
