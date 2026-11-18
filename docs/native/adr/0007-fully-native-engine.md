@@ -741,3 +741,27 @@ The plan's step 4, without the positioned UPDATE and DELETE. The user's second a
 PUB400's precompiler took no `FETCH ABSOLUTE 2` (SQL0104), so the capture leaves it out.
 
 native_tripwire.rs watches sql_open, sql_fetch, strip_cursor_clauses and with_rrn.
+
+## S2.73: UPDATE and DELETE WHERE CURRENT OF
+
+**Lowered:** an UPDATE or DELETE whose words include CURRENT OF (and CURRENT is a keyword at depth 0), as sql_statement tells it. Lowering takes it apart as positioned_change does:
+- the cursor after CURRENT OF;
+- the table (`UPDATE table`, `DELETE FROM table`);
+- the text before WHERE, in pieces around its host variables, with the inputs as in S2.70.
+
+**Runtime.** `Runtime::sql_positioned` (`sql_positioned_n`) writes again positioned_change:
+- -501 when the cursor is not open;
+- -510 when it is not over one table;
+- -508 when it is not on a row;
+- otherwise the bound text with `WHERE RRN(table) = n`, through sql_change, after sql_statement's start.
+
+**Verified by** the native unit NSQL5, under both engines. The program captured on PUB400 (tools/golden/native73.txt n73_sql) runs:
+- a cursor FOR UPDATE, with an UPDATE before the first FETCH (-508);
+- an UPDATE of the second row with a host variable (1 row);
+- a DELETE of the third;
+- an UPDATE after the last row (-508);
+- the rows left.
+
+After CLOSE, IBM i gives -507. positioned_change gives -501, an interpreter defect (fidelity.md), so NSQL5 stops that line before it.
+
+native_tripwire.rs watches positioned_change.

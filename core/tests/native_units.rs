@@ -1824,3 +1824,22 @@ async fn native_unit_lowered_sql_cursors() {
     )
     .await;
 }
+
+// Stage 2, S2.73: UPDATE and DELETE WHERE CURRENT OF lowered to Rust.
+// Source: golden capture tools/golden/native73 n73_sql (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_sql_positioned() {
+    let _ = require_db!();
+    expect(
+        "NSQL5",
+        include_str!("native/NSQL5.rpgle"),
+        &[
+            "BEFORE -508 UPD 0 1 DEL 0 1",
+            // n73_sql's line is "PAST 100 -508 CLOSED -507": the -507 part is
+            // not checked (NSQL5.rpgle; fidelity.md, interpreter defects).
+            "PAST 100 -508",
+            "LEFT 1one 2TWO! 4four",
+        ],
+    )
+    .await;
+}

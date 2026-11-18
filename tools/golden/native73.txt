@@ -1,0 +1,5 @@
+# Captures for stage 2, S2.73: UPDATE and DELETE WHERE CURRENT OF (one batch).
+# gn73sql.rpgle names its table in GUIGRA261, the library of the PUB400 account used.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native73.txt -f tools/golden/native73
+n73_crt_sql|!system "CRTSQLRPGI OBJ(@LIB@/GN73SQL) SRCSTMF('@HOME@/gld/gn73sql.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n73_sql|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN73SQL)"; cat gn1.out; rm -f gn1.out

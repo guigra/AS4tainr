@@ -500,6 +500,11 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 sqlca: Box::new(sqlca),
             }
         }
+        // UPDATE and DELETE WHERE CURRENT OF (S2.73).
+        Ins::Stmt(Stmt::Sql(text)) if sql_positioned_kind(text) => {
+            let sqlca = sqlca_ops(cx, &mut used)?;
+            sql_positioned(cx, text, sqlca, &mut used)?
+        }
         // Cursors (S2.72): OPEN, FETCH of one row, CLOSE.
         Ins::Stmt(Stmt::Sql(text)) if sql_cursor_kind(text) => {
             let sqlca = sqlca_ops(cx, &mut used)?;
@@ -4049,4 +4054,73 @@ fn sql_cursor(
         }
         _ => None,
     }
+}
+
+/// UPDATE or DELETE WHERE CURRENT OF, as exec_sql.rs sql_statement tells
+/// it (CURRENT a keyword at depth 0, then the words CURRENT OF) (S2.73).
+fn sql_positioned_kind(sql: &str) -> bool {
+    let sql = sql.trim();
+    let w: Vec<String> = sql
+        .split_whitespace()
+        .map(|x| x.to_ascii_uppercase())
+        .collect();
+    matches!(w.first().map(String::as_str), Some("UPDATE" | "DELETE"))
+        && sql_word_at(sql, "CURRENT").is_some()
+        && w.windows(2)
+            .any(|p| matches!(p, [a, b] if a == "CURRENT" && b == "OF"))
+}
+
+/// A positioned UPDATE or DELETE taken apart as exec_sql.rs
+/// positioned_change does (S2.73): the cursor after CURRENT OF, the table
+/// (UPDATE table, DELETE FROM table), and the text before WHERE with its
+/// host variables (bind_host).
+fn sql_positioned(
+    cx: &Cx<'_>,
+    sql: &str,
+    sqlca: [ir::Operand; 5],
+    used: &mut Vec<String>,
+) -> Option<ir::Lowered> {
+    let sql = sql.trim();
+    let w: Vec<String> = sql
+        .split_whitespace()
+        .map(|x| x.to_ascii_uppercase())
+        .collect();
+    let at = w
+        .windows(2)
+        .position(|p| matches!(p, [a, b] if a == "CURRENT" && b == "OF"))
+        .unwrap_or(0);
+    let cursor = w
+        .get(at.saturating_add(2))
+        .map(|n| n.trim_end_matches(';').to_string())
+        .unwrap_or_default();
+    let table = match w.first().map(String::as_str) {
+        Some("UPDATE") => w.get(1),
+        Some("DELETE") => w.get(2),
+        _ => None,
+    }
+    .cloned()
+    .unwrap_or_default();
+    let where_at = sql_word_at(sql, "WHERE").unwrap_or(sql.len());
+    let head = sql.get(..where_at)?.trim_end();
+    let (scanned, hosts) = sql_bind_scan(head);
+    let mut pieces = Vec::new();
+    let mut inputs = Vec::new();
+    let mut parts = scanned.into_iter();
+    pieces.push(parts.next()?);
+    for (hn, ind) in hosts {
+        let ins = sql_host_inputs(cx, &hn, ind, used)?;
+        for _ in 1..ins.len() {
+            pieces.push(", ".to_string());
+        }
+        inputs.extend(ins);
+        pieces.push(parts.next()?);
+    }
+    used.push(format!("sql positioned {cursor} {table}"));
+    Some(ir::Lowered::SqlPositioned {
+        sqlca: Box::new(sqlca),
+        cursor,
+        table,
+        pieces,
+        inputs,
+    })
 }
