@@ -556,3 +556,35 @@ A pointer argument for such a parameter still goes as a pointer. *STRING for a p
 - a varying field;
 - a concatenation;
 - a hexadecimal literal.
+
+## Plan: embedded SQL (S2.67 and on)
+
+EXEC SQL is the largest kind of instruction left in the interpreter: 92 in the corpus as of S2.63. The interpreter's exec_sql.rs (about 1,700 lines) resolves everything by name when it runs:
+- host variables, read with eval and written with assign;
+- the SQLCA (SQLCODE, SQLSTATE, SQLERRMC, SQLERRD);
+- cursors, prepared statements, GET DIAGNOSTICS.
+
+The statement itself runs on sql::Session, which is a runtime library, not the interpreter.
+
+**Approach, as for files (S2.58):** lowering resolves the host variables named in the statement to operands. Generated code reads their values from storage before the statement, and stores what comes back after it. The runtime writes again what exec_sql.rs does around the Session call:
+- the statement's kind;
+- the binding of values;
+- the SQLCODE and SQLSTATE for each outcome;
+- the SQLCA's fields, stored by generated code as operands.
+
+native_tripwire.rs watches each copied function. Session and sql.rs (translation, the as4tainr_sql login) are shared, never copied.
+
+**Steps, each with its own PUB400 captures and section 7:**
+1. **Statements with no host variables:** DDL, SET OPTION, COMMIT/ROLLBACK, INSERT/UPDATE/DELETE of literals. The SQLCA comes back set.
+2. **SELECT INTO and VALUES INTO**, with host variables and indicator variables (one row: SQLCODE 100 for none, -811 for more than one).
+3. **INSERT, UPDATE and DELETE with input host variables.**
+4. **Cursors:** DECLARE, OPEN, FETCH INTO (one row, then several rows into a data structure array), CLOSE, positioned UPDATE and DELETE.
+5. **GET DIAGNOSTICS, CALL, PREPARE/EXECUTE/EXECUTE IMMEDIATE, and SET RESULT SETS.**
+
+Each step keeps the interpreter as the reference (native-diff), and records any difference from IBM i in fidelity.md.
+
+## S2.67: %SCANR, %LEFT and %RIGHT
+
+%SCANR of character expressions, with a start and a length that are numeric literals or fields, and %LEFT and %RIGHT of a character expression with such a length, are now lowered. They are bifs.rs's arms, written again in rpgrt (`scanr`, `left_right`): the same checks, the same RNQ0100 messages, and the arguments in the same order. One difference from the interpreter: a %SCANR start more than one past the end with no length is RNQ0100 there too, where the interpreter's default length subtracts past zero (fidelity.md).
+
+**Verified by** the native unit NSCANR, under both engines. Its program was captured on PUB400 (tools/golden/native67.txt n67_str). %SCANR is called with and without a start and a length, with a pattern that is not found, and with a pattern longer than the part searched. %LEFT and %RIGHT take a field and an expression, with lengths of 0 and of the whole string. Under MONITOR, a length longer than the string and a %SCANR length past the end both give 00100.

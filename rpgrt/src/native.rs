@@ -649,6 +649,83 @@ pub fn scan(pat: &[u8], s: &[u8], start: Option<&Value>) -> NResult<Dec> {
     Ok(Dec::from_i64(i64::try_from(found)?))
 }
 
+/// %SCANR (S2.67): the position of the last occurrence of `pat` in `s`
+/// from `start` (1 if none) for `len` bytes (to the end if none), 0 if it
+/// is not there or `pat` is empty; the interpreter's "SCANR" arm. A start
+/// below 1, or a start and length past the end, is RNQ0100, as there. A
+/// start more than one past the end with no length (where the
+/// interpreter's default length subtracts past zero, a panic in a debug
+/// build) is RNQ0100 too (fidelity.md).
+pub fn scanr(pat: &[u8], s: &[u8], start: Option<&Value>, len: Option<&Value>) -> NResult<Dec> {
+    let out = || anyhow::anyhow!("RNQ0100: %SCANR start or length is outside the string.");
+    let total = i128::try_from(s.len())?;
+    let start = match start {
+        Some(x) => x.num()?.to_i128()?,
+        None => 1,
+    };
+    let len = match len {
+        Some(x) => x.num()?.to_i128()?,
+        None => total
+            .checked_add(1)
+            .and_then(|t| t.checked_sub(start.max(1)))
+            .ok_or_else(out)?,
+    };
+    if start < 1 || len < 0 {
+        return Err(out());
+    }
+    let end = start
+        .checked_sub(1)
+        .and_then(|b| b.checked_add(len))
+        .ok_or_else(out)?;
+    if end > total {
+        return Err(out());
+    }
+    let from = usize::try_from(start.checked_sub(1).ok_or_else(out)?)?;
+    let to = usize::try_from(end)?;
+    let hay = s.get(from..to).ok_or_else(out)?;
+    let found = if pat.is_empty() || pat.len() > hay.len() {
+        0
+    } else {
+        hay.windows(pat.len())
+            .rposition(|w| w == pat)
+            .and_then(|p| i128::try_from(p).ok())
+            .and_then(|p| p.checked_add(start))
+            .unwrap_or(0)
+    };
+    Ok(Dec::from_i64(i64::try_from(found)?))
+}
+
+/// %LEFT (`left`) or %RIGHT (S2.67): the first, or last, `n` bytes of `s`;
+/// the interpreter's "LEFT" | "RIGHT" arm, RNQ0100 when `n` is longer than
+/// the string (a negative `n` is, as its `as usize` makes it, a number past
+/// any length).
+pub fn left_right(s: &[u8], n: &Value, left: bool) -> NResult<Value> {
+    let n = n.num()?.to_i128()?;
+    let len = i128::try_from(s.len())?;
+    if n < 0 || n > len {
+        // The interpreter's message shows `n as usize`.
+        let shown = if n < 0 {
+            n.checked_add(1i128 << 64).unwrap_or(n)
+        } else {
+            n
+        };
+        anyhow::bail!(
+            "RNQ0100: %{} length {shown} is longer than the string.",
+            if left { "LEFT" } else { "RIGHT" }
+        );
+    }
+    let k = usize::try_from(n)?;
+    let part = if left {
+        s.get(..k)
+    } else {
+        s.len().checked_sub(k).and_then(|f| s.get(f..))
+    };
+    Ok(Value::Char(
+        part.ok_or_else(|| anyhow::anyhow!("native: %LEFT/%RIGHT"))?
+            .to_vec(),
+    ))
+}
+
 /// %CHECK (`rev` false) or %CHECKR with no start (S2.34): the position of
 /// the first, or last, character of `s` that is not in `set`, 0 when every
 /// one is; the interpreter's "CHECK" | "CHECKR" arm.

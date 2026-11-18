@@ -665,6 +665,18 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                 path,
             })
         }
+        // %LEFT and %RIGHT of a character expression, with a length that is
+        // a numeric literal or field (S2.67).
+        Expr::Bif(b, args) if (b == "LEFT" || b == "RIGHT") && args.len() == 2 => {
+            let mut sp = path.clone();
+            sp.push(0);
+            Some(ir::CharExpr::LeftRight {
+                left: b == "LEFT",
+                s: Box::new(char_expr(cx, args.first()?, used, sp)?),
+                n: operand(cx, args.get(1)?, used)?,
+                path,
+            })
+        }
         // %SUBST of a character expression, with a start and a length that
         // are numeric literals or fields (S2.10).
         Expr::Bif(b, args) if b == "SUBST" => {
@@ -1180,6 +1192,33 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
         }
         // %SCAN of character expressions, with a start that is a numeric
         // literal or field (S2.12).
+        // %SCANR of character expressions, with a start and a length that
+        // are numeric literals or fields (S2.67).
+        Expr::Bif(b, args) if b == "SCANR" => {
+            let (pat, s, start, len) = match args.as_slice() {
+                [p, s] => (p, s, None, None),
+                [p, s, st] => (p, s, Some(st), None),
+                [p, s, st, ln] => (p, s, Some(st), Some(ln)),
+                _ => return None,
+            };
+            let mut pp = path.clone();
+            pp.push(0);
+            let mut sp = path.clone();
+            sp.push(1);
+            Some(ir::NumExpr::ScanR {
+                pat: Box::new(char_expr(cx, pat, used, pp)?),
+                s: Box::new(char_expr(cx, s, used, sp)?),
+                start: match start {
+                    Some(x) => Some(operand(cx, x, used)?),
+                    None => None,
+                },
+                len: match len {
+                    Some(x) => Some(operand(cx, x, used)?),
+                    None => None,
+                },
+                path,
+            })
+        }
         Expr::Bif(b, args) if b == "SCAN" => {
             let (pat, s, start) = match args.as_slice() {
                 [p, s] => (p, s, None),
