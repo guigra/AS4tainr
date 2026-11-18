@@ -1014,6 +1014,28 @@ impl Runtime for Rt<'_, '_> {
         self.file_change_n(pc, keys, rec)
     }
 
+    fn exec_sql_dyn(
+        &mut self,
+        pc: usize,
+        kind: rpgrt::native::SqlDyn,
+        name: &str,
+        text: Option<Value>,
+        lits: Vec<String>,
+    ) -> NResult<rpgrt::native::SqlResult> {
+        let o = self.exec_sql_dyn_n(pc, kind, name, text, lits)?;
+        Ok(sql_result(o))
+    }
+
+    fn sql_diagnostics(
+        &mut self,
+        pc: usize,
+        condition: bool,
+        items: &[&str],
+    ) -> NResult<(Vec<Value>, rpgrt::native::SqlResult)> {
+        let (vals, o) = self.sql_diagnostics_n(pc, condition, items)?;
+        Ok((vals, sql_result(o)))
+    }
+
     fn exec_sql_hosts(
         &mut self,
         pc: usize,
@@ -2547,6 +2569,126 @@ impl Rt<'_, '_> {
         Ok(out)
     }
 
+    /// exec_sql.rs exec_sql for PREPARE, EXECUTE IMMEDIATE and EXECUTE
+    /// (S2.71): sql_statement's start, then its arm: PREPARE keeps the
+    /// text (statement_text: the value's characters, trimmed) under the
+    /// name; EXECUTE IMMEDIATE runs the text, EXECUTE the prepared one with
+    /// the USING literals for its markers (fill_markers; SQL0518 when it
+    /// was not prepared), as DDL (sql_ddl) or else through sql_change. An
+    /// SQL error as the outcome, kept as the last.
+    fn exec_sql_dyn_n(
+        &mut self,
+        pc: usize,
+        kind: rpgrt::native::SqlDyn,
+        name: &str,
+        text: Option<Value>,
+        lits: Vec<String>,
+    ) -> NResult<SqlOut> {
+        use rpgrt::native::SqlDyn;
+        let sql = match &at(self.code, pc)?.ins {
+            Ins::Stmt(super::super::ast::Stmt::Sql(t)) => t.clone(),
+            _ => return Err(mismatch(pc, "an EXEC SQL")),
+        };
+        let statement_text = |v: Option<Value>| -> NResult<String> {
+            let v = v.ok_or_else(|| anyhow!("native: a statement's text"))?;
+            Ok(a(&v.chars()?).trim().to_string())
+        };
+        let r = (|| -> NResult<SqlOut> {
+            if let Some(o) = self.sql_prologue_n(sql.trim())? {
+                return Ok(o);
+            }
+            let run = match kind {
+                SqlDyn::Prepare => {
+                    let t = statement_text(text)?;
+                    self.m.sql.prepared.insert(name.to_string(), t);
+                    return Ok(sql_ok(0));
+                }
+                SqlDyn::Immediate => statement_text(text)?,
+                SqlDyn::Execute => {
+                    let t =
+                        self.m.sql.prepared.get(name).cloned().ok_or_else(|| {
+                            anyhow!("SQL0518: Statement {name} was not prepared.")
+                        })?;
+                    super::exec_sql::fill_markers(&t, &lits)?
+                }
+            };
+            if let Some(o) = self.sql_ddl_n(&run)? {
+                return Ok(o);
+            }
+            self.sql_change_n(&run)
+        })();
+        let out = match r {
+            Ok(o) => o,
+            Err(e) => match sql_error_n(&e) {
+                Some(o) => o,
+                None => return Err(e),
+            },
+        };
+        self.m.sql.last = Some(out.clone());
+        Ok(out)
+    }
+
+    /// exec_sql.rs get_diagnostics (S2.71): about the last statement (none:
+    /// SQLCODE 0), ROW_COUNT; with CONDITION, MESSAGE_TEXT (the text after
+    /// its message ID), MESSAGE_LENGTH, RETURNED_SQLSTATE,
+    /// DB2_RETURNED_SQLCODE, MESSAGE_ID and DB2_MESSAGE_ID; another item
+    /// ends with SQLCODE -104. An SQL error as the outcome; the last is
+    /// not changed.
+    fn sql_diagnostics_n(
+        &mut self,
+        pc: usize,
+        condition: bool,
+        items: &[&str],
+    ) -> NResult<(Vec<Value>, SqlOut)> {
+        if !matches!(
+            &at(self.code, pc)?.ins,
+            Ins::Stmt(super::super::ast::Stmt::Sql(_))
+        ) {
+            return Err(mismatch(pc, "an EXEC SQL"));
+        }
+        let last = self.m.sql.last.clone().unwrap_or_else(|| sql_ok(0));
+        let id = last
+            .text
+            .split(':')
+            .next()
+            .filter(|p| p.len() == 7 && p.starts_with("SQL"))
+            .unwrap_or("")
+            .to_string();
+        let text = if id.is_empty() {
+            last.text.clone()
+        } else {
+            last.text
+                .get(id.len().saturating_add(1)..)
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        };
+        let mut vals = Vec::new();
+        for item in items {
+            let v = match (condition, item.to_ascii_uppercase().as_str()) {
+                (false, "ROW_COUNT") => Value::Num(Dec::from_i64(last.rows)),
+                (true, "MESSAGE_TEXT") => Value::str(&text),
+                (true, "MESSAGE_LENGTH") => {
+                    Value::Num(Dec::from_i64(i64::try_from(text.chars().count())?))
+                }
+                (true, "RETURNED_SQLSTATE") => Value::str(&last.state),
+                (true, "DB2_RETURNED_SQLCODE") => Value::Num(Dec::from_i64(last.code)),
+                (true, "MESSAGE_ID" | "DB2_MESSAGE_ID") => Value::str(&id),
+                (_, other) => {
+                    return Ok((
+                        vals,
+                        sql_err(
+                            -104,
+                            format!("SQL0104: GET DIAGNOSTICS item {other} is not supported."),
+                        ),
+                    ))
+                }
+            };
+            vals.push(v);
+        }
+        Ok((vals, sql_ok(0)))
+    }
+
     /// exec_sql.rs single_row: exactly one row into the host variables
     /// (none: +100; more: the first row's values, then -811).
     fn single_row_n(&mut self, query: &str, outs: &[rpgrt::native::SqlSlot]) -> NResult<SqlOut> {
@@ -2957,5 +3099,16 @@ impl Rt<'_, '_> {
             .session
             .as_ref()
             .ok_or_else(|| anyhow!("native: no SQL session"))
+    }
+}
+
+/// An outcome as generated code takes it (S2.71).
+fn sql_result(o: SqlOut) -> rpgrt::native::SqlResult {
+    rpgrt::native::SqlResult {
+        code: o.code,
+        state: o.state,
+        text: o.text,
+        rows: o.rows,
+        errd5: o.errd5,
     }
 }

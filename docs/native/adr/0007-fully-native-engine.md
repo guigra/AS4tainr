@@ -673,3 +673,33 @@ The SQLCA is stored as in step 1.
 Two of the capture's lines are interpreter defects (fidelity.md), so NSQL2 does not check them: the variable is not cleared with a null, and a CHAR host variable loses its blanks in UPPER.
 
 native_tripwire.rs watches host_list, literal, host_literal, host_targets, bind_host, assign_hosts and single_row.
+
+## S2.71: dynamic SQL and GET DIAGNOSTICS
+
+The plan's step 5, except CALL and the cursors. These are now lowered:
+- PREPARE name FROM :text, and EXECUTE IMMEDIATE :text, where the text is a character or varying field (statement_text);
+- EXECUTE name [USING :host, ...]: using_values, with host_literal's literals per host variable and a data structure's fields joined with ", ";
+- GET DIAGNOSTICS: ROW_COUNT, or CONDITION n with MESSAGE_TEXT, MESSAGE_LENGTH, RETURNED_SQLSTATE, DB2_RETURNED_SQLCODE, MESSAGE_ID or DB2_MESSAGE_ID, into the fields of each target (host_targets).
+
+**Runtime.**
+- `Runtime::exec_sql_dyn` runs sql_statement's start, then its arm. PREPARE keeps the trimmed text under the statement's name in the interpreter's `prepared`, which the two engines share. EXECUTE IMMEDIATE and EXECUTE run the text (for EXECUTE, the prepared one with fill_markers' literals; SQL0518 when it was not prepared) through sql_ddl, or else sql_change. The outcome is kept as the last.
+- `Runtime::sql_diagnostics` gives the items' values from the last outcome (get_diagnostics: the message ID split from the text) and SQLCODE 0. The last is not changed.
+
+**Lowering refuses** (the interpreter keeps them):
+- GET DIAGNOSTICS with an item get_diagnostics does not support, whose -104 the interpreter gives;
+- a statement text that is not a character operand;
+- a host variable lowering cannot resolve, as in S2.70.
+
+OPEN, FETCH and CLOSE need the interpreter's `cursors` and its `OpenCursor`. Those stay private: the user's authorization of 2026-11-18 left them out. They wait for the user's decision (HANDOFF.md).
+
+**Verified by** the native unit NSQL3, under both engines. The program captured on PUB400 (tools/golden/native71.txt n71_sql) runs:
+- EXECUTE IMMEDIATE of DDL and DML;
+- ROW_COUNT;
+- PREPARE from a varying field and from a fixed one;
+- EXECUTE USING a character and a numeric value, and an indicator of -1;
+- a prepared DELETE twice (2 rows, then +100);
+- CONDITION 1's items after a missing table (42704, -204, SQL0204).
+
+Its CREATE line (+7905) is the interpreter defect of S2.69. In the capture each GET DIAGNOSTICS comes right after its statement, because the capture's own output is an SQL CALL.
+
+native_tripwire.rs watches get_diagnostics, statement_text and using_values.

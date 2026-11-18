@@ -2,30 +2,36 @@
 
 Last update: 2026-11-18 01:40 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
 
-## Now (2026-11-18)
+## Now (2026-11-18, 04:15 UTC)
 
-**Stage 2 is committed up to S2.67**, each block validated by a full section 7 on the ARM64 VM:
-- corpus coverage 87.6% native;
-- level 2 rust: 668 of 690 tests the same as the interpreter.
+**Stage 2 is committed up to S2.68**, each block validated by a full section 7 on the ARM64 VM:
+- corpus coverage 87.8% native;
+- level 2 rust: 669 of 691 tests the same as the interpreter.
 
-**S2.68** (%XFOOT, %MAXARR, %MINARR) is snapshot `2b55164`, running its section 7 on the VM (`s7f-s268`).
+**Validated or validating, as snapshots chained one on the other** (`as4tainr-up-logs/s7-<tag>.commit`):
 
-**Recent blocks**, one commit each, built from a validated snapshot with `git commit-tree` on the snapshot's tree:
+| Snapshot | What | Where its section 7 runs |
+| --- | --- | --- |
+| `7e86004` sqlvis | exec_sql.rs's `pub(super)` (the user's authorization of 2026-11-18), its own commit | ARM (`s7f-sqlvis`) |
+| `9d728ae` S2.69 | embedded SQL with no host variables | ARM after sqlvis (`chain269.sh`) |
+| `b521505` S2.70 | host variables: SELECT/VALUES INTO, SET, changes | jsr-test-2 (`s7f-s270`) |
+| S2.71 | PREPARE, EXECUTE, EXECUTE IMMEDIATE, GET DIAGNOSTICS | worktree; units running on x86 |
 
-| Block | What |
-| --- | --- |
-| S2.58 | file reads |
-| S2.59 | WRITE, UPDATE and DELETE |
-| S2.60 | data structures and hexadecimal literals as call arguments |
-| S2.61 | the module's globals in procedures |
-| S2.62 | indicators in concatenations |
-| S2.63 | local arrays |
-| S2.64 | multiple-occurrence data structures |
-| S2.65 | %ADDR of locals |
-| S2.66 | OPTIONS(*STRING) for C functions |
-| S2.67 | %SCANR, %LEFT, %RIGHT |
+Commit each in order once its run passes.
 
-**Next: embedded SQL** (92 instructions). Its plan is in ADR 0007, "Plan: embedded SQL", in five steps. After that, the long tail the AS4TAINR_NATIVE_WHY pass lists, now with program and line:
+**Waiting for the user: cursors.** OPEN, FETCH and CLOSE need the interpreter's `SqlState.cursors` and the private `OpenCursor` struct (rows, pos, rrns). Without them, a cursor opened natively and fetched by the interpreter (or the other way) would not be shared. The 2026-11-18 authorization left `cursors` out, so I did not widen it.
+
+The question for the user: may `OpenCursor` and its fields and `SqlState.cursors` be `pub(super)` too? It is visibility only, the same kind of touch point.
+
+Steps 4 and 5 of the SQL plan wait on that answer:
+- cursors, with FETCH, positioned UPDATE and DELETE;
+- CALL and the multiple-row INSERT and FETCH.
+
+**jsr-test-2** (x86, 10.0.1.1) had no `/QSYS.LIB` directory, and qsh_commands_see_qsys_lib fails without one. It was made with sudo on 2026-11-18, as on the ARM VM and the dev host.
+
+change_a_physical_file_with_a_logical_file_over_it failed in all three of S2.68's native-diff suites on jsr-test-2, interpreter included. It passes alone 4 times out of 4, and in the plain section 7 runs. It looks like an upstream flake in that environment, under QTEMP. Watch it in S2.70's run.
+
+**Next, after SQL:** the long tail the AS4TAINR_NATIVE_WHY pass lists, now with program and line:
 - temporal forms (%CHAR of time + duration, %DATE with *MDY or a number, %DEC of a date);
 - procedure pointers, %CONCAT, data imports;
 - nested data structure subfields;
