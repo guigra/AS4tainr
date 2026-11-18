@@ -317,6 +317,11 @@ pub trait Runtime {
         exprs: Vec<String>,
         outs: Vec<Option<SqlSlot>>,
     ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.84): TESTN, TESTZ, TESTB, BITON or BITOFF (ops.rs
+    /// bit_op) on the result field at `slot`, with the bits of TESTB,
+    /// BITON and BITOFF (`mask`, a literal's, or a field's bytes), and the
+    /// resulting indicators.
+    fn bit_op(&mut self, pc: usize, op: BitOpIn) -> NResult<()>;
     /// Stage 2 (S2.83): a fixed-form string operation (ops.rs string_op:
     /// SCAN, CHECK, CHECKR, SUBST, XLATE, CAT) on the factors' values,
     /// into the result, with its error (`lo`) and found (`eq`)
@@ -395,6 +400,30 @@ pub struct SqlResult {
     pub text: String,
     pub rows: i64,
     pub errd5: i64,
+}
+
+/// A fixed-form bit or test operation (S2.84).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BitCode {
+    TestN,
+    TestZ,
+    TestB,
+    BitOn,
+    BitOff,
+}
+
+/// A bit or test operation's parts (S2.84): the result field, the bits
+/// (a literal's mask, or a field's bytes, the first one the mask), the
+/// resulting indicators (high, low, equal).
+#[derive(Clone, Debug)]
+pub struct BitOpIn {
+    pub code: BitCode,
+    pub slot: OutSlot,
+    pub mask: Option<u8>,
+    pub mask_bytes: Option<Vec<u8>>,
+    pub hi: Option<String>,
+    pub lo: Option<String>,
+    pub eq: Option<String>,
 }
 
 /// A fixed-form string operation (S2.83).

@@ -980,3 +980,22 @@ Fields with no index cannot fail when read, so taking them before the operation 
 - CAT with factor 1, with :1 blank, and with P and no factor 1.
 
 native_tripwire.rs watches string_op, split, put_positions, put_left and op_error.
+
+## S2.84: fixed-form bit and test operations
+
+**Lowered:** TESTN, TESTZ, TESTB, BITON and BITOFF, with no extender, whose result is a character or varying field with no index. The bits of TESTB, BITON and BITOFF are a literal of bit numbers 0-7 (bit_mask's mask, made when lowering; another digit, the interpreter's error, is not lowered) or such a field, whose first byte is the mask.
+
+**Runtime.** `bit_op_n` writes again ops.rs bit_op's arms, and interp.rs set_result_inds:
+- TESTN: digits, a sign zone on the last digit; leading blanks low; all blanks equal;
+- TESTZ: the first character's zone;
+- TESTB: off high, mixed low, on equal;
+- BITON and BITOFF: the one byte, stored with the strict fit, or the error for a longer field.
+
+**Verified by** the native unit NBITOPS, under both engines. The program captured on PUB400 (tools/golden/native84.txt n84_bitops) runs:
+- TESTN on '123', ' 12', '1A3', blanks and '12C';
+- TESTZ on A, J, 1, & and -;
+- BITON '0167', and TESTB with two and three bits;
+- BITOFF '0', and TESTB of one bit (no low indicator: RNF5117);
+- TESTB with the bits of a field, and BITOFF with a field.
+
+native_tripwire.rs watches bit_op, bit_mask and set_result_inds.

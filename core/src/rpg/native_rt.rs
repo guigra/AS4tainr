@@ -1120,6 +1120,13 @@ impl Runtime for Rt<'_, '_> {
         self.printer_op_n(pc)
     }
 
+    fn bit_op(&mut self, pc: usize, op: rpgrt::native::BitOpIn) -> NResult<()> {
+        if !matches!(&at(self.code, pc)?.ins, Ins::Stmt(_)) {
+            return Err(mismatch(pc, "a bit operation"));
+        }
+        self.bit_op_n(&op)
+    }
+
     fn str_op(
         &mut self,
         pc: usize,
@@ -4944,6 +4951,107 @@ impl Rt<'_, '_> {
                 }
                 s.extend(op.f2.iter().copied());
                 self.put_left_n(r, &s, op.pad)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+// ---- fixed-form bit and test operations (S2.84) -----------------------
+
+impl Rt<'_, '_> {
+    /// interp.rs set_result_inds: each indicator given set.
+    fn set_result_inds_n(
+        &mut self,
+        hi_i: &Option<String>,
+        lo_i: &Option<String>,
+        eq_i: &Option<String>,
+        (hi, lo, eq): (bool, bool, bool),
+    ) {
+        if let Some(i) = hi_i {
+            self.m.set_ind(i, hi);
+        }
+        if let Some(i) = lo_i {
+            self.m.set_ind(i, lo);
+        }
+        if let Some(i) = eq_i {
+            self.m.set_ind(i, eq);
+        }
+    }
+
+    /// ops.rs bit_op for TESTN (digits, a sign zone on the last; leading
+    /// blanks low; all blanks equal), TESTZ (the first character's zone:
+    /// '&' and A-I high, '-' and J-R low), TESTB (bits off high, mixed
+    /// low, on equal), BITON and BITOFF (the one byte changed, the strict
+    /// fit).
+    fn bit_op_n(&mut self, op: &rpgrt::native::BitOpIn) -> NResult<()> {
+        use rpgrt::native::BitCode;
+        let slot = &op.slot;
+        let b = rpgrt::native::load(&self.m.bufs, slot.buf, slot.off, slot.ty)?.chars()?;
+        match op.code {
+            BitCode::TestN => {
+                let digit = |c: u8, last: bool| {
+                    (c & 0x0F) <= 9 && (c >> 4 == 0xF || (last && (c >> 4 == 0xC || c >> 4 == 0xD)))
+                };
+                let lead = b.iter().take_while(|c| **c == data::BLANK).count();
+                let all_blank = lead == b.len();
+                let rest = b.get(lead..).unwrap_or(&[]);
+                let numeric = !rest.is_empty()
+                    && rest
+                        .iter()
+                        .enumerate()
+                        .all(|(i, c)| digit(*c, i.saturating_add(1) == rest.len()));
+                self.set_result_inds_n(
+                    &op.hi,
+                    &op.lo,
+                    &op.eq,
+                    (numeric && lead == 0, numeric && lead > 0, all_blank),
+                );
+            }
+            BitCode::TestZ => {
+                let c = b.first().copied().unwrap_or(data::BLANK);
+                let hi = c == 0x50 || c >> 4 == 0xC;
+                let lo = c == 0x60 || c >> 4 == 0xD;
+                self.set_result_inds_n(&op.hi, &op.lo, &op.eq, (hi, lo, !hi && !lo));
+            }
+            BitCode::TestB | BitCode::BitOn | BitCode::BitOff => {
+                let mask = match (&op.mask, &op.mask_bytes) {
+                    (Some(m), _) => *m,
+                    (None, Some(bytes)) => bytes.first().copied().unwrap_or(0),
+                    (None, None) => return Err(anyhow!("native: the bits")),
+                };
+                let mut b = b;
+                let code = match op.code {
+                    BitCode::TestB => "TESTB",
+                    BitCode::BitOn => "BITON",
+                    _ => "BITOFF",
+                };
+                let [byte] = b.as_mut_slice() else {
+                    return Err(anyhow!("{code}: the result field must be one byte long"));
+                };
+                match op.code {
+                    BitCode::BitOn => *byte |= mask,
+                    BitCode::BitOff => *byte &= !mask,
+                    _ => {
+                        let on = *byte & mask;
+                        self.set_result_inds_n(
+                            &op.hi,
+                            &op.lo,
+                            &op.eq,
+                            (on == 0, on != 0 && on != mask, on == mask && mask != 0),
+                        );
+                        return Ok(());
+                    }
+                }
+                rpgrt::native::store(
+                    &mut self.m.bufs,
+                    slot.buf,
+                    slot.off,
+                    slot.ty,
+                    &Value::Char(b),
+                    Fit::Strict { half_adjust: false },
+                    false,
+                )?;
             }
         }
         Ok(())
