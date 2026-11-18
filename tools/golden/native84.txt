@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.84: fixed-form bit and test operations (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native84.txt -f tools/golden/native84
+n84_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN84BIT) SRCSTMF('@HOME@/gld/gn84bit.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n84_bitops|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN84BIT)"; cat gn1.out; rm -f gn1.out

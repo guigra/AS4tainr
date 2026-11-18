@@ -2186,3 +2186,20 @@ async fn native_unit_lowered_fixed_string_ops() {
     )
     .await;
 }
+
+// Stage 2, S2.84: fixed-form bit and test operations lowered to Rust.
+// Source: golden capture tools/golden/native84 n84_bitops (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_bit_ops() {
+    let _ = require_db!();
+    expect(
+        "NBITOPS",
+        include_str!("native/NBITOPS.rpgle"),
+        &[
+            "N 100 010 000 001 100",
+            "Z 100 010 001 100 010",
+            "B 001 010 110 010 010",
+        ],
+    )
+    .await;
+}

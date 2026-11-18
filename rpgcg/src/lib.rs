@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.83");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.84");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -235,6 +235,28 @@ pub mod ir {
             input: Box<SqlIn>,
             out: Option<Box<SqlOut>>,
         },
+    }
+
+    /// A fixed-form bit or test operation's parts (S2.84).
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct BitOpData {
+        pub code: BitCode,
+        pub target: Operand,
+        pub mask: Option<u8>,
+        pub mask_field: Option<Operand>,
+        pub hi: Option<String>,
+        pub lo: Option<String>,
+        pub eq: Option<String>,
+    }
+
+    /// A fixed-form bit or test operation (S2.84).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum BitCode {
+        TestN,
+        TestZ,
+        TestB,
+        BitOn,
+        BitOff,
     }
 
     /// A fixed-form string operation's parts (S2.83).
@@ -507,6 +529,9 @@ pub mod ir {
         /// indicators, the result.
         /// Boxed: the variants' sizes stay close (clippy::large_enum_variant).
         StrOp(Box<StrOpData>),
+        /// TESTN, TESTZ, TESTB, BITON or BITOFF (S2.84): the result field,
+        /// the bits (a literal's mask, or a field), the indicators.
+        BitOp(Box<BitOpData>),
         /// IN or OUT of data areas (S2.80): with *LOCK or not, and each
         /// data area's field name, its place and its *VAR: name field.
         DataArea {
@@ -2478,6 +2503,51 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("sk{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::BitOp(d)) => {
+            // ops.rs bit_op: the result's place, the bits, then the runtime.
+            let ir::BitOpData {
+                code,
+                target,
+                mask,
+                mask_field,
+                hi,
+                lo,
+                eq,
+            } = d.as_ref();
+            let name = |n: &Option<String>| match n {
+                Some(n) => format!("Some({}.to_string())", json_str(n)),
+                None => "None".to_string(),
+            };
+            let ir::Operand::Var { ty: t, .. } = target else {
+                return Err(bad());
+            };
+            let at = scalar_place(target).ok_or_else(bad)?;
+            let m = match mask {
+                Some(m) => format!("Some({m})"),
+                None => "None".to_string(),
+            };
+            let mb = match mask_field {
+                Some(o) => format!("Some({}.chars()?)", value(o)),
+                None => "None".to_string(),
+            };
+            let mut body = String::new();
+            let _ = writeln!(
+                body,
+                "    let (buf, off) = {at};\n    let op = rpgrt::native::BitOpIn {{\n        code: rpgrt::native::BitCode::{code:?},\n        slot: rpgrt::native::OutSlot {{ name: String::new(), buf, off, ty: {} }},\n        mask: {m},\n        mask_bytes: {mb},\n        hi: {},\n        lo: {},\n        eq: {},\n    }};\n    rt.bit_op({pc}, op)?;",
+                ty(t),
+                name(hi),
+                name(lo),
+                name(eq)
+            );
+            let _ = writeln!(
+                helpers,
+                "\nfn bo{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("bo{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::StrOp(d)) => {

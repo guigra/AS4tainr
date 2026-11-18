@@ -473,6 +473,60 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             };
             ir::Lowered::SetOccur { buf, to, result }
         }
+        // Fixed-form TESTN, TESTZ, TESTB, BITON and BITOFF (S2.84): ops.rs
+        // bit_op on a character field.
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1: _,
+            f2,
+            result: Some(r),
+            ext,
+            ind,
+        }) if matches!(
+            code.as_str(),
+            "TESTN" | "TESTZ" | "TESTB" | "BITON" | "BITOFF"
+        ) && !ext.error
+            && ext.other.is_empty() =>
+        {
+            let c = match code.as_str() {
+                "TESTN" => ir::BitCode::TestN,
+                "TESTZ" => ir::BitCode::TestZ,
+                "TESTB" => ir::BitCode::TestB,
+                "BITON" => ir::BitCode::BitOn,
+                _ => ir::BitCode::BitOff,
+            };
+            let target = str_chars(cx, r, &mut used)?;
+            if !matches!(target, ir::Operand::Var { .. }) {
+                return None;
+            }
+            // ops.rs bit_mask: a literal of bit numbers 0-7 (another digit
+            // is the interpreter's error), or a field's first byte.
+            let (mask, mask_field) = match c {
+                ir::BitCode::TestN | ir::BitCode::TestZ => (None, None),
+                _ => match f2.as_ref()? {
+                    Expr::Str(b) => {
+                        let mut m = 0u8;
+                        for ch in super::super::data::a(b).chars() {
+                            let n = ch.to_digit(10).filter(|n| *n <= 7)?;
+                            m |= 0x80u8.checked_shr(n)?;
+                        }
+                        (Some(m), None)
+                    }
+                    e @ Expr::Name { .. } => (None, Some(str_chars(cx, e, &mut used)?)),
+                    _ => return None,
+                },
+            };
+            used.push(format!("bit op {code}"));
+            ir::Lowered::BitOp(Box::new(ir::BitOpData {
+                code: c,
+                target,
+                mask,
+                mask_field,
+                hi: ind.hi.clone(),
+                lo: ind.lo.clone(),
+                eq: ind.eq.clone(),
+            }))
+        }
         // Fixed-form SCAN, CHECK, CHECKR, SUBST, XLATE and CAT (S2.83):
         // ops.rs string_op on the factors as split splits them.
         Ins::Stmt(Stmt::Op {

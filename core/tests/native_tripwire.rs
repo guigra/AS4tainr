@@ -508,6 +508,22 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    pub(super) fn ensure_printer(&mut self, file: &str) -> Result<()> {",
             "    ",
         ),
+        // S2.84: fixed-form bit and test operations.
+        function(
+            OPS,
+            "    pub(super) fn bit_op(\n",
+            "    ",
+        ),
+        function(
+            OPS,
+            "    fn bit_mask(&mut self, e: &Expr) -> Result<u8> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn set_result_inds(&mut self, ind: &ResultInd, hi: bool, lo: bool, eq: bool) {",
+            "    ",
+        ),
         // S2.83: fixed-form string operations.
         function(
             OPS,
@@ -648,9 +664,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // printer.rs printer_op, printer_write, printer_text and print_ops,
     // S2.80 data_area, dtaara_unlock_object and local_data_area, S2.81
     // bif (its EDITC arm), S2.83 ops.rs split, put_positions, put_left,
-    // op_error and string_op;
+    // op_error and string_op, S2.84 ops.rs bit_op and bit_mask and
+    // interp.rs set_result_inds;
     // upstream still dd47e28.
-    let reviewed = "55ac9d28abb48c9eec2cc411f96285743ea81239c9fb68d8c433ab6ae807bba9";
+    let reviewed = "85cc2598d5c3a863abff5a7d14c890ad750e09f3ff0f07aaf7668bc4a11a49c4";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"
