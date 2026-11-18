@@ -508,6 +508,22 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    pub(super) fn ensure_printer(&mut self, file: &str) -> Result<()> {",
             "    ",
         ),
+        // S2.80: IN and OUT of data areas.
+        function(
+            INTERP,
+            "    fn data_area(&mut self, input: bool, lock: bool, field: &str) -> Result<()> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn dtaara_unlock_object(&mut self, library: &str, name: &str) {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn local_data_area(&mut self, input: bool, field: &str) -> Result<()> {",
+            "    ",
+        ),
         // S2.79: WRITE, OPEN, CLOSE and FEOD of printer files.
         function(
             PRINTER,
@@ -597,9 +613,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // sql_call, S2.78 conditions_met, out_cond, except, overflow_line,
     // overflow_routine, overflow_ind, out_text, print_record, print_line,
     // flush_printer and printer.rs form_of and ensure_printer, S2.79
-    // printer.rs printer_op, printer_write, printer_text and print_ops;
+    // printer.rs printer_op, printer_write, printer_text and print_ops,
+    // S2.80 data_area, dtaara_unlock_object and local_data_area;
     // upstream still dd47e28.
-    let reviewed = "f138c0b1ebb30ae9d52e90b9f7707386491c31e3303b41edf947b824be3f5f52";
+    let reviewed = "9c712358b517628619edbdb1831fe8dee6f324e9322c59baab320068b0ffc58f";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

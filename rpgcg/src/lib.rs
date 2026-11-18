@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.79");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.80");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -461,6 +461,13 @@ pub mod ir {
             sqlca: Box<[Operand; 5]>,
             name: String,
             args: Vec<SqlArg>,
+        },
+        /// IN or OUT of data areas (S2.80): with *LOCK or not, and each
+        /// data area's field name, its place and its *VAR: name field.
+        DataArea {
+            input: bool,
+            lock: bool,
+            fields: Vec<(String, Operand, Option<Operand>)>,
         },
         /// OPEN, CLOSE or FEOD of a printer file (S2.79).
         PrinterOp,
@@ -2423,6 +2430,54 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("sk{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::DataArea {
+                input,
+                lock,
+                fields,
+            },
+        ) => {
+            // interp.rs data_area: the fields' places for this call, then
+            // the runtime, field by field.
+            let slot = |n: &str, o: &ir::Operand| -> Result<String, Error> {
+                let ir::Operand::Var { ty: t, .. } = o else {
+                    return Err(bad());
+                };
+                let at = scalar_place(o).ok_or_else(bad)?;
+                Ok(format!(
+                    "{{ let (buf, off) = {at}; rpgrt::native::OutSlot {{ name: {}.to_string(), buf, off, ty: {} }} }}",
+                    json_str(n),
+                    ty(t)
+                ))
+            };
+            let mut body = String::new();
+            let fm = if fields.is_empty() { "" } else { "mut " };
+            let _ = writeln!(
+                body,
+                "    let {fm}fields: Vec<rpgrt::native::DtaSlot> = Vec::new();"
+            );
+            for (n, o, v) in fields {
+                let var = match v {
+                    Some(v) => format!("Some({})", slot("", v)?),
+                    None => "None".to_string(),
+                };
+                let _ = writeln!(
+                    body,
+                    "    {{\n        let field = {};\n        let var = {var};\n        fields.push(rpgrt::native::DtaSlot {{ field, var }});\n    }}",
+                    slot(n, o)?
+                );
+            }
+            let _ = writeln!(body, "    rt.data_area({pc}, {input}, {lock}, fields)?;");
+            let _ = writeln!(
+                helpers,
+                "\nfn da{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("da{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::PrinterOp) => guarded(

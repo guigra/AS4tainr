@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.80: IN and OUT of data areas (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native80.txt -f tools/golden/native80
+n80_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN80DTA) SRCSTMF('@HOME@/gld/gn80dta.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n80_dtaara|!cd @HOME@/gld && rm -f gn1.out && system "DLTDTAARA DTAARA(@LIB@/GN80C)"; system "DLTDTAARA DTAARA(@LIB@/GN80N)"; system "CRTDTAARA DTAARA(@LIB@/GN80C) TYPE(*CHAR) LEN(20) VALUE('hello')" && system "CRTDTAARA DTAARA(@LIB@/GN80N) TYPE(*DEC) LEN(7 2) VALUE(12.50)" && system "CALL PGM(@LIB@/GN80DTA)"; cat gn1.out; rm -f gn1.out

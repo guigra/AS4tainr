@@ -473,6 +473,53 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             };
             ir::Lowered::SetOccur { buf, to, result }
         }
+        // IN and OUT of data areas (S2.80): interp.rs data_area for the
+        // field or, for *DTAARA, every data area of the program in name
+        // order; the fields (and *VAR: name fields) placed.
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1,
+            f2,
+            result: None,
+            ext,
+            ind,
+        }) if (code == "IN" || code == "OUT")
+            && !ext.error
+            && ext.other.is_empty()
+            && ind.is_empty() =>
+        {
+            let lock = except_name(f1).as_deref() == Some("*LOCK");
+            let target = except_name(f2)?;
+            let names: Vec<String> = if target == "*DTAARA" {
+                let mut v: Vec<String> = cx.prog.dtaaras.keys().cloned().collect();
+                v.sort();
+                v
+            } else {
+                vec![target]
+            };
+            let mut fields = Vec::new();
+            for n in names {
+                let def = cx.prog.dtaaras.get(&n)?;
+                let field = data_area_field(cx, &n, &mut used)?;
+                let var = match def.strip_prefix("*VAR:") {
+                    Some(v) => {
+                        let o = sql_field(cx, &Expr::name(v), &mut used)?;
+                        if !is_char(&o) || !matches!(o, ir::Operand::Var { index: None, .. }) {
+                            return None;
+                        }
+                        Some(o)
+                    }
+                    None => None,
+                };
+                fields.push((n, field, var));
+            }
+            used.push(format!("{code} {} data areas lock={lock}", fields.len()));
+            ir::Lowered::DataArea {
+                input: code == "IN",
+                lock,
+                fields,
+            }
+        }
         // EXCEPT (S2.78): the exception records of that name printed by
         // the runtime (interp.rs except); the program fields their output
         // specifications name, placed.
@@ -4692,4 +4739,23 @@ fn printer_file(cx: &Cx<'_>, file: &str) -> bool {
         .or_else(|| prog.file_index(file))
         .and_then(|i| prog.files.get(i))
         .is_some_and(|f| f.decl.device == "PRINTER")
+}
+
+/// A data area's field (S2.80): a character, varying or numeric field, or
+/// a data structure (its bytes), with no index and not based.
+fn data_area_field(cx: &Cx<'_>, name: &str, used: &mut Vec<String>) -> Option<ir::Operand> {
+    let e = Expr::name(name);
+    let o = match sym(cx, name) {
+        Some(Sym::Ds(_)) => variable(cx, &e, used)?,
+        _ => sql_field(cx, &e, used)?,
+    };
+    matches!(
+        o,
+        ir::Operand::Var {
+            index: None,
+            based: None,
+            ..
+        }
+    )
+    .then_some(o)
 }
