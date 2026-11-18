@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.87: procedure pointers (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native87.txt -f tools/golden/native87
+n87_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN87PTR) SRCSTMF('@HOME@/gld/gn87ptr.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n87_procptr|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN87PTR)"; cat gn1.out; rm -f gn1.out

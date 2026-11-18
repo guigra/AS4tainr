@@ -2237,3 +2237,18 @@ async fn native_unit_lowered_sorta_movea() {
     )
     .await;
 }
+
+// Stage 2, S2.87: procedure pointers lowered to Rust.
+// Source: golden capture tools/golden/native87 n87_procptr (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_procedure_pointers() {
+    let _ = require_db!();
+    expect(
+        "NPROCPTR",
+        include_str!("native/NPROCPTR.rpgle"),
+        // n87_procptr's "NULL 202": the status is not checked (NPROCPTR.rpgle;
+        // fidelity.md, interpreter defects).
+        &["ADD 5 MUL 6 NE EQ 15", "NULL"],
+    )
+    .await;
+}

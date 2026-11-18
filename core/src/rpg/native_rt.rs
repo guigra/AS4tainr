@@ -168,7 +168,18 @@ fn mismatch(pc: usize, want: &str) -> anyhow::Error {
 impl<'a> Rt<'_, 'a> {
     /// The frame of a native call (S2.35): call_proc's steps for the
     /// procedures lowering lets through.
-    fn call_frame(&mut self, proc: &str, args: Vec<CallArg>) -> NResult<Option<Value>> {
+    /// `checked`: a call of the procedure by its name, whose arguments
+    /// call_named_inner's args_for checks against the procedure's own
+    /// parameters; a call through a prototype (S2.87: a procedure pointer
+    /// among them) is call_proc's, which takes more arguments than the
+    /// procedure has (it does not see them; %PARMS counts them) and
+    /// leaves the prototype's check to args_for.
+    fn call_frame(
+        &mut self,
+        proc: &str,
+        args: Vec<CallArg>,
+        checked: bool,
+    ) -> NResult<Option<Value>> {
         let prog: &'a super::super::program::Program = self.m.prog;
         let pi = prog
             .procs
@@ -177,14 +188,14 @@ impl<'a> Rt<'_, 'a> {
         if self.m.frames.len() > 1000 {
             anyhow::bail!("procedure {}: calls are nested too deeply", pi.name);
         }
-        if args.len() > pi.params.len() {
+        if checked && args.len() > pi.params.len() {
             anyhow::bail!(
                 "{proc}: {} parameters passed, it takes {}",
                 args.len(),
                 pi.params.len()
             );
         }
-        if let Some(p) = pi.params.get(args.len()) {
+        if let Some(p) = pi.params.get(args.len()).filter(|_| checked) {
             if !p.nopass {
                 anyhow::bail!("{proc}: parameter {} is missing", p.name);
             }
@@ -335,7 +346,32 @@ impl<'a> Rt<'_, 'a> {
             r?;
             return Ok(None);
         }
-        let target = pr.extproc.clone().unwrap_or_else(|| name.to_string());
+        // EXTPROC(procedure pointer) (S2.87): the procedure it addresses
+        // now (interp.rs call_named_inner); one of another program, module
+        // or service program is called there (call_bound_in, the
+        // interpreter's call services: ADR 0007's external calls).
+        let target = match &pr.extproc_ptr {
+            Some(var) => match self.procptr_target_n(name, var, args)? {
+                ProcTarget::Called(v) => return Ok(v),
+                ProcTarget::Here(pname, a) => {
+                    return self.call_proto_target_n(name, pr, pname, a);
+                }
+            },
+            None => pr.extproc.clone().unwrap_or_else(|| name.to_string()),
+        };
+        self.call_proto_target_n(name, pr, target, args)
+    }
+
+    /// call_proto's end (S2.87: split off, so a procedure pointer's target
+    /// takes it too): a procedure of this module, one the binder found, a
+    /// CEE API, a C runtime function, in call_named_inner's order.
+    fn call_proto_target_n(
+        &mut self,
+        name: &str,
+        pr: &super::super::program::Proto,
+        target: String,
+        args: Vec<CallArg>,
+    ) -> NResult<Option<Value>> {
         let sym = target.to_ascii_uppercase();
         // call_named_inner's order (S2.56): a procedure of this module, one
         // the binder found, a CEE API, a C runtime function. EXTPROC written
@@ -359,7 +395,7 @@ impl<'a> Rt<'_, 'a> {
         };
         if !system_named && self.m.prog.procs.contains_key(&target) {
             fits(args.len())?;
-            return self.call_frame(&target, args);
+            return self.call_frame(&target, args, false);
         }
         let bound = if system_named {
             None
@@ -798,7 +834,7 @@ impl Runtime for Rt<'_, '_> {
         // A procedure of this module (S2.35), or a prototype (S2.46).
         let local = self.m.prog.procs.contains_key(proc);
         let r = if local {
-            self.call_frame(proc, args)
+            self.call_frame(proc, args, true)
         } else {
             self.call_proto(proc, args)
         }
@@ -1118,6 +1154,10 @@ impl Runtime for Rt<'_, '_> {
 
     fn printer_op(&mut self, pc: usize) -> NResult<()> {
         self.printer_op_n(pc)
+    }
+
+    fn paddr(&mut self, name: &str) -> NResult<Value> {
+        self.paddr_n(name)
     }
 
     fn sorta(&mut self, pc: usize, arr: rpgrt::native::ArrPlace, descend: bool) -> NResult<()> {
@@ -5390,5 +5430,168 @@ impl Rt<'_, '_> {
             )?;
         }
         Ok(())
+    }
+}
+
+// ---- procedure pointers (S2.87) ---------------------------------------
+
+/// Where a call through a procedure pointer goes (S2.87).
+enum ProcTarget {
+    /// Called in another program, module or service program.
+    Called(Option<Value>),
+    /// A procedure of this activation: its name, and the arguments.
+    Here(String, Vec<CallArg>),
+}
+
+impl Rt<'_, '_> {
+    /// interp.rs bif's PADDR arm, after its name: where the procedure is
+    /// (this module: its service program, with the module when it is not
+    /// exported; a module bound into a program: *MODULE; a program's
+    /// entry module: *PGM, the program and its activation group; else the
+    /// service program or module the binder found), as a procedure
+    /// pointer.
+    fn paddr_n(&mut self, n: &str) -> NResult<Value> {
+        let bound_module = self
+            .m
+            .io
+            .program
+            .strip_prefix("*BOUND/")
+            .map(str::to_string);
+        let home = if let Some(pi) = self.m.prog.procs.get(n) {
+            let exported = pi.export;
+            match self.m.current_srvpgm() {
+                Some((l, sp)) => Some(if exported {
+                    (l, sp)
+                } else {
+                    (l, format!("{sp}/{}", self.m.prog.name))
+                }),
+                None => match bound_module {
+                    Some(m) => Some(("*MODULE".to_string(), m)),
+                    None if self.m.io.program.contains('/')
+                        && !self.m.io.program.starts_with('*') =>
+                    {
+                        Some((
+                            "*PGM".to_string(),
+                            format!("{} {}", self.m.io.program, self.m.io.actgrp),
+                        ))
+                    }
+                    None => None,
+                },
+            }
+        } else {
+            match self.m.io.binding.as_ref().and_then(|b| b.imports.get(n)) {
+                Some(crate::ile::Target::SrvPgm { library, name }) => {
+                    Some((library.clone(), name.clone()))
+                }
+                Some(crate::ile::Target::Module(m)) => Some(("*MODULE".to_string(), m.clone())),
+                _ => None,
+            }
+        };
+        Ok(Value::Ptr(super::super::mem::Ptr {
+            kind: super::super::mem::KIND_PROC,
+            owner: 0,
+            buf: super::super::mem::proc_id(n, home),
+            off: 0,
+        }))
+    }
+
+    /// interp.rs call_named_inner for EXTPROC(procedure pointer): the
+    /// pointer field's value (MCH3601 when it is not a valid procedure
+    /// pointer or not set), the procedure and where it is; one of another
+    /// program (*PGM), module (*MODULE) or service program is called there
+    /// with the arguments as args_for gives them; one of this activation
+    /// goes on as a call by its name.
+    fn procptr_target_n(
+        &mut self,
+        name: &str,
+        var: &str,
+        args: Vec<CallArg>,
+    ) -> NResult<ProcTarget> {
+        let v = match self.m.sym(var) {
+            Some(super::super::program::Sym::Var(vi)) => {
+                rpgrt::native::load(&self.m.bufs, vi.buf, vi.off, vi.dtype)?
+            }
+            _ => return Err(anyhow!("native: the procedure pointer {var}")),
+        };
+        let (pname, home) = match v {
+            Value::Ptr(p) if p.kind == super::super::mem::KIND_PROC => {
+                super::super::mem::proc_ref(p.buf)
+                    .ok_or_else(|| anyhow!("MCH3601: procedure pointer {var} is not valid."))?
+            }
+            Value::Ptr(_) => return Err(anyhow!("MCH3601: {var} is not a procedure pointer.")),
+            _ => {
+                return Err(anyhow!(
+                    "MCH3601: procedure pointer {var} is not set (*NULL)."
+                ))
+            }
+        };
+        let as_args = |args: Vec<CallArg>| -> Vec<super::Arg> {
+            args.into_iter()
+                .map(|arg| match arg {
+                    CallArg::Ref { buf, off, dtype } => super::Arg::Ref(super::Loc {
+                        buf,
+                        off,
+                        size: dtype.size(),
+                        dtype,
+                    }),
+                    CallArg::Val(v) => super::Arg::Val(v),
+                })
+                .collect()
+        };
+        let _ = name;
+        let prog = self.m.prog;
+        match home {
+            Some((l, spec)) if l == "*PGM" => {
+                let (pgm, group) = spec.split_once(' ').unwrap_or((spec.as_str(), ""));
+                let here = self.m.io.program == pgm && prog.procs.contains_key(&pname);
+                if !here {
+                    let (library, pn) = pgm.split_once('/').unwrap_or(("", pgm));
+                    let r = self.m.call_bound_in(
+                        &pname,
+                        &crate::ile::Target::Pgm {
+                            library: library.to_string(),
+                            name: pn.to_string(),
+                            group: group.to_string(),
+                        },
+                        Some(pn),
+                        as_args(args),
+                    )?;
+                    return Ok(ProcTarget::Called(r));
+                }
+            }
+            Some((l, m)) if l == "*MODULE" => {
+                let here =
+                    self.m.io.program == format!("*BOUND/{m}") && prog.procs.contains_key(&pname);
+                if !here {
+                    let r = self.m.call_bound_in(
+                        &pname,
+                        &crate::ile::Target::Module(m.clone()),
+                        Some(&m),
+                        as_args(args),
+                    )?;
+                    return Ok(ProcTarget::Called(r));
+                }
+            }
+            Some((library, sp)) => {
+                let (sp, module) = match sp.split_once('/') {
+                    Some((s, m)) => (s.to_string(), Some(m.to_string())),
+                    None => (sp, None),
+                };
+                let here = self.m.current_srvpgm() == Some((library.clone(), sp.clone()))
+                    && module.as_ref().is_none_or(|m| *m == prog.name)
+                    && prog.procs.contains_key(&pname);
+                if !here {
+                    let r = self.m.call_bound_in(
+                        &pname,
+                        &crate::ile::Target::SrvPgm { library, name: sp },
+                        module.as_deref(),
+                        as_args(args),
+                    )?;
+                    return Ok(ProcTarget::Called(r));
+                }
+            }
+            None => {}
+        }
+        Ok(ProcTarget::Here(pname, args))
     }
 }
