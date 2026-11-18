@@ -1120,6 +1120,18 @@ impl Runtime for Rt<'_, '_> {
         self.printer_op_n(pc)
     }
 
+    fn str_op(
+        &mut self,
+        pc: usize,
+        op: rpgrt::native::StrOpIn,
+        result: rpgrt::native::StrOut,
+    ) -> NResult<()> {
+        if !matches!(&at(self.code, pc)?.ins, Ins::Stmt(_)) {
+            return Err(mismatch(pc, "a string operation"));
+        }
+        self.str_op_n(op, &result)
+    }
+
     fn data_area(
         &mut self,
         pc: usize,
@@ -4667,6 +4679,272 @@ impl Rt<'_, '_> {
         } else {
             part.copy_from_slice(buf);
             self.m.block(crate::dtaara::lda_write(client, job, &lda))?;
+        }
+        Ok(())
+    }
+}
+
+// ---- fixed-form string operations (S2.83) -----------------------------
+
+impl Rt<'_, '_> {
+    /// ops.rs op_error: the error indicator on, or the error.
+    fn op_error_n(&mut self, lo: &Option<String>, msg: String) -> NResult<()> {
+        match lo {
+            Some(lo) => {
+                self.m.set_ind(lo, true);
+                Ok(())
+            }
+            None => Err(anyhow!(msg)),
+        }
+    }
+
+    /// ops.rs put_positions: every position found into a numeric array
+    /// (the rest zero), or the first (or zero) into the field.
+    fn put_positions_n(&mut self, result: &rpgrt::native::StrOut, found: &[usize]) -> NResult<()> {
+        let rpgrt::native::StrOut::Positions { slot, array } = result else {
+            return Ok(());
+        };
+        let fit = Fit::Strict { half_adjust: false };
+        match array {
+            Some((stride, dim)) => {
+                for k in 0..usize::try_from(*dim)? {
+                    let v = found.get(k).copied().unwrap_or(0);
+                    let off = k
+                        .checked_mul(*stride)
+                        .and_then(|d| slot.off.checked_add(d))
+                        .ok_or_else(|| anyhow!("native: an element's place"))?;
+                    rpgrt::native::store(
+                        &mut self.m.bufs,
+                        slot.buf,
+                        off,
+                        slot.ty,
+                        &Value::Num(Dec::from_i64(i64::try_from(v)?)),
+                        fit,
+                        false,
+                    )?;
+                }
+            }
+            None => {
+                let v = found.first().copied().unwrap_or(0);
+                rpgrt::native::store(
+                    &mut self.m.bufs,
+                    slot.buf,
+                    slot.off,
+                    slot.ty,
+                    &Value::Num(Dec::from_i64(i64::try_from(v)?)),
+                    fit,
+                    false,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    /// ops.rs put_left: the text over the start of the result's current
+    /// value (blanks first with P), assigned with the truncating fit.
+    fn put_left_n(&mut self, slot: &rpgrt::native::OutSlot, text: &[u8], pad: bool) -> NResult<()> {
+        let mut cur = rpgrt::native::load(&self.m.bufs, slot.buf, slot.off, slot.ty)?.chars()?;
+        if pad {
+            cur.fill(data::BLANK);
+        }
+        let n = text.len().min(cur.len());
+        if let (Some(dst), Some(src)) = (cur.get_mut(..n), text.get(..n)) {
+            dst.copy_from_slice(src);
+        }
+        rpgrt::native::store(
+            &mut self.m.bufs,
+            slot.buf,
+            slot.off,
+            slot.ty,
+            &Value::Char(cur),
+            Fit::Truncate { half_adjust: false },
+            false,
+        )
+    }
+
+    /// ops.rs string_op for SCAN, CHECK, CHECKR, SUBST, XLATE and CAT, on
+    /// the factors' values as lowering split them.
+    fn str_op_n(
+        &mut self,
+        op: rpgrt::native::StrOpIn,
+        result: &rpgrt::native::StrOut,
+    ) -> NResult<()> {
+        use rpgrt::native::StrCode;
+        let to_i128 = |d: &Option<Dec>| -> NResult<Option<i128>> {
+            d.as_ref().map(|d| d.to_i128()).transpose()
+        };
+        let lo_off = |rt: &mut Self| {
+            if let Some(lo) = &op.lo {
+                rt.m.set_ind(lo, false);
+            }
+        };
+        let need = |v: &Option<Vec<u8>>, what: &str| -> NResult<Vec<u8>> {
+            v.clone().ok_or_else(|| anyhow!("native: {what}"))
+        };
+        match op.code {
+            StrCode::Scan => {
+                lo_off(self);
+                let cmp = need(&op.f1, "a compare string")?;
+                let len = match to_i128(&op.f1_num)? {
+                    Some(l) => usize::try_from(l).unwrap_or(usize::MAX),
+                    None => cmp.len(),
+                };
+                let base = op.f2.clone();
+                let start = to_i128(&op.f2_num)?.unwrap_or(1);
+                let start_ok = usize::try_from(start)
+                    .ok()
+                    .is_some_and(|s| s >= 1 && s <= base.len());
+                if len == 0 || len > cmp.len() || !start_ok {
+                    return self.op_error_n(
+                        &op.lo,
+                        "RNQ0100: SCAN: the length or start position is not valid.".into(),
+                    );
+                }
+                let needle = cmp.get(..len).unwrap_or(&[]);
+                let mut found = Vec::new();
+                let mut at = usize::try_from(start)?.saturating_sub(1);
+                while at.checked_add(len).is_some_and(|e| e <= base.len()) {
+                    if base.get(at..at.saturating_add(len)) == Some(needle) {
+                        found.push(at.saturating_add(1));
+                        if matches!(result, rpgrt::native::StrOut::None) {
+                            break;
+                        }
+                    }
+                    at = at.saturating_add(1);
+                }
+                self.put_positions_n(result, &found)?;
+                if let Some(eq) = &op.eq {
+                    self.m.set_ind(eq, !found.is_empty());
+                }
+            }
+            StrCode::Check | StrCode::CheckR => {
+                lo_off(self);
+                let comparator = need(&op.f1, "a comparator string")?;
+                let base = op.f2.clone();
+                let start = match to_i128(&op.f2_num)? {
+                    Some(s) => s,
+                    None if op.code == StrCode::Check => 1,
+                    None => i128::try_from(base.len())?,
+                };
+                let start_ok = usize::try_from(start)
+                    .ok()
+                    .is_some_and(|s| s >= 1 && s <= base.len());
+                if !start_ok {
+                    let code = if op.code == StrCode::Check {
+                        "CHECK"
+                    } else {
+                        "CHECKR"
+                    };
+                    return self.op_error_n(
+                        &op.lo,
+                        format!("RNQ0100: {code}: the start position is not valid."),
+                    );
+                }
+                let s0 = usize::try_from(start)?.saturating_sub(1);
+                let multi = matches!(
+                    result,
+                    rpgrt::native::StrOut::Positions { array: Some(_), .. }
+                );
+                let mut found = Vec::new();
+                if op.code == StrCode::Check {
+                    for (k, b) in base.iter().enumerate().skip(s0) {
+                        if !comparator.contains(b) {
+                            found.push(k.saturating_add(1));
+                            if !multi {
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    for k in (0..=s0).rev() {
+                        if base.get(k).is_some_and(|b| !comparator.contains(b)) {
+                            found.push(k.saturating_add(1));
+                            if !multi {
+                                break;
+                            }
+                        }
+                    }
+                }
+                self.put_positions_n(result, &found)?;
+                if let Some(eq) = &op.eq {
+                    self.m.set_ind(eq, !found.is_empty());
+                }
+            }
+            StrCode::Subst => {
+                lo_off(self);
+                let base = op.f2.clone();
+                let blen = i128::try_from(base.len())?;
+                let start = to_i128(&op.f2_num)?.unwrap_or(1);
+                let len = match to_i128(&op.f1_num)? {
+                    Some(l) => l,
+                    None => blen.saturating_sub(start).saturating_add(1),
+                };
+                if start < 1 || len < 1 || start.saturating_sub(1).saturating_add(len) > blen {
+                    return self.op_error_n(
+                        &op.lo,
+                        "RNQ0100: SUBST: the start position or length is outside the string."
+                            .into(),
+                    );
+                }
+                let from = usize::try_from(start.saturating_sub(1))?;
+                let to = usize::try_from(start.saturating_add(len).saturating_sub(1))?;
+                let piece = base
+                    .get(from..to)
+                    .ok_or_else(|| anyhow!("native: SUBST's piece"))?
+                    .to_vec();
+                let rpgrt::native::StrOut::Chars(r) = result else {
+                    return Err(anyhow!("SUBST: a result field is needed"));
+                };
+                self.put_left_n(r, &piece, op.pad)?;
+            }
+            StrCode::Xlate => {
+                lo_off(self);
+                let from = need(&op.f1, "the from string")?;
+                let to = need(&op.f1_chars, "the to string")?;
+                let mut text = op.f2.clone();
+                let start = to_i128(&op.f2_num)?.unwrap_or(1);
+                let start_ok = usize::try_from(start)
+                    .ok()
+                    .is_some_and(|s| s >= 1 && s <= text.len());
+                if !start_ok {
+                    return self.op_error_n(
+                        &op.lo,
+                        "RNQ0100: XLATE: the start position is not valid.".into(),
+                    );
+                }
+                for b in text
+                    .iter_mut()
+                    .skip(usize::try_from(start)?.saturating_sub(1))
+                {
+                    if let Some(p) = from.iter().position(|f| f == b) {
+                        if let Some(t) = to.get(p) {
+                            *b = *t;
+                        }
+                    }
+                }
+                let rpgrt::native::StrOut::Chars(r) = result else {
+                    return Err(anyhow!("XLATE: a result field is needed"));
+                };
+                self.put_left_n(r, &text, op.pad)?;
+            }
+            StrCode::Cat => {
+                let rpgrt::native::StrOut::Chars(r) = result else {
+                    return Err(anyhow!("CAT: a result field is needed"));
+                };
+                let mut s = match &op.f1 {
+                    Some(x) => x.clone(),
+                    None => rpgrt::native::load(&self.m.bufs, r.buf, r.off, r.ty)?.chars()?,
+                };
+                if let Some(n) = to_i128(&op.f2_num)? {
+                    let n = usize::try_from(n).unwrap_or(0);
+                    while s.last() == Some(&data::BLANK) {
+                        s.pop();
+                    }
+                    s.extend(std::iter::repeat_n(data::BLANK, n));
+                }
+                s.extend(op.f2.iter().copied());
+                self.put_left_n(r, &s, op.pad)?;
+            }
         }
         Ok(())
     }

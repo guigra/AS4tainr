@@ -957,3 +957,26 @@ Lowered file operations (S2.58, S2.59) now take a file whose date, time or times
 - read in arrival order;
 - the first updated with %MONTHS (January 31 to February 28), %HOURS and %SECONDS (to the next day);
 - read again after SETLL *START.
+
+## S2.83: fixed-form string operations
+
+**Lowered:** SCAN, CHECK, CHECKR, SUBST, XLATE and CAT, with the P extender or none (no E). Their factors are taken apart as ops.rs split takes them: `a:b`, with *BLANKS first meaning none.
+- A character factor is a character or hexadecimal literal, or a character or varying field with no index. A figurative constant or a number is not lowered: chars_of would size or edit it.
+- A numeric factor is a number, or a numeric field with no index.
+- SCAN, CHECK and CHECKR put into a numeric field, into a whole global numeric array (every position), or into nothing. SUBST, XLATE and CAT put into a character or varying field.
+
+Fields with no index cannot fail when read, so taking them before the operation sets its LO indicator off makes no difference.
+
+**Runtime.** `str_op_n` writes again string_op's arms for these operations, without indexing:
+- SCAN's and CHECK's search, and CHECKR's from the right, with put_positions (an array gets every position, the rest zero);
+- SUBST's piece, XLATE's translation and CAT's joining (factor 1's trailing blanks dropped when a number of blanks is given), with put_left (the result's current value, blanks first with P, the truncating fit);
+- op_error's LO indicator, or RNQ0100.
+
+**Verified by** the native unit NSTROPS, under both engines. The program captured on PUB400 (tools/golden/native83.txt n83_strops) runs:
+- SCAN into a field (with EQ), into a whole array, with a start, with a length, not found, and with a zero length in a field (a literal 0 is RNF5218), its LO indicator on;
+- CHECK into a field and into an array, and CHECKR;
+- SUBST with and without P;
+- XLATE;
+- CAT with factor 1, with :1 blank, and with P and no factor 1.
+
+native_tripwire.rs watches string_op, split, put_positions, put_left and op_error.

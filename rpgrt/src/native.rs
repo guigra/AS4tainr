@@ -317,6 +317,11 @@ pub trait Runtime {
         exprs: Vec<String>,
         outs: Vec<Option<SqlSlot>>,
     ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.83): a fixed-form string operation (ops.rs string_op:
+    /// SCAN, CHECK, CHECKR, SUBST, XLATE, CAT) on the factors' values,
+    /// into the result, with its error (`lo`) and found (`eq`)
+    /// indicators.
+    fn str_op(&mut self, pc: usize, op: StrOpIn, result: StrOut) -> NResult<()>;
     /// Stage 2 (S2.80): IN or OUT (`input`), with *LOCK (`lock`), of the
     /// data areas of `fields` in order (interp.rs data_area and
     /// local_data_area).
@@ -390,6 +395,48 @@ pub struct SqlResult {
     pub text: String,
     pub rows: i64,
     pub errd5: i64,
+}
+
+/// A fixed-form string operation (S2.83).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StrCode {
+    Scan,
+    Check,
+    CheckR,
+    Subst,
+    Xlate,
+    Cat,
+}
+
+/// A fixed-form string operation's factors as ops.rs string_op splits them
+/// (`a:b`): factor 1's characters and its second part (XLATE's to string)
+/// or number (SCAN's length, SUBST's length), factor 2's characters and
+/// its number (a start, or CAT's blanks); the P extender; the error and
+/// found indicators.
+#[derive(Clone, Debug)]
+pub struct StrOpIn {
+    pub code: StrCode,
+    pub f1: Option<Vec<u8>>,
+    pub f1_chars: Option<Vec<u8>>,
+    pub f1_num: Option<Dec>,
+    pub f2: Vec<u8>,
+    pub f2_num: Option<Dec>,
+    pub pad: bool,
+    pub lo: Option<String>,
+    pub eq: Option<String>,
+}
+
+/// A string operation's result (S2.83): none, positions into a numeric
+/// field or every element of a numeric array (its first element's place,
+/// the distance and the elements), or characters into a character field.
+#[derive(Clone, Debug)]
+pub enum StrOut {
+    None,
+    Positions {
+        slot: OutSlot,
+        array: Option<(usize, u32)>,
+    },
+    Chars(OutSlot),
 }
 
 /// A data area's field for IN and OUT (S2.80): its name (the program's

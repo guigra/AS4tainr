@@ -473,6 +473,23 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             };
             ir::Lowered::SetOccur { buf, to, result }
         }
+        // Fixed-form SCAN, CHECK, CHECKR, SUBST, XLATE and CAT (S2.83):
+        // ops.rs string_op on the factors as split splits them.
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1,
+            f2,
+            result,
+            ext,
+            ind,
+        }) if matches!(
+            code.as_str(),
+            "SCAN" | "CHECK" | "CHECKR" | "SUBST" | "XLATE" | "CAT"
+        ) && !ext.error
+            && ext.other.chars().all(|c| c == 'P') =>
+        {
+            str_op(cx, code, f1, f2, result, ext, ind, &mut used)?
+        }
         // IN and OUT of data areas (S2.80): interp.rs data_area for the
         // field or, for *DTAARA, every data area of the program in name
         // order; the fields (and *VAR: name fields) placed.
@@ -4781,4 +4798,199 @@ fn data_area_field(cx: &Cx<'_>, name: &str, used: &mut Vec<String>) -> Option<ir
         }
     )
     .then_some(o)
+}
+
+/// ops.rs split: `a:b` (a *PAIR) as its two parts, *BLANKS first as none.
+fn str_split(e: &Option<Expr>) -> (Option<Expr>, Option<Expr>) {
+    match e {
+        Some(Expr::Bif(b, args)) if b == super::super::parse::PAIR && args.len() == 2 => {
+            let first = match args.first() {
+                Some(Expr::Fig(Fig::Blanks)) | None => None,
+                Some(x) => Some(x.clone()),
+            };
+            (first, args.get(1).cloned())
+        }
+        other => (other.clone(), None),
+    }
+}
+
+/// A string operation's character factor (S2.83): a character or
+/// hexadecimal literal, or a character or varying field with no index
+/// (chars_of: its value's bytes). A figurative constant or a number is
+/// not lowered.
+fn str_chars(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    match e {
+        Expr::Str(b) | Expr::Hex(b) => Some(ir::Operand::Str(b.clone())),
+        Expr::Name { .. } => {
+            let o = sql_field(cx, e, used)?;
+            (is_char(&o)
+                && matches!(
+                    o,
+                    ir::Operand::Var {
+                        index: None,
+                        based: None,
+                        ..
+                    }
+                ))
+            .then_some(o)
+        }
+        _ => None,
+    }
+}
+
+/// A string operation's numeric factor (S2.83): a number, or a numeric
+/// field with no index.
+fn str_num(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    match e {
+        Expr::Num(_) => operand(cx, e, used),
+        Expr::Name { .. } => {
+            let o = sql_field(cx, e, used)?;
+            (!is_char(&o)
+                && matches!(
+                    o,
+                    ir::Operand::Var {
+                        index: None,
+                        based: None,
+                        ..
+                    }
+                ))
+            .then_some(o)
+        }
+        _ => None,
+    }
+}
+
+/// SCAN, CHECK, CHECKR, SUBST, XLATE or CAT taken apart as ops.rs
+/// string_op takes it (S2.83). The result of SCAN, CHECK and CHECKR is a
+/// numeric field or a whole numeric array (a global one), or none; that
+/// of the others a character or varying field.
+#[allow(clippy::too_many_arguments)] // the parts of a fixed-form operation
+fn str_op(
+    cx: &Cx<'_>,
+    code: &str,
+    f1: &Option<Expr>,
+    f2: &Option<Expr>,
+    result: &Option<Expr>,
+    ext: &super::super::ast::Ext,
+    ind: &super::super::ast::ResultInd,
+    used: &mut Vec<String>,
+) -> Option<ir::Lowered> {
+    let c = match code {
+        "SCAN" => ir::StrCode::Scan,
+        "CHECK" => ir::StrCode::Check,
+        "CHECKR" => ir::StrCode::CheckR,
+        "SUBST" => ir::StrCode::Subst,
+        "XLATE" => ir::StrCode::Xlate,
+        _ => ir::StrCode::Cat,
+    };
+    let (mut o1, mut o1c, mut o1n) = (None, None, None);
+    match c {
+        ir::StrCode::Scan => {
+            let (a, b) = str_split(f1);
+            o1 = Some(str_chars(cx, &a?, used)?);
+            o1n = match b {
+                Some(b) => Some(str_num(cx, &b, used)?),
+                None => None,
+            };
+        }
+        ir::StrCode::Check | ir::StrCode::CheckR => {
+            o1 = Some(str_chars(cx, f1.as_ref()?, used)?);
+        }
+        ir::StrCode::Subst => {
+            o1n = match f1 {
+                Some(l) => Some(str_num(cx, l, used)?),
+                None => None,
+            };
+        }
+        ir::StrCode::Xlate => {
+            let (a, b) = str_split(f1);
+            o1 = Some(str_chars(cx, &a?, used)?);
+            o1c = Some(str_chars(cx, &b?, used)?);
+        }
+        ir::StrCode::Cat => {
+            o1 = match f1 {
+                Some(x) => Some(str_chars(cx, x, used)?),
+                None => None,
+            };
+        }
+    }
+    let (b, bn) = str_split(f2);
+    let o2 = str_chars(cx, &b?, used)?;
+    let o2n = match bn {
+        Some(n) => Some(str_num(cx, &n, used)?),
+        None => None,
+    };
+    let res = match c {
+        ir::StrCode::Scan | ir::StrCode::Check | ir::StrCode::CheckR => match result {
+            None => ir::StrRes::None,
+            Some(r @ Expr::Name { parts, args: None }) => {
+                let name = parts.join(".");
+                match sym(cx, &name) {
+                    Some(Sym::Var(v)) if v.dim > 0 => {
+                        if v.local || cx.prog.varying.contains_key(&name) {
+                            return None;
+                        }
+                        let ty = match v.dtype {
+                            DType::Packed(d, s) => ir::Ty::Packed(d, s),
+                            DType::Zoned(d, s) => ir::Ty::Zoned(d, s),
+                            DType::Binary(d, s) => ir::Ty::Binary(d, s),
+                            DType::Int(n) => ir::Ty::Int(n),
+                            DType::Uns(n) => ir::Ty::Uns(n),
+                            _ => return None,
+                        };
+                        ir::StrRes::Positions {
+                            target: ir::Operand::Var {
+                                name: name.clone(),
+                                buf: v.buf,
+                                off: v.off,
+                                ty,
+                                local: false,
+                                index: None,
+                                based: None,
+                            },
+                            array: Some((v.stride, v.dim)),
+                        }
+                    }
+                    _ => {
+                        let o = str_num(cx, r, used)?;
+                        ir::StrRes::Positions {
+                            target: o,
+                            array: None,
+                        }
+                    }
+                }
+            }
+            Some(_) => return None,
+        },
+        _ => {
+            let r = result.as_ref()?;
+            let o = sql_field(cx, r, used)?;
+            if !is_char(&o)
+                || !matches!(
+                    o,
+                    ir::Operand::Var {
+                        index: None,
+                        based: None,
+                        ..
+                    }
+                )
+            {
+                return None;
+            }
+            ir::StrRes::Chars(o)
+        }
+    };
+    used.push(format!("string op {code} {:?}", ext.other));
+    Some(ir::Lowered::StrOp(Box::new(ir::StrOpData {
+        code: c,
+        f1: o1,
+        f1_chars: o1c,
+        f1_num: o1n,
+        f2: o2,
+        f2_num: o2n,
+        pad: ext.other.contains('P'),
+        lo: ind.lo.clone(),
+        eq: ind.eq.clone(),
+        result: res,
+    })))
 }

@@ -2168,3 +2168,21 @@ async fn native_unit_lowered_temporal_file_fields() {
     )
     .await;
 }
+
+// Stage 2, S2.83: fixed-form string operations lowered to Rust.
+// Source: golden capture tools/golden/native83 n83_strops (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_fixed_string_ops() {
+    let _ = require_db!();
+    expect(
+        "NSTROPS",
+        include_str!("native/NSTROPS.rpgle"),
+        &[
+            "S 3 1 A 380 T 8 N 0 0 L 3 E 1",
+            "C 3 R 2 M 350",
+            "U BCD3456789 P BCD       | X AXBYC     |",
+            "K AB  CD    |AB CDD    |AB CDDE   |",
+        ],
+    )
+    .await;
+}

@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.82");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.83");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -235,6 +235,45 @@ pub mod ir {
             input: Box<SqlIn>,
             out: Option<Box<SqlOut>>,
         },
+    }
+
+    /// A fixed-form string operation's parts (S2.83).
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct StrOpData {
+        pub code: StrCode,
+        pub f1: Option<Operand>,
+        pub f1_chars: Option<Operand>,
+        pub f1_num: Option<Operand>,
+        pub f2: Operand,
+        pub f2_num: Option<Operand>,
+        pub pad: bool,
+        pub lo: Option<String>,
+        pub eq: Option<String>,
+        pub result: StrRes,
+    }
+
+    /// A fixed-form string operation (S2.83).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum StrCode {
+        Scan,
+        Check,
+        CheckR,
+        Subst,
+        Xlate,
+        Cat,
+    }
+
+    /// A string operation's result (S2.83): none, a numeric field, the
+    /// first element of a numeric array with its distance and elements,
+    /// or a character field.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum StrRes {
+        None,
+        Positions {
+            target: Operand,
+            array: Option<(usize, u32)>,
+        },
+        Chars(Operand),
     }
 
     /// A row count of a multiple-row FETCH or INSERT (S2.74): a number
@@ -462,6 +501,12 @@ pub mod ir {
             name: String,
             args: Vec<SqlArg>,
         },
+        /// A fixed-form string operation (S2.83): its code, factor 1's
+        /// characters, second characters (XLATE's to) or number, factor
+        /// 2's characters and number, the P extender, the error and found
+        /// indicators, the result.
+        /// Boxed: the variants' sizes stay close (clippy::large_enum_variant).
+        StrOp(Box<StrOpData>),
         /// IN or OUT of data areas (S2.80): with *LOCK or not, and each
         /// data area's field name, its place and its *VAR: name field.
         DataArea {
@@ -2433,6 +2478,77 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("sk{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::StrOp(d)) => {
+            let ir::StrOpData {
+                code,
+                f1,
+                f1_chars,
+                f1_num,
+                f2,
+                f2_num,
+                pad,
+                lo,
+                eq,
+                result,
+            } = d.as_ref();
+            // ops.rs string_op: the factors' values, the result's place,
+            // then the runtime.
+            let chars = |o: &Option<ir::Operand>| match o {
+                Some(o) => format!("Some({}.chars()?)", value(o)),
+                None => "None".to_string(),
+            };
+            let num = |o: &Option<ir::Operand>| match o {
+                Some(o) => format!("Some({})", number(o)),
+                None => "None".to_string(),
+            };
+            let name = |n: &Option<String>| match n {
+                Some(n) => format!("Some({}.to_string())", json_str(n)),
+                None => "None".to_string(),
+            };
+            let slot = |o: &ir::Operand| -> Result<String, Error> {
+                let ir::Operand::Var { ty: t, .. } = o else {
+                    return Err(bad());
+                };
+                let at = scalar_place(o).ok_or_else(bad)?;
+                Ok(format!(
+                    "{{ let (buf, off) = {at}; rpgrt::native::OutSlot {{ name: String::new(), buf, off, ty: {} }} }}",
+                    ty(t)
+                ))
+            };
+            let res = match result {
+                ir::StrRes::None => "rpgrt::native::StrOut::None".to_string(),
+                ir::StrRes::Positions { target, array } => format!(
+                    "rpgrt::native::StrOut::Positions {{ slot: {}, array: {} }}",
+                    slot(target)?,
+                    match array {
+                        Some((st, d)) => format!("Some(({st}, {d}))"),
+                        None => "None".to_string(),
+                    }
+                ),
+                ir::StrRes::Chars(o) => format!("rpgrt::native::StrOut::Chars({})", slot(o)?),
+            };
+            let c = format!("{code:?}");
+            let mut body = String::new();
+            let _ = writeln!(
+                body,
+                "    let op = rpgrt::native::StrOpIn {{\n        code: rpgrt::native::StrCode::{c},\n        f1: {},\n        f1_chars: {},\n        f1_num: {},\n        f2: {}.chars()?,\n        f2_num: {},\n        pad: {pad},\n        lo: {},\n        eq: {},\n    }};\n    let result = {res};\n    rt.str_op({pc}, op, result)?;",
+                chars(f1),
+                chars(f1_chars),
+                num(f1_num),
+                value(f2),
+                num(f2_num),
+                name(lo),
+                name(eq)
+            );
+            let _ = writeln!(
+                helpers,
+                "\nfn st{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("st{pc}(rt).map(|()| {next})"),
             )
         }
         (
