@@ -1778,3 +1778,29 @@ async fn native_unit_lowered_sql_host_variables() {
     )
     .await;
 }
+
+// Stage 2, S2.71: dynamic SQL and GET DIAGNOSTICS lowered to Rust.
+// Source: golden capture tools/golden/native71 n71_sql (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_dynamic_sql() {
+    let _ = require_db!();
+    expect(
+        "NSQL3",
+        include_str!("native/NSQL3.rpgle"),
+        &[
+            // n71_sql's "CREATE 7905" is not checked (NSQL3.rpgle;
+            // fidelity.md, interpreter defects).
+            "IMMED 2 ROWS 0 2",
+            "PREP 0",
+            "EXEC 0 1",
+            "EXNULL 0",
+            "NULLS 1",
+            "DEL 0 2",
+            "DEL2 100 02000",
+            "MISS -204 DIAG 0 42704 -204 SQL0204",
+            "LEFT 2",
+            "DROP 0",
+        ],
+    )
+    .await;
+}

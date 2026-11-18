@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.70");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.71");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -220,6 +220,14 @@ pub mod ir {
         pub ind: Option<Operand>,
     }
 
+    /// The dynamic SQL statements (S2.71).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum SqlDyn {
+        Prepare,
+        Immediate,
+        Execute,
+    }
+
     /// An INTO target (S2.70): the field, whether it is numeric, and its
     /// indicator variable.
     #[derive(Clone, Debug, PartialEq, Eq)]
@@ -345,6 +353,23 @@ pub mod ir {
         /// then its outcome goes into the SQLCA: SQLCODE, SQLSTATE,
         /// SQLERRMC, SQLERRD(3), SQLERRD(5).
         ExecSql { sqlca: Box<[Operand; 5]> },
+        /// Dynamic SQL (S2.71): PREPARE (`name`, the text), EXECUTE
+        /// IMMEDIATE (the text) or EXECUTE (`name`, the USING inputs, one
+        /// group per host variable); then the SQLCA.
+        ExecSqlDyn {
+            sqlca: Box<[Operand; 5]>,
+            kind: SqlDyn,
+            name: String,
+            text: Option<Operand>,
+            inputs: Vec<Vec<SqlIn>>,
+        },
+        /// GET DIAGNOSTICS (S2.71): CONDITION or not, each item's name and
+        /// the fields it is assigned to; then the SQLCA.
+        SqlDiag {
+            sqlca: Box<[Operand; 5]>,
+            condition: bool,
+            items: Vec<(String, Vec<Operand>)>,
+        },
         /// EXEC SQL with host variables (S2.70): the statement's text in
         /// pieces around its input host variables (bind_host's order),
         /// the inputs, and the INTO (or SET) targets; then the SQLCA.
@@ -1097,6 +1122,67 @@ fn elem_place(buf: usize, local: bool) -> String {
     }
 }
 
+/// The SQLCA stored from the outcome `o` (S2.69-S2.71), as exec_sql.rs
+/// exec_sql assigns it: SQLCODE, SQLSTATE, SQLERRMC, SQLERRD(3) and
+/// SQLERRD(5), each with the truncating fit.
+fn sqlca_store(
+    body: &mut String,
+    sqlca: &[ir::Operand; 5],
+    bad: &dyn Fn() -> Error,
+) -> Result<(), Error> {
+    let values = [
+        "rpgrt::rpg::data::Value::Num(rpgrt::rpg::dec::Dec::from_i64(o.code))",
+        "rpgrt::rpg::data::Value::str(&o.state)",
+        "rpgrt::rpg::data::Value::str(&o.text)",
+        "rpgrt::rpg::data::Value::Num(rpgrt::rpg::dec::Dec::from_i64(o.rows))",
+        "rpgrt::rpg::data::Value::Num(rpgrt::rpg::dec::Dec::from_i64(o.errd5))",
+    ];
+    for (target, v) in sqlca.iter().zip(values) {
+        let ir::Operand::Var { ty: t, .. } = target else {
+            return Err(bad());
+        };
+        let (prelude, sb, so) = place_of(target).ok_or_else(bad)?;
+        let _ = writeln!(
+            body,
+            "{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        {},\n        &{v},\n        rpgrt::rpg::data::Fit::Truncate {{ half_adjust: false }},\n        false,\n    )?;",
+            ty(t)
+        );
+    }
+    Ok(())
+}
+
+/// The USING literals (S2.71), one per host variable as exec_sql.rs
+/// using_values makes them: `NULL` for a negative indicator, else
+/// host_literal's literals of its fields joined with ", ".
+fn sql_inputs(body: &mut String, groups: &[Vec<ir::SqlIn>]) {
+    let lm = if groups.is_empty() { "" } else { "mut " };
+    let _ = writeln!(body, "    let {lm}lits: Vec<String> = Vec::new();");
+    for g in groups {
+        let null = match g.first().and_then(|i| i.ind.as_ref()) {
+            Some(ind) => format!("{}.is_negative()", number(ind)),
+            None => "false".to_string(),
+        };
+        let _ = writeln!(
+            body,
+            "    if {null} {{\n        lits.push(\"NULL\".to_string());\n    }} else {{"
+        );
+        let gm = if g.is_empty() { "" } else { "mut " };
+        let _ = writeln!(body, "        let {gm}parts: Vec<String> = Vec::new();");
+        for i in g {
+            let cl = match i.char_len {
+                Some(n) => format!("Some({n})"),
+                None => "None".to_string(),
+            };
+            let _ = writeln!(
+                body,
+                "        {{\n            let v = {};\n            parts.push(rpgrt::native::sql_literal(&v, {cl})?);\n        }}",
+                value(&i.value)
+            );
+        }
+        body.push_str("        lits.push(parts.join(\", \"));\n    }\n");
+    }
+}
+
 /// Where a field with no index that is not based is, as one `(buf, off)`
 /// expression (S2.70): a global's own place, or a procedure local's place
 /// for this call (`rt.local`).
@@ -1805,6 +1891,100 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("se{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::ExecSqlDyn {
+                sqlca,
+                kind,
+                name,
+                text,
+                inputs,
+            },
+        ) => {
+            // exec_sql.rs sql_statement's PREPARE, EXECUTE IMMEDIATE and
+            // EXECUTE: the statement's text (statement_text), the USING
+            // literals (using_values: host_literal per host variable),
+            // then the runtime; then the SQLCA.
+            let mut body = String::new();
+            match text {
+                Some(t) => {
+                    let _ = writeln!(body, "    let text = Some({});", value(t));
+                }
+                None => body.push_str("    let text = None;\n"),
+            }
+            sql_inputs(&mut body, inputs);
+            let k = match kind {
+                ir::SqlDyn::Prepare => "Prepare",
+                ir::SqlDyn::Immediate => "Immediate",
+                ir::SqlDyn::Execute => "Execute",
+            };
+            let _ = writeln!(
+                body,
+                "    let o = rt.exec_sql_dyn({pc}, rpgrt::native::SqlDyn::{k}, {}, text, lits)?;",
+                json_str(name)
+            );
+            sqlca_store(&mut body, sqlca, &bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn sd{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("sd{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::SqlDiag {
+                sqlca,
+                condition,
+                items,
+            },
+        ) => {
+            // exec_sql.rs get_diagnostics: each item's value about the last
+            // statement, assigned to its fields (host_targets) with the
+            // truncating fit; then the SQLCA (the outcome is not kept as
+            // the last).
+            let names: Vec<String> = items.iter().map(|(n, _)| json_str(n)).collect();
+            let mut body = format!(
+                "    let (vals, o) = rt.sql_diagnostics({pc}, {condition}, &[{}])?;\n",
+                names.join(", ")
+            );
+            for (k, (_, targets)) in items.iter().enumerate() {
+                if targets.is_empty() {
+                    continue;
+                }
+                // `first()` for the first (clippy::get_first in generated
+                // code).
+                let get = if k == 0 {
+                    "first()".to_string()
+                } else {
+                    format!("get({k})")
+                };
+                let _ = writeln!(body, "    if let Some(v) = vals.{get} {{");
+                for target in targets {
+                    let ir::Operand::Var { ty: t, .. } = target else {
+                        return Err(bad());
+                    };
+                    let (prelude, sb, so) = place_of(target).ok_or_else(bad)?;
+                    let _ = writeln!(
+                        body,
+                        "{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        {},\n        v,\n        rpgrt::rpg::data::Fit::Truncate {{ half_adjust: false }},\n        false,\n    )?;",
+                        ty(t)
+                    );
+                }
+                body.push_str("    }\n");
+            }
+            sqlca_store(&mut body, sqlca, &bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn sg{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("sg{pc}(rt).map(|()| {next})"),
             )
         }
         (

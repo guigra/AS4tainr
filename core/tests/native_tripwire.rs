@@ -433,6 +433,22 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    ",
         ),
         function(EXEC_SQL, "    fn assign_hosts(\n", "    "),
+        // S2.71: dynamic SQL and GET DIAGNOSTICS.
+        function(
+            EXEC_SQL,
+            "    fn get_diagnostics(&mut self, sql: &str) -> Result<Outcome> {",
+            "    ",
+        ),
+        function(
+            EXEC_SQL,
+            "    fn statement_text(&mut self, from: &str) -> Result<String> {",
+            "    ",
+        ),
+        function(
+            EXEC_SQL,
+            "    fn using_values(&mut self, sql: &str) -> Result<Vec<String>> {",
+            "    ",
+        ),
         function(
             EXEC_SQL,
             "    fn single_row(&mut self, query: &str, hosts: &[(String, Option<String>)]) -> Result<Outcome> {",
@@ -458,9 +474,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // sql_error, words, find_word and sqlstate (exec_sql.rs's fields made
     // pub(super) for the native runtime, the user's authorization of
     // 2026-11-18), S2.70 host_list, literal, host_literal, host_targets,
-    // bind_host, assign_hosts and single_row;
+    // bind_host, assign_hosts and single_row, S2.71 get_diagnostics,
+    // statement_text and using_values;
     // upstream still dd47e28.
-    let reviewed = "4d8345b0108260adadcf6f570fdcccfcc0e2843d7630c88cd1bdceb0fafc9b15";
+    let reviewed = "255d090a0836f4b7f0e9f77d9de74fcd5df08d8d4e9ef95a90d3801e98e5f11c";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

@@ -500,6 +500,32 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 sqlca: Box::new(sqlca),
             }
         }
+        // Dynamic SQL and GET DIAGNOSTICS (S2.71).
+        Ins::Stmt(Stmt::Sql(text)) if sql_dyn_kind(text).is_some() => {
+            let sqlca = sqlca_ops(cx, &mut used)?;
+            match sql_dyn_kind(text)? {
+                SqlKind::Diagnostics => {
+                    let (condition, items) = sql_diag(cx, text, &mut used)?;
+                    used.push(format!("get diagnostics {} items", items.len()));
+                    ir::Lowered::SqlDiag {
+                        sqlca: Box::new(sqlca),
+                        condition,
+                        items,
+                    }
+                }
+                SqlKind::Dyn(kind) => {
+                    let (name, stmt_text, inputs) = sql_dyn(cx, text, kind, &mut used)?;
+                    used.push(format!("dynamic sql {kind:?} {name}"));
+                    ir::Lowered::ExecSqlDyn {
+                        sqlca: Box::new(sqlca),
+                        kind,
+                        name,
+                        text: stmt_text,
+                        inputs,
+                    }
+                }
+            }
+        }
         // EXEC SQL with host variables (S2.70): SELECT or VALUES INTO, SET
         // :host, and the statements sql_change runs, as exec_sql.rs binds
         // and assigns them.
@@ -3620,4 +3646,189 @@ fn sql_hosts(
     }
     used.push(format!("sql pieces {pieces:?}"));
     Some((pieces, inputs, outputs, into))
+}
+
+/// The SQLCA's fields exec_sql.rs exec_sql sets (S2.71): SQLCODE,
+/// SQLSTATE, SQLERRMC, SQLERRD(3) and SQLERRD(5).
+fn sqlca_ops(cx: &Cx<'_>, used: &mut Vec<String>) -> Option<[ir::Operand; 5]> {
+    let errd = |k: i64, used: &mut Vec<String>| {
+        variable(
+            cx,
+            &Expr::Name {
+                parts: vec!["SQLERRD".into()],
+                args: Some(vec![Expr::Num(super::super::dec::Dec::from_i64(k))]),
+            },
+            used,
+        )
+    };
+    Some([
+        variable(cx, &Expr::name("SQLCODE"), used)?,
+        variable(cx, &Expr::name("SQLSTATE"), used)?,
+        variable(cx, &Expr::name("SQLERRMC"), used)?,
+        errd(3, used)?,
+        errd(5, used)?,
+    ])
+}
+
+/// What S2.71 lowers.
+#[derive(Clone, Copy, Debug)]
+enum SqlKind {
+    Dyn(ir::SqlDyn),
+    Diagnostics,
+}
+
+/// GET DIAGNOSTICS as exec_sql.rs exec_sql tells it (GET with
+/// DIAGNOSTICS in the first three words), or sql_statement's PREPARE,
+/// EXECUTE IMMEDIATE and EXECUTE (not one that names a cursor's FOR, not
+/// EXECUTE of a CALL: the statement's kind is only known at run time, so
+/// the runtime runs either as sql_statement does).
+fn sql_dyn_kind(sql: &str) -> Option<SqlKind> {
+    let w: Vec<String> = sql
+        .split_whitespace()
+        .map(|x| x.to_ascii_uppercase())
+        .collect();
+    let first = w.first().map(String::as_str).unwrap_or("");
+    let second = w.get(1).map(String::as_str).unwrap_or("");
+    if first == "GET" && w.iter().take(3).any(|x| x == "DIAGNOSTICS") {
+        return Some(SqlKind::Diagnostics);
+    }
+    match first {
+        "PREPARE" => Some(SqlKind::Dyn(ir::SqlDyn::Prepare)),
+        "EXECUTE" if second == "IMMEDIATE" => Some(SqlKind::Dyn(ir::SqlDyn::Immediate)),
+        "EXECUTE" => Some(SqlKind::Dyn(ir::SqlDyn::Execute)),
+        _ => None,
+    }
+}
+
+/// A statement's text (exec_sql.rs statement_text): `:name` or an
+/// expression, here a character or varying field.
+fn sql_text_operand(cx: &Cx<'_>, from: &str, used: &mut Vec<String>) -> Option<ir::Operand> {
+    let from = from.trim();
+    let src = from.strip_prefix(':').map(str::trim).unwrap_or(from);
+    let e = super::super::expr::parse(src).ok()?;
+    // A field (`:name`): character or varying, as sql_field takes it.
+    let o = sql_field(cx, &e, used)?;
+    is_char(&o).then_some(o)
+}
+
+/// PREPARE's name and text, EXECUTE IMMEDIATE's text, or EXECUTE's name
+/// and USING host variables (S2.71), as sql_statement and using_values
+/// take them apart.
+#[allow(clippy::type_complexity)] // the three parts of ExecSqlDyn
+fn sql_dyn(
+    cx: &Cx<'_>,
+    sql: &str,
+    kind: ir::SqlDyn,
+    used: &mut Vec<String>,
+) -> Option<(String, Option<ir::Operand>, Vec<Vec<ir::SqlIn>>)> {
+    let sql = sql.trim();
+    let w: Vec<String> = sql
+        .split_whitespace()
+        .map(|x| x.to_ascii_uppercase())
+        .collect();
+    let second = w.get(1).cloned().unwrap_or_default();
+    match kind {
+        ir::SqlDyn::Prepare => {
+            let at = sql_word_at(sql, "FROM")?;
+            let text = sql_text_operand(cx, sql.get(at.checked_add(4)?..)?, used)?;
+            Some((second, Some(text), Vec::new()))
+        }
+        ir::SqlDyn::Immediate => {
+            let at = sql_word_at(sql, "IMMEDIATE")?;
+            let text = sql_text_operand(cx, sql.get(at.checked_add(9)?..)?, used)?;
+            Some((String::new(), Some(text), Vec::new()))
+        }
+        ir::SqlDyn::Execute => {
+            let mut groups = Vec::new();
+            if let Some(at) = sql_word_at(sql, "USING") {
+                for (name, ind) in sql_host_list(sql.get(at.checked_add(5)?..)?)? {
+                    let targets = sql_targets(cx, &name)?;
+                    if targets.len() > 1 && ind.is_some() {
+                        return None;
+                    }
+                    let ind = match ind {
+                        Some(i) => Some(num_variable(
+                            cx,
+                            &super::super::expr::parse(&i).ok()?,
+                            used,
+                        )?),
+                        None => None,
+                    };
+                    let mut g = Vec::new();
+                    for t in &targets {
+                        let value = sql_field(cx, t, used)?;
+                        let char_len = match &value {
+                            ir::Operand::Var {
+                                ty: ir::Ty::Char(n),
+                                ..
+                            } => Some(*n),
+                            _ => None,
+                        };
+                        g.push(ir::SqlIn {
+                            value,
+                            char_len,
+                            ind: ind.clone(),
+                        });
+                    }
+                    groups.push(g);
+                }
+            }
+            Some((second, None, groups))
+        }
+    }
+}
+
+/// GET DIAGNOSTICS's items (S2.71), as exec_sql.rs get_diagnostics reads
+/// them: CONDITION (or EXCEPTION) n or not, then `:target = ITEM`, ...;
+/// lowering takes only the items get_diagnostics supports, each with the
+/// fields of its target (host_targets).
+#[allow(clippy::type_complexity)] // the parts of SqlDiag
+fn sql_diag(
+    cx: &Cx<'_>,
+    sql: &str,
+    used: &mut Vec<String>,
+) -> Option<(bool, Vec<(String, Vec<ir::Operand>)>)> {
+    let sql = sql.trim();
+    let up = sql.to_ascii_uppercase();
+    let at = up.find("DIAGNOSTICS")?.checked_add("DIAGNOSTICS".len())?;
+    let mut rest = sql.get(at..)?.trim().trim_end_matches(';').trim();
+    let first = rest
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_ascii_uppercase();
+    let condition = matches!(first.as_str(), "CONDITION" | "EXCEPTION");
+    if condition {
+        let mut it = rest.splitn(3, char::is_whitespace);
+        it.next();
+        it.next();
+        rest = it.next().unwrap_or("").trim();
+    }
+    let mut items = Vec::new();
+    for item in rest.split(',') {
+        let (target, name) = item.split_once('=')?;
+        let target = target.trim().trim_start_matches(':');
+        let name = name.trim().to_ascii_uppercase();
+        let known = match condition {
+            false => name == "ROW_COUNT",
+            true => matches!(
+                name.as_str(),
+                "MESSAGE_TEXT"
+                    | "MESSAGE_LENGTH"
+                    | "RETURNED_SQLSTATE"
+                    | "DB2_RETURNED_SQLCODE"
+                    | "MESSAGE_ID"
+                    | "DB2_MESSAGE_ID"
+            ),
+        };
+        if !known {
+            return None;
+        }
+        let mut targets = Vec::new();
+        for t in sql_targets(cx, target)? {
+            targets.push(sql_field(cx, &t, used)?);
+        }
+        items.push((name, targets));
+    }
+    Some((condition, items))
 }

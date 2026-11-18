@@ -235,6 +235,26 @@ pub trait Runtime {
     /// Stage 2 (S2.69): run the EXEC SQL at `pc` (exec_sql.rs exec_sql up
     /// to the SQLCA), its outcome for generated code to store.
     fn exec_sql(&mut self, pc: usize) -> NResult<SqlResult>;
+    /// Stage 2 (S2.71): PREPARE `name` FROM the text, EXECUTE IMMEDIATE
+    /// the text, or EXECUTE `name` with the USING literals, as exec_sql.rs
+    /// sql_statement runs them; the outcome for generated code to store.
+    fn exec_sql_dyn(
+        &mut self,
+        pc: usize,
+        kind: SqlDyn,
+        name: &str,
+        text: Option<Value>,
+        lits: Vec<String>,
+    ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.71): GET DIAGNOSTICS's items' values about the last
+    /// statement (exec_sql.rs get_diagnostics), as many as were valid, and
+    /// the outcome for the SQLCA (not kept as the last).
+    fn sql_diagnostics(
+        &mut self,
+        pc: usize,
+        condition: bool,
+        items: &[&str],
+    ) -> NResult<(Vec<Value>, SqlResult)>;
     /// Stage 2 (S2.70): run the EXEC SQL with host variables at `pc`: its
     /// text from `pieces` with the input literals between them
     /// (bind_host), then, for SELECT/VALUES INTO or SET (`into`), the row
@@ -269,6 +289,14 @@ pub struct SqlResult {
     pub text: String,
     pub rows: i64,
     pub errd5: i64,
+}
+
+/// A dynamic SQL statement (S2.71).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SqlDyn {
+    Prepare,
+    Immediate,
+    Execute,
 }
 
 /// An INTO target (S2.70): its storage and type, whether it is numeric,
