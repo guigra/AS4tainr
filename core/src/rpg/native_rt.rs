@@ -1014,6 +1014,17 @@ impl Runtime for Rt<'_, '_> {
         self.file_change_n(pc, keys, rec)
     }
 
+    fn exec_sql(&mut self, pc: usize) -> NResult<rpgrt::native::SqlResult> {
+        let o = self.exec_sql_n(pc)?;
+        Ok(rpgrt::native::SqlResult {
+            code: o.code,
+            state: o.state,
+            text: o.text,
+            rows: o.rows,
+            errd5: o.errd5,
+        })
+    }
+
     fn occurrence(&self, buf: usize) -> NResult<Dec> {
         // ops.rs occurrence: the current occurrence of the data
         // structure (occurs_of's buffer; lowering names only those).
@@ -2345,5 +2356,436 @@ fn opcode_name_n(op: FileOp) -> &'static str {
         FileOp::Feod => "FEOD",
         FileOp::Exfmt => "EXFMT",
         FileOp::ReadC => "READC",
+    }
+}
+
+// ---- embedded SQL, step 1 (S2.69, ADR 0007) -----------------------------
+//
+// Written again from the interpreter's exec_sql.rs, in its order: exec_sql
+// (the outcome, an SQL error as one, `last`), sql_statement's start (the
+// wait for other jobs' locks, STACK_INFO) and its arms for the statements
+// lowering lets through (no host variable, no cursor, no INTO, no CALL, no
+// dynamic SQL, no GET DIAGNOSTICS), sql_ddl, sql_change, run_sql,
+// sql_overrides and session, with the text helpers words, find_word and
+// sql_error. native_tripwire.rs watches them. sql::Session, ddl.rs and
+// objlock.rs are the runtime both engines call. Generated code stores the
+// outcome into the SQLCA's fields, as exec_sql assigns them.
+type SqlOut = super::exec_sql::Outcome;
+
+fn sql_ok(rows: i64) -> SqlOut {
+    SqlOut {
+        code: 0,
+        state: "00000".into(),
+        rows,
+        text: String::new(),
+        errd5: 0,
+    }
+}
+
+fn sql_not_found() -> SqlOut {
+    SqlOut {
+        code: 100,
+        state: "02000".into(),
+        rows: 0,
+        text: String::new(),
+        errd5: 0,
+    }
+}
+
+fn sql_err(code: i64, text: String) -> SqlOut {
+    SqlOut {
+        code,
+        state: super::exec_sql::sqlstate(code).into(),
+        rows: 0,
+        text,
+        errd5: 0,
+    }
+}
+
+/// exec_sql.rs sql_error: an error from the SQL layer ("SQL0204: ...") as
+/// its SQLCODE and text.
+fn sql_error_n(e: &anyhow::Error) -> Option<SqlOut> {
+    let m = format!("{e:#}");
+    if std::env::var_os("AS4TAINR_TRACE_ERRORS").is_some() {
+        let _ = writeln!(std::io::stderr(), "[SQL error] {m}");
+    }
+    let digits: String = m.strip_prefix("SQL")?.chars().take(4).collect();
+    if digits.len() != 4 || !digits.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let n: i64 = digits.parse().ok()?;
+    Some(sql_err(n.checked_neg()?, m))
+}
+
+/// exec_sql.rs words: the statement's words, upper case.
+fn sql_words(sql: &str) -> Vec<String> {
+    sql.split_whitespace()
+        .map(|w| w.to_ascii_uppercase())
+        .collect()
+}
+
+/// exec_sql.rs find_word: a keyword at nesting depth 0, outside literals,
+/// as its byte offset.
+fn sql_find_word(sql: &str, word: &str) -> Option<usize> {
+    let up = word.to_ascii_uppercase();
+    let is_word = |c: char| c.is_ascii_alphanumeric() || "_#@$".contains(c);
+    let (mut depth, mut quote) = (0i32, None::<char>);
+    let mut prev: Option<char> = None;
+    for (at, c) in sql.char_indices() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None => match c {
+                '\'' | '"' => quote = Some(c),
+                '(' => depth = depth.saturating_add(1),
+                ')' => depth = depth.saturating_sub(1),
+                _ if depth == 0
+                    && is_word(c)
+                    && !prev.is_some_and(is_word)
+                    && sql
+                        .get(at..)
+                        .and_then(|r| r.get(..up.len()))
+                        .is_some_and(|w| w.eq_ignore_ascii_case(&up))
+                    && sql
+                        .get(at..)
+                        .and_then(|r| r.get(up.len()..))
+                        .is_some_and(|r| r.chars().next().is_none_or(|n| !is_word(n))) =>
+                {
+                    return Some(at);
+                }
+                _ => {}
+            },
+        }
+        prev = Some(c);
+    }
+    None
+}
+
+impl Rt<'_, '_> {
+    /// exec_sql.rs exec_sql up to the SQLCA: the statement's outcome (an
+    /// SQL error as one), kept as the last for GET DIAGNOSTICS.
+    fn exec_sql_n(&mut self, pc: usize) -> NResult<SqlOut> {
+        let text = match &at(self.code, pc)?.ins {
+            Ins::Stmt(super::super::ast::Stmt::Sql(t)) => t.clone(),
+            _ => return Err(mismatch(pc, "an EXEC SQL")),
+        };
+        let out = match self.sql_statement_n(text.trim()) {
+            Ok(o) => o,
+            Err(e) => match sql_error_n(&e) {
+                Some(o) => o,
+                None => return Err(e),
+            },
+        };
+        self.m.sql.last = Some(out.clone());
+        Ok(out)
+    }
+
+    /// exec_sql.rs sql_statement, for what lowering lets through (step 1).
+    fn sql_statement_n(&mut self, sql: &str) -> NResult<SqlOut> {
+        {
+            let libl = self.m.io.libl.clone();
+            let wait = crate::runtime::default_record_wait();
+            let owner = self.m.io.job_key.clone();
+            if let Err(e) = self.m.block(crate::objlock::sql_tables_free(
+                self.m.io.client,
+                sql,
+                &libl,
+                &owner,
+                wait,
+            )) {
+                if let Some(o) = sql_error_n(&e) {
+                    return Ok(o);
+                }
+                return Err(e);
+            }
+        }
+        if sql.to_ascii_uppercase().contains("STACK_INFO") {
+            let mut entries: Vec<serde_json::Value> = Vec::new();
+            for e in crate::pgmmsg::stack_listed(&self.m.io.job_key) {
+                if e.pep {
+                    entries.push(serde_json::json!({
+                        "pgm": e.pgm, "lib": e.lib, "module": e.module,
+                        "proc": format!("_QRNP_PEP_{}", e.pgm), "actgrp": e.actgrp, "line": 0,
+                    }));
+                }
+                entries.push(serde_json::json!({
+                    "pgm": e.pgm, "lib": e.lib, "module": e.module,
+                    "proc": e.proc, "actgrp": e.actgrp, "line": e.line,
+                }));
+            }
+            let json = serde_json::Value::Array(entries).to_string();
+            let rt = self.m.io.rt.clone();
+            let session = self.session_n()?;
+            rt.block_on(session.set_stack(&json))?;
+        }
+        let w = sql_words(sql);
+        let first = w.first().map(String::as_str).unwrap_or("");
+        let second = w.get(1).map(String::as_str).unwrap_or("");
+        match first {
+            "SET" if second == "OPTION" => return Ok(sql_ok(0)),
+            "INCLUDE" | "WHENEVER" | "BEGIN" | "END" => return Ok(sql_ok(0)),
+            "DECLARE"
+                if w.get(2).map(String::as_str) == Some("CURSOR")
+                    || w.iter().any(|x| x == "CURSOR") =>
+            {
+                return Ok(sql_ok(0))
+            }
+            "COMMIT" | "ROLLBACK" => {
+                let d = match self.m.sql.session.as_ref().and_then(|s| s.commitment()) {
+                    Some(d) => Some(d.clone()),
+                    None => crate::cmtctl::find(&self.m.io.job_key, &self.m.io.actgrp),
+                };
+                if let Some(d) = d {
+                    let r = if first == "COMMIT" {
+                        self.m.block(d.commit())
+                    } else {
+                        self.m.block(d.rollback())
+                    };
+                    if let Err(e) = r {
+                        return Ok(sql_err(-901, format!("SQL0901: {e}")));
+                    }
+                }
+                return Ok(sql_ok(0));
+            }
+            "CREATE" | "DROP" | "LABEL" | "COMMENT" | "ALTER" | "RENAME" => {
+                if let Some(o) = self.sql_ddl_n(sql)? {
+                    return Ok(o);
+                }
+            }
+            "GRANT" | "REVOKE" | "LOCK" | "MERGE" => {
+                return Ok(sql_err(
+                    -84,
+                    format!("SQL0084: {first} statements are not supported in embedded SQL yet."),
+                ))
+            }
+            // Lowering lets no other kind of statement through that the
+            // interpreter treats on its own (OPEN, FETCH, CLOSE, PREPARE,
+            // EXECUTE, SET RESULT, SET :host, INTO, CALL, INSERT ... ROWS,
+            // GET).
+            "OPEN" | "FETCH" | "CLOSE" | "PREPARE" | "EXECUTE" | "CALL" | "GET" => {
+                return Err(anyhow!("native: {first} is not lowered"))
+            }
+            _ => {}
+        }
+        if sql_find_word(sql, "CURRENT").is_some()
+            && w.windows(2)
+                .any(|p| matches!(p, [a, b] if a == "CURRENT" && b == "OF"))
+        {
+            return Err(anyhow!("native: a positioned change is not lowered"));
+        }
+        // bind_host: no host variable (lowering), so the text as it is.
+        self.sql_change_n(sql)
+    }
+
+    /// exec_sql.rs sql_ddl: CREATE, DROP, LABEL, COMMENT, ALTER, RENAME as
+    /// RUNSQLSTM runs them; None when ddl.rs does not take it.
+    fn sql_ddl_n(&mut self, sql: &str) -> NResult<Option<SqlOut>> {
+        let first = sql
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_ascii_uppercase();
+        if !matches!(
+            first.as_str(),
+            "CREATE" | "DROP" | "LABEL" | "COMMENT" | "ALTER" | "RENAME"
+        ) {
+            return Ok(None);
+        }
+        let curlib = self.m.io.cl.as_ref().and_then(|c| c.curlib.clone());
+        let rt = self.m.io.rt.clone();
+        match rt.block_on(crate::ddl::try_run(
+            &self.m.io.database_url,
+            &self.m.io.user,
+            &self.m.io.libl,
+            curlib,
+            &mut None,
+            sql,
+        )) {
+            Ok(Some(_)) => Ok(Some(sql_ok(0))),
+            Ok(None) => Ok(None),
+            Err(e) => match sql_error_n(&e) {
+                Some(o) => Ok(Some(o)),
+                None => Err(e),
+            },
+        }
+    }
+
+    /// exec_sql.rs sql_change: the statement run; a change of no rows is
+    /// SQLCODE +100.
+    fn sql_change_n(&mut self, text: &str) -> NResult<SqlOut> {
+        Ok(match self.run_sql_n(text)? {
+            crate::sql::Exec::Count(_, 0) => sql_not_found(),
+            crate::sql::Exec::Count(_, n) => sql_ok(i64::try_from(n)?),
+            crate::sql::Exec::Rows { rows, .. } => sql_ok(i64::try_from(rows.len())?),
+        })
+    }
+
+    /// exec_sql.rs run_sql.
+    fn run_sql_n(&mut self, sql: &str) -> NResult<crate::sql::Exec> {
+        self.sql_overrides_n(sql)?;
+        let client = self.m.io.client;
+        let rt = self.m.io.rt.clone();
+        let s = self.session_n()?;
+        rt.block_on(s.exec(client, sql))
+    }
+
+    /// exec_sql.rs sql_overrides: database file overrides for the names the
+    /// statement uses, as temporary views of those names.
+    fn sql_overrides_n(&mut self, sql: &str) -> NResult<()> {
+        let mut all: Vec<crate::ovr::Override> = self
+            .m
+            .io
+            .cl
+            .as_ref()
+            .map(|c| c.overrides.clone())
+            .unwrap_or_default();
+        crate::ovr::merge_scoped(&self.m.io.job_key, &mut all);
+        let ovr: Vec<crate::ovr::Override> = all
+            .into_iter()
+            .filter(|o| o.kind == crate::ovr::Kind::Db)
+            .collect();
+        if ovr.is_empty() && self.m.sql.ovr_views.is_empty() {
+            return Ok(());
+        }
+        let up = sql.to_ascii_uppercase();
+        let uses = |name: &str| sql_find_word(&up, name).is_some();
+        let mut names: Vec<String> = ovr.iter().map(|o| o.file.to_ascii_uppercase()).collect();
+        names.extend(self.m.sql.ovr_views.keys().cloned());
+        names.sort();
+        names.dedup();
+        for name in names {
+            if !uses(&name) {
+                continue;
+            }
+            let body = match crate::ovr::effective(&ovr, crate::ovr::Kind::Db, &name) {
+                Some(o) => {
+                    let to = o.tofile.clone().unwrap_or_else(|| name.clone());
+                    let (lib, file) = match to.split_once('/') {
+                        Some((l, f)) if l != "*LIBL" => {
+                            (Some(crate::qtemp::real(l)), f.to_string())
+                        }
+                        Some((_, f)) => (None, f.to_string()),
+                        None => (None, to.clone()),
+                    };
+                    let libs = match &lib {
+                        Some(l) => vec![l.clone()],
+                        None => self.m.io.libl.clone(),
+                    };
+                    let rt = self.m.io.rt.clone();
+                    let client = self.m.io.client;
+                    let mut found = None;
+                    for l in &libs {
+                        let attr: Option<String> = rt
+                            .block_on(client.query_opt(
+                                "SELECT attribute FROM as4tainr.objects WHERE library=$1 AND name=$2 AND objtype='*FILE'",
+                                &[l, &file],
+                            ))?
+                            .map(|r| r.get(0));
+                        if let Some(a) = attr {
+                            found = Some((l.clone(), a));
+                            break;
+                        }
+                    }
+                    let Some((l, attr)) = found else { continue };
+                    let q = |v: &str| format!("'{}'", v.replace('\'', "''"));
+                    if attr == "PF-SRC" {
+                        let mbr = match &o.mbr {
+                            Some(m) if !m.starts_with('*') => m.clone(),
+                            _ => rt
+                                .block_on(client.query_opt(
+                                    "SELECT member FROM as4tainr.source_members WHERE library=$1 AND file=$2 ORDER BY added, member LIMIT 1",
+                                    &[&l, &file],
+                                ))?
+                                .map(|r| r.get(0))
+                                .unwrap_or_default(),
+                        };
+                        Some(format!(
+                            "SELECT srcseq, srcdat, srcdta FROM as4tainr_svc.source_lines({}, {}, {})",
+                            q(&l),
+                            q(&file),
+                            q(&mbr)
+                        ))
+                    } else {
+                        let f = rt.block_on(crate::catalog::resolve_file(
+                            client,
+                            std::slice::from_ref(&l),
+                            &file,
+                        ))?;
+                        let cols: Vec<String> = f.file.fields.iter().map(|x| x.column()).collect();
+                        Some(format!(
+                            "SELECT {} FROM {}.{}",
+                            cols.join(", "),
+                            crate::catalog::ident(&l),
+                            crate::catalog::ident(&file)
+                        ))
+                    }
+                }
+                None => None,
+            };
+            let had = self.m.sql.ovr_views.get(&name).cloned();
+            if had.as_deref() == body.as_deref() {
+                continue;
+            }
+            let rt = self.m.io.rt.clone();
+            let s = self.session_n()?;
+            rt.block_on(s.temp_view(&name, body.as_deref()))?;
+            match body {
+                Some(b) => {
+                    self.m.sql.ovr_views.insert(name, b);
+                }
+                None => {
+                    self.m.sql.ovr_views.remove(&name);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// exec_sql.rs session: the program's SQL session, opened the first
+    /// time (under the commitment definition of its activation group or
+    /// job when its commit level is not *NONE).
+    fn session_n(&mut self) -> NResult<&crate::sql::Session> {
+        if self.m.sql.session.is_none() {
+            let level = self.m.prog.sql_commit.clone();
+            let s = if level == "*NONE" {
+                self.m.block(crate::sql::Session::open(
+                    self.m.io.client,
+                    &self.m.io.database_url,
+                    &self.m.io.libl,
+                ))?
+            } else {
+                let d = match crate::cmtctl::find(&self.m.io.job_key, &self.m.io.actgrp) {
+                    Some(d) => d,
+                    None => self.m.block(crate::cmtctl::start(
+                        self.m.io.client,
+                        &self.m.io.database_url,
+                        &self.m.io.job_key,
+                        &self.m.io.actgrp,
+                        &level,
+                        false,
+                    ))?,
+                };
+                self.m.block(crate::sql::Session::open_in(
+                    self.m.io.client,
+                    &self.m.io.database_url,
+                    &self.m.io.libl,
+                    d,
+                ))?
+            };
+            let mut s = s;
+            let job = self.m.io.job.as_ref().map(|j| j.to_string());
+            let user = self.m.io.user.clone();
+            self.m.block(s.set_context(&user, None, job))?;
+            if let Some((l, n)) = self.m.io.program.split_once('/') {
+                let (l, n) = (l.to_string(), n.to_string());
+                self.m.block(s.set_program(&n, &l))?;
+            }
+            self.m.sql.session = Some(s);
+        }
+        self.m
+            .sql
+            .session
+            .as_ref()
+            .ok_or_else(|| anyhow!("native: no SQL session"))
     }
 }

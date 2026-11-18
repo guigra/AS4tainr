@@ -13,6 +13,8 @@ const ERRORS: &str = include_str!("../src/rpg/errors.rs");
 const BIFS: &str = include_str!("../src/rpg/bifs.rs");
 const PTRS: &str = include_str!("../src/rpg/ptrs.rs");
 const CYCLE: &str = include_str!("../src/rpg/cycle.rs");
+const EXEC_SQL: &str = include_str!("../src/rpg/exec_sql.rs");
+const OPS: &str = include_str!("../src/rpg/ops.rs");
 
 /// The text of a function, from its signature to its closing brace at
 /// the same indentation.
@@ -356,6 +358,58 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    fn fref_of(&self, i: usize) -> Result<crate::catalog::FileRef> {",
             "    ",
         ),
+        // S2.64: multiple-occurrence data structures.
+        function(
+            OPS,
+            "    pub(super) fn occurrence(&self, e: &Expr) -> Result<u32> {",
+            "    ",
+        ),
+        function(
+            OPS,
+            "    pub(super) fn set_occurrence(&mut self, e: &Expr, n: i128) -> Result<()> {",
+            "    ",
+        ),
+        function(OPS, "    fn occur_op(\n", "    "),
+        // S2.69: embedded SQL, step 1.
+        function(EXEC_SQL, "fn sql_error(e: &anyhow::Error) -> Option<Outcome> {", ""),
+        function(EXEC_SQL, "fn words(sql: &str) -> Vec<String> {", ""),
+        function(EXEC_SQL, "fn find_word(sql: &str, word: &str) -> Option<usize> {", ""),
+        function(
+            EXEC_SQL,
+            "    pub(super) fn exec_sql(&mut self, text: &str) -> Result<()> {",
+            "    ",
+        ),
+        function(
+            EXEC_SQL,
+            "    fn sql_statement(&mut self, sql: &str) -> Result<Outcome> {",
+            "    ",
+        ),
+        function(
+            EXEC_SQL,
+            "    fn sql_ddl(&mut self, sql: &str) -> Result<Option<Outcome>> {",
+            "    ",
+        ),
+        function(
+            EXEC_SQL,
+            "    fn sql_change(&mut self, text: &str) -> Result<Outcome> {",
+            "    ",
+        ),
+        function(
+            EXEC_SQL,
+            "    fn run_sql(&mut self, sql: &str) -> Result<Exec> {",
+            "    ",
+        ),
+        function(
+            EXEC_SQL,
+            "    fn sql_overrides(&mut self, sql: &str) -> Result<()> {",
+            "    ",
+        ),
+        function(
+            EXEC_SQL,
+            "    fn session(&mut self) -> Result<&Session> {",
+            "    ",
+        ),
+        function(EXEC_SQL, "pub(crate) fn sqlstate(code: i64) -> &'static str {", ""),
     ];
     let hash = sha256(&watched.concat());
     // Reviewed on 2026-11-15 against native_rt.rs and the stage 2
@@ -370,9 +424,14 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // special_arg, S2.55 date_arith and as_ts, S2.58 file_op,
     // file_failed, file_idx, opcode_name, file_op_inner, key_values,
     // fill_fields, file_status and move_input, S2.59 record_of,
-    // record_change, rla_change and fref_of;
+    // record_change, rla_change and fref_of, S2.64 occurrence,
+    // set_occurrence and occur_op, S2.69 exec_sql.rs's exec_sql,
+    // sql_statement, sql_ddl, sql_change, run_sql, sql_overrides, session,
+    // sql_error, words, find_word and sqlstate (exec_sql.rs's fields made
+    // pub(super) for the native runtime, the user's authorization of
+    // 2026-11-18);
     // upstream still dd47e28.
-    let reviewed = "42c1967dff7caeddd51d83c4b31695e9e16c62806c2b93403538ccb1d6932b0e";
+    let reviewed = "681eaeec5dbab984bce43860cf369b270d5416df345066a9973a0c440efce4bc";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

@@ -232,6 +232,9 @@ pub trait Runtime {
         keys: Option<Vec<KeyArg>>,
         rec: NResult<Vec<Option<String>>>,
     ) -> NResult<()>;
+    /// Stage 2 (S2.69): run the EXEC SQL at `pc` (exec_sql.rs exec_sql up
+    /// to the SQLCA), its outcome for generated code to store.
+    fn exec_sql(&mut self, pc: usize) -> NResult<SqlResult>;
     /// Stage 2 (S2.64): the current occurrence of the multiple-occurrence
     /// data structure in buffer `buf` (ops.rs occurrence).
     fn occurrence(&self, buf: usize) -> NResult<Dec>;
@@ -242,6 +245,17 @@ pub trait Runtime {
     /// Stage 2 (S2.58): %EOF, %FOUND or %EQUAL of the file named (as the
     /// running procedure finds it), or of the last file operation.
     fn file_status(&mut self, bit: FileBit, file: Option<&str>) -> NResult<bool>;
+}
+
+/// How an EXEC SQL ended (S2.69): SQLCODE, SQLSTATE, SQLERRMC's text,
+/// SQLERRD(3) and SQLERRD(5).
+#[derive(Clone, Debug)]
+pub struct SqlResult {
+    pub code: i64,
+    pub state: String,
+    pub text: String,
+    pub rows: i64,
+    pub errd5: i64,
 }
 
 /// A key value of a file operation (S2.58), as the interpreter's

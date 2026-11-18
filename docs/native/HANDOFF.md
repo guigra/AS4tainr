@@ -1,6 +1,51 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-14, before moving part of the work to a Mac M1. Both native branches and the held upstream fix branches are pushed to origin (guigra/AS4tainr). The branch is `native/engine`, stacked on `native/runtime-extraction`, both rebased on upstream main dd47e28. Nothing of these branches is pushed. The previous tip is kept as `native/engine-pre-rebase2`.
+Last update: 2026-11-18 01:40 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
+
+## Now (2026-11-18)
+
+**Stage 2 is committed up to S2.67**, each block validated by a full section 7 on the ARM64 VM:
+- corpus coverage 87.6% native;
+- level 2 rust: 668 of 690 tests the same as the interpreter.
+
+**S2.68** (%XFOOT, %MAXARR, %MINARR) is snapshot `2b55164`, running its section 7 on the VM (`s7f-s268`).
+
+**Recent blocks**, one commit each, built from a validated snapshot with `git commit-tree` on the snapshot's tree:
+
+| Block | What |
+| --- | --- |
+| S2.58 | file reads |
+| S2.59 | WRITE, UPDATE and DELETE |
+| S2.60 | data structures and hexadecimal literals as call arguments |
+| S2.61 | the module's globals in procedures |
+| S2.62 | indicators in concatenations |
+| S2.63 | local arrays |
+| S2.64 | multiple-occurrence data structures |
+| S2.65 | %ADDR of locals |
+| S2.66 | OPTIONS(*STRING) for C functions |
+| S2.67 | %SCANR, %LEFT, %RIGHT |
+
+**Next: embedded SQL** (92 instructions). Its plan is in ADR 0007, "Plan: embedded SQL", in five steps. After that, the long tail the AS4TAINR_NATIVE_WHY pass lists, now with program and line:
+- temporal forms (%CHAR of time + duration, %DATE with *MDY or a number, %DEC of a date);
+- procedure pointers, %CONCAT, data imports;
+- nested data structure subfields;
+- floats and %SQRT;
+- printer and display files.
+
+**How a block goes:**
+1. Code.
+2. A PUB400 capture (tools/golden/nativeNN, one ssh session).
+3. A native unit (core/tests/native) whose expected lines are the capture's.
+4. The units under both engines on x86 (or the VM), with AS4TAINR_NATIVE_WHY and AS4TAINR_NATIVE_EMIT set. WHY needs EMIT, or lowering does not run.
+5. A snapshot (a temporary index, `git commit-tree`) on top of the previous one.
+6. A full section 7 on the VM (`vm-s7full.sh <tag> <commit>`). `vm-chain.sh` runs several in a row from `src-<tag>` copies.
+7. `git commit-tree` of the validated tree, `update-ref`, `git reset`, push.
+
+**Upstream:** PRs #19-#24 were published on 2026-11-17, along with re-check comments and a transparency note on #11, #12 and #14. Nothing more goes to Kyle until 2026-11-24 (the user's choice). See memory kyle-quiet-week and as4tainr-up-logs/revision-2026-11-17-publicado.md.
+
+**WASM side project:** the sign-on worked in the browser (1114 s). Next steps are in the landing repo's README. A package for another computer is to be prepared on the user's request: the memory wasm-landing says how.
+
+## Earlier state (2026-11-14)
 
 ## State
 
