@@ -473,6 +473,107 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             };
             ir::Lowered::SetOccur { buf, to, result }
         }
+        // Fixed-form LOOKUP of an array and XFOOT (S2.85): ops.rs lookup
+        // and array_op's XFOOT.
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1,
+            f2: Some(f2),
+            result,
+            ext,
+            ind,
+        }) if (code == "LOOKUP" || code == "XFOOT")
+            && !ext.error
+            // Ext::other holds the whole extender: H for XFOOT only.
+            && (ext.other.is_empty() || (code == "XFOOT" && ext.other == "H")) =>
+        {
+            let Expr::Name { parts, args } = f2 else {
+                return None;
+            };
+            let aname = parts.join(".");
+            let Some(Sym::Var(v)) = sym(cx, &aname) else {
+                return None;
+            };
+            if v.dim == 0 || v.local || cx.prog.varying.contains_key(&aname) {
+                return None;
+            }
+            let ety = match v.dtype {
+                DType::Packed(d, s) => ir::Ty::Packed(d, s),
+                DType::Zoned(d, s) => ir::Ty::Zoned(d, s),
+                DType::Binary(d, s) => ir::Ty::Binary(d, s),
+                DType::Int(n) => ir::Ty::Int(n),
+                DType::Uns(n) => ir::Ty::Uns(n),
+                DType::Char(n) if code == "LOOKUP" => ir::Ty::Char(n),
+                _ => return None,
+            };
+            let arr = ir::Operand::Var {
+                name: aname.clone(),
+                buf: v.buf,
+                off: v.off,
+                ty: ety,
+                local: false,
+                index: None,
+                based: None,
+            };
+            let (lookup, xfoot) = if code == "LOOKUP" {
+                // An array, not a table (TAB...: its current element is the
+                // interpreter's state); no alternating array.
+                if aname.starts_with("TAB") || result.is_some() {
+                    return None;
+                }
+                let arg = match f1.as_ref()? {
+                    Expr::Str(b) | Expr::Hex(b) => ir::Operand::Str(b.clone()),
+                    e @ Expr::Num(_) => operand(cx, e, &mut used)?,
+                    e @ Expr::Name { .. } => {
+                        let o = sql_field(cx, e, &mut used)?;
+                        if !matches!(
+                            o,
+                            ir::Operand::Var {
+                                index: None,
+                                based: None,
+                                ..
+                            }
+                        ) {
+                            return None;
+                        }
+                        o
+                    }
+                    _ => return None,
+                };
+                let ix = match args.as_deref() {
+                    None => None,
+                    Some([i]) => Some(
+                        str_num(cx, i, &mut used)
+                            .filter(|o| matches!(o, ir::Operand::Var { .. }))?,
+                    ),
+                    Some(_) => return None,
+                };
+                (Some((arg, ix)), None)
+            } else {
+                if args.is_some() || f1.is_some() {
+                    return None;
+                }
+                let r = str_num(cx, result.as_ref()?, &mut used)?;
+                if !matches!(r, ir::Operand::Var { .. }) {
+                    return None;
+                }
+                (None, Some((r, ext.half_adjust)))
+            };
+            used.push(format!(
+                "array op {code} {aname} stride {} dim {}",
+                v.stride, v.dim
+            ));
+            ir::Lowered::ArrOp(Box::new(ir::ArrOpData {
+                lookup,
+                xfoot,
+                arr,
+                stride: v.stride,
+                dim: v.dim,
+                hi: ind.hi.clone(),
+                lo: ind.lo.clone(),
+                eq: ind.eq.clone(),
+            }))
+        }
         // Fixed-form TESTN, TESTZ, TESTB, BITON and BITOFF (S2.84): ops.rs
         // bit_op on a character field.
         Ins::Stmt(Stmt::Op {
@@ -983,6 +1084,16 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
         }
         // %CHAR of a numeric expression (S2.14). The program's DECEDIT is
         // part of the code, so it goes into the fingerprint's layout.
+        // %CHAR of an indicator (S2.85): its character, '1' or '0', as
+        // interp.rs bif's CHAR arm gives a Value::Ind (an indicator in a
+        // concatenation, S2.62, is the same value).
+        Expr::Bif(b, args) if b == "CHAR" && matches!(args.as_slice(), [Expr::Ind(_)]) => {
+            let [Expr::Ind(n)] = args.as_slice() else {
+                return None;
+            };
+            used.push(format!("ind {n}"));
+            Some(ir::CharExpr::Ind(n.clone()))
+        }
         Expr::Bif(b, args) if b == "CHAR" => {
             let [inner] = args.as_slice() else {
                 return None;

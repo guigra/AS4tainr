@@ -508,6 +508,22 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    pub(super) fn ensure_printer(&mut self, file: &str) -> Result<()> {",
             "    ",
         ),
+        // S2.85: fixed-form LOOKUP and XFOOT.
+        function(
+            OPS,
+            "    pub(super) fn array_op(\n",
+            "    ",
+        ),
+        function(
+            OPS,
+            "    fn lookup(\n",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn num_inds(&mut self, ind: &ResultInd, d: &Dec) {",
+            "    ",
+        ),
         // S2.84: fixed-form bit and test operations.
         function(
             OPS,
@@ -665,9 +681,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // S2.80 data_area, dtaara_unlock_object and local_data_area, S2.81
     // bif (its EDITC arm), S2.83 ops.rs split, put_positions, put_left,
     // op_error and string_op, S2.84 ops.rs bit_op and bit_mask and
-    // interp.rs set_result_inds;
+    // interp.rs set_result_inds, S2.85 ops.rs array_op and lookup and
+    // interp.rs num_inds;
     // upstream still dd47e28.
-    let reviewed = "85cc2598d5c3a863abff5a7d14c890ad750e09f3ff0f07aaf7668bc4a11a49c4";
+    let reviewed = "f53c1af4b7cee8bb6f177a7a2b0036b4276c63a713898282ec90e1afa1e83bf2";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"

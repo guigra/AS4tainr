@@ -2203,3 +2203,20 @@ async fn native_unit_lowered_bit_ops() {
     )
     .await;
 }
+
+// Stage 2, S2.85: fixed-form LOOKUP of arrays and XFOOT lowered to Rust.
+// Source: golden capture tools/golden/native85 n85_arrops (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_lookup_xfoot() {
+    let _ = require_db!();
+    expect(
+        "NARROPS",
+        include_str!("native/NARROPS.rpgle"),
+        &[
+            "A 3 001 5 001 1 000 N 001",
+            "H 3 101 L 2 111 E 3 011 X 1 011",
+            "F 22.5 100 22.5",
+        ],
+    )
+    .await;
+}

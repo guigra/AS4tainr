@@ -1120,6 +1120,13 @@ impl Runtime for Rt<'_, '_> {
         self.printer_op_n(pc)
     }
 
+    fn array_op(&mut self, pc: usize, op: rpgrt::native::ArrOpIn) -> NResult<()> {
+        if !matches!(&at(self.code, pc)?.ins, Ins::Stmt(_)) {
+            return Err(mismatch(pc, "an array operation"));
+        }
+        self.array_op_n(&op)
+    }
+
     fn bit_op(&mut self, pc: usize, op: rpgrt::native::BitOpIn) -> NResult<()> {
         if !matches!(&at(self.code, pc)?.ins, Ins::Stmt(_)) {
             return Err(mismatch(pc, "a bit operation"));
@@ -5053,6 +5060,141 @@ impl Rt<'_, '_> {
                     false,
                 )?;
             }
+        }
+        Ok(())
+    }
+}
+
+// ---- fixed-form LOOKUP and XFOOT (S2.85) ------------------------------
+
+impl Rt<'_, '_> {
+    /// An array's element k (1-based), as load_var reads it.
+    fn arr_elem_n(
+        &self,
+        arr: &(usize, usize, usize, u32, super::super::data::DType),
+        k: usize,
+    ) -> NResult<Value> {
+        let (buf, off, stride, _, ty) = *arr;
+        let at = k
+            .checked_sub(1)
+            .and_then(|k| k.checked_mul(stride))
+            .and_then(|d| off.checked_add(d))
+            .ok_or_else(|| anyhow!("native: an element's place"))?;
+        rpgrt::native::load(&self.m.bufs, buf, at, ty)
+    }
+
+    /// ops.rs lookup for an array (not a table), and array_op's XFOOT.
+    fn array_op_n(&mut self, op: &rpgrt::native::ArrOpIn) -> NResult<()> {
+        use std::cmp::Ordering;
+        let dim = usize::try_from(op.arr.3)?;
+        if let Some((slot, half)) = &op.xfoot {
+            // XFOOT: the elements' sum, the truncating fit (half adjust
+            // with H), the indicators by the value stored.
+            let mut sum = Dec::ZERO;
+            for k in 1..=dim {
+                sum = sum.add(&self.arr_elem_n(&op.arr, k)?.num()?)?;
+            }
+            rpgrt::native::store(
+                &mut self.m.bufs,
+                slot.buf,
+                slot.off,
+                slot.ty,
+                &Value::Num(sum),
+                Fit::Truncate { half_adjust: *half },
+                false,
+            )?;
+            let stored = rpgrt::native::load(&self.m.bufs, slot.buf, slot.off, slot.ty)?.num()?;
+            if op.hi.is_some() || op.lo.is_some() || op.eq.is_some() {
+                self.set_result_inds_n(
+                    &op.hi,
+                    &op.lo,
+                    &op.eq,
+                    (
+                        stored.mantissa() > 0,
+                        stored.mantissa() < 0,
+                        stored.is_zero(),
+                    ),
+                );
+            }
+            return Ok(());
+        }
+        let Some((arg, index)) = &op.lookup else {
+            return Err(anyhow!("native: an array operation"));
+        };
+        // LOOKUP: from the index's element (RNQ0121 outside the array),
+        // the first equal one when EQ is asked for, else the nearest above
+        // (HI) or below (LO); the indicators; the index set to the element
+        // found, or 1.
+        let start = match index {
+            Some(ix) => {
+                let s = rpgrt::native::load(&self.m.bufs, ix.buf, ix.off, ix.ty)?
+                    .num()?
+                    .to_i128()?;
+                if s < 1 || s > i128::try_from(dim)? {
+                    return Err(anyhow!(
+                        "RNQ0121: An array index is out of range (index {s}, {dim} elements)."
+                    ));
+                }
+                usize::try_from(s)?
+            }
+            None => 1,
+        };
+        let (want_hi, want_lo, want_eq) = (op.hi.is_some(), op.lo.is_some(), op.eq.is_some());
+        if !(want_eq || want_hi || want_lo) {
+            return Err(anyhow!("LOOKUP needs a resulting indicator"));
+        }
+        let mut found: Option<(usize, Ordering)> = None;
+        let mut best: Option<(usize, Value)> = None;
+        for k in start..=dim {
+            let v = self.arr_elem_n(&op.arr, k)?;
+            let o = data::compare(&v, arg)?;
+            if o == Ordering::Equal && want_eq {
+                found = Some((k, o));
+                break;
+            }
+            let fits = (o == Ordering::Greater && want_hi) || (o == Ordering::Less && want_lo);
+            if fits {
+                let closer = match &best {
+                    None => true,
+                    Some((_, b)) => {
+                        let c = data::compare(&v, b)?;
+                        if o == Ordering::Greater {
+                            c == Ordering::Less
+                        } else {
+                            c == Ordering::Greater
+                        }
+                    }
+                };
+                if closer {
+                    best = Some((k, v));
+                }
+            }
+        }
+        if found.is_none() {
+            if let Some((k, v)) = best {
+                found = Some((k, data::compare(&v, arg)?));
+            }
+        }
+        for (i, on) in [
+            (&op.hi, matches!(found, Some((_, Ordering::Greater)))),
+            (&op.lo, matches!(found, Some((_, Ordering::Less)))),
+            (&op.eq, matches!(found, Some((_, Ordering::Equal)))),
+        ] {
+            if let Some(i) = i {
+                self.m.set_ind(i, on);
+            }
+        }
+        if let Some(ix) = index {
+            let at = found.map(|(k, _)| k).unwrap_or(1);
+            rpgrt::native::store(
+                &mut self.m.bufs,
+                ix.buf,
+                ix.off,
+                ix.ty,
+                &Value::Num(Dec::from_i64(i64::try_from(at)?)),
+                Fit::Strict { half_adjust: false },
+                false,
+            )?;
         }
         Ok(())
     }

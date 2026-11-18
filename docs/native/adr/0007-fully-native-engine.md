@@ -999,3 +999,22 @@ native_tripwire.rs watches string_op, split, put_positions, put_left and op_erro
 - TESTB with the bits of a field, and BITOFF with a field.
 
 native_tripwire.rs watches bit_op, bit_mask and set_result_inds.
+
+## S2.85: fixed-form LOOKUP of arrays and XFOOT
+
+**Lowered** (both of a global array that is not of varying dimension):
+- LOOKUP of a character or numeric array, with no alternating array. A table (TAB...) is not lowered, because its current element is the interpreter's state. The search argument is a literal or a field with no index; the starting index is a numeric field, or none.
+- XFOOT of a numeric array into a numeric field, with or without H.
+
+**Runtime.** `array_op_n` writes again:
+- ops.rs lookup: the starting index's range check (RNQ0121), the first equal element when EQ is asked for, else the nearest above (HI) or below (LO), the indicators, and the index set to the element found, or 1;
+- array_op's XFOOT: the sum, the truncating fit with H, and interp.rs num_inds on the value stored.
+
+**Verified by** the native unit NARROPS, under both engines. The program captured on PUB400 (tools/golden/native85.txt n85_arrops) runs:
+- LOOKUP of a character array, with an index (found, from a later start, not found) and without one;
+- LOOKUP of an ascending packed array with HI, LO, HI and EQ, and HI past every element (fields of the array's type: literals of another are RNF7021);
+- XFOOT into fewer decimals, with its indicators, and XFOOT(H).
+
+%CHAR of an indicator is lowered too, as its character '1' or '0' (bif's CHAR arm for a Value::Ind; the same value as an indicator in a concatenation, S2.62). NARROPS shows its indicators that way.
+
+native_tripwire.rs watches array_op, lookup and num_inds.
