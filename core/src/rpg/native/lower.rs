@@ -3360,6 +3360,9 @@ fn file_read(
             let ir::Operand::Var { ty, index, .. } = &target else {
                 return None;
             };
+            // Date, time and timestamp fields (S2.82): their *ISO text both
+            // ways, as fill_fields' Value::str and record_of's characters
+            // (data::store and decode convert for the program field).
             if index.is_some()
                 || !matches!(
                     ty,
@@ -3370,6 +3373,9 @@ fn file_read(
                         | ir::Ty::Uns(_)
                         | ir::Ty::Char(_)
                         | ir::Ty::Varchar(_)
+                        | ir::Ty::Date(..)
+                        | ir::Ty::Time(..)
+                        | ir::Ty::Timestamp(_)
                 )
             {
                 return None;
@@ -3380,7 +3386,10 @@ fn file_read(
                 ir::MoveKind::Hex
             } else if matches!(
                 fd.data_type,
-                crate::dds::DataType::Char | crate::dds::DataType::Hex
+                crate::dds::DataType::Char
+                    | crate::dds::DataType::Date
+                    | crate::dds::DataType::Time
+                    | crate::dds::DataType::Timestamp
             ) {
                 ir::MoveKind::Char
             } else {
