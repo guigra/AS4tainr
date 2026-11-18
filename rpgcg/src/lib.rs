@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.69");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.70");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -210,6 +210,25 @@ pub mod ir {
         Equal,
     }
 
+    /// An input host variable (S2.70): its value, the length of a fixed
+    /// character field (a `CAST(... AS char(n))`, as host_literal makes
+    /// it), and its indicator variable.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct SqlIn {
+        pub value: Operand,
+        pub char_len: Option<u32>,
+        pub ind: Option<Operand>,
+    }
+
+    /// An INTO target (S2.70): the field, whether it is numeric, and its
+    /// indicator variable.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct SqlOut {
+        pub target: Operand,
+        pub numeric: bool,
+        pub ind: Option<Operand>,
+    }
+
     /// A field of a record read moved into the program (S2.58): the
     /// field's place in the file's record format, the program field, and
     /// how its external text becomes a value.
@@ -326,6 +345,16 @@ pub mod ir {
         /// then its outcome goes into the SQLCA: SQLCODE, SQLSTATE,
         /// SQLERRMC, SQLERRD(3), SQLERRD(5).
         ExecSql { sqlca: Box<[Operand; 5]> },
+        /// EXEC SQL with host variables (S2.70): the statement's text in
+        /// pieces around its input host variables (bind_host's order),
+        /// the inputs, and the INTO (or SET) targets; then the SQLCA.
+        ExecSqlHosts {
+            sqlca: Box<[Operand; 5]>,
+            pieces: Vec<String>,
+            inputs: Vec<SqlIn>,
+            outputs: Vec<SqlOut>,
+            into: bool,
+        },
         /// EVAL %OCCUR(ds) = n, and OCCUR (S2.64): set the current
         /// occurrence of the data structure in `buf` (from a number, or
         /// from another one's current occurrence), then put it in a
@@ -1068,6 +1097,27 @@ fn elem_place(buf: usize, local: bool) -> String {
     }
 }
 
+/// Where a field with no index that is not based is, as one `(buf, off)`
+/// expression (S2.70): a global's own place, or a procedure local's place
+/// for this call (`rt.local`).
+fn scalar_place(o: &ir::Operand) -> Option<String> {
+    match o {
+        ir::Operand::Var {
+            buf,
+            off,
+            local,
+            index: None,
+            based: None,
+            ..
+        } => Some(if *local {
+            format!("rt.local({buf}, {off})?")
+        } else {
+            format!("({buf}, {off})")
+        }),
+        _ => None,
+    }
+}
+
 /// Where a field written by lowered code is: a statement to put first
 /// (empty for a global), then the buffer and offset expressions. A
 /// procedure local's place is the runtime's, for this call.
@@ -1755,6 +1805,99 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("se{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::ExecSqlHosts {
+                sqlca,
+                pieces,
+                inputs,
+                outputs,
+                into,
+            },
+        ) => {
+            // bind_host: each input's indicator, then its value, as a
+            // literal (host_literal); the INTO targets' places; the runtime
+            // runs the statement and assigns the row (assign_hosts); then
+            // the SQLCA as for ExecSql.
+            // `mut` only when something is pushed (unused_mut in generated
+            // code).
+            let lm = if inputs.is_empty() { "" } else { "mut " };
+            let mut body = format!("    let {lm}lits: Vec<String> = Vec::new();\n");
+            for i in inputs {
+                let null = match &i.ind {
+                    Some(ind) => format!("{}.is_negative()", number(ind)),
+                    None => "false".to_string(),
+                };
+                let cl = match i.char_len {
+                    Some(n) => format!("Some({n})"),
+                    None => "None".to_string(),
+                };
+                let _ = writeln!(
+                    body,
+                    "    if {null} {{\n        lits.push(\"NULL\".to_string());\n    }} else {{\n        let v = {};\n        lits.push(rpgrt::native::sql_literal(&v, {cl})?);\n    }}",
+                    value(&i.value)
+                );
+            }
+            let om = if outputs.is_empty() { "" } else { "mut " };
+            let _ = writeln!(
+                body,
+                "    let {om}outs: Vec<rpgrt::native::SqlSlot> = Vec::new();"
+            );
+            for o in outputs {
+                let ir::Operand::Var { ty: t, .. } = &o.target else {
+                    return Err(bad());
+                };
+                let at = scalar_place(&o.target).ok_or_else(bad)?;
+                let ind = match &o.ind {
+                    Some(ind) => {
+                        let ir::Operand::Var { ty: it, .. } = ind else {
+                            return Err(bad());
+                        };
+                        let iat = scalar_place(ind).ok_or_else(bad)?;
+                        format!("{{ let (b, o) = {iat}; Some((b, o, {})) }}", ty(it))
+                    }
+                    None => "None".to_string(),
+                };
+                let _ = writeln!(
+                    body,
+                    "    {{\n        let (buf, off) = {at};\n        let ind = {ind};\n        outs.push(rpgrt::native::SqlSlot {{ buf, off, ty: {}, numeric: {}, ind }});\n    }}",
+                    ty(t),
+                    o.numeric
+                );
+            }
+            let pcs: Vec<String> = pieces.iter().map(|p| json_str(p)).collect();
+            let _ = writeln!(
+                body,
+                "    let o = rt.exec_sql_hosts({pc}, &[{}], lits, outs, {into})?;",
+                pcs.join(", ")
+            );
+            let values = [
+                "rpgrt::rpg::data::Value::Num(rpgrt::rpg::dec::Dec::from_i64(o.code))",
+                "rpgrt::rpg::data::Value::str(&o.state)",
+                "rpgrt::rpg::data::Value::str(&o.text)",
+                "rpgrt::rpg::data::Value::Num(rpgrt::rpg::dec::Dec::from_i64(o.rows))",
+                "rpgrt::rpg::data::Value::Num(rpgrt::rpg::dec::Dec::from_i64(o.errd5))",
+            ];
+            for (target, v) in sqlca.iter().zip(values) {
+                let ir::Operand::Var { ty: t, .. } = target else {
+                    return Err(bad());
+                };
+                let (prelude, sb, so) = place_of(target).ok_or_else(bad)?;
+                let _ = writeln!(
+                    body,
+                    "{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        {},\n        &{v},\n        rpgrt::rpg::data::Fit::Truncate {{ half_adjust: false }},\n        false,\n    )?;",
+                    ty(t)
+                );
+            }
+            let _ = writeln!(
+                helpers,
+                "\nfn sh{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("sh{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::ExecSql { sqlca }) => {

@@ -500,6 +500,42 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 sqlca: Box::new(sqlca),
             }
         }
+        // EXEC SQL with host variables (S2.70): SELECT or VALUES INTO, SET
+        // :host, and the statements sql_change runs, as exec_sql.rs binds
+        // and assigns them.
+        Ins::Stmt(Stmt::Sql(text)) if sql_hosts_kind(text) => {
+            let (pieces, inputs, outputs, into) = sql_hosts(cx, text, &mut used)?;
+            let field = |n: &str, used: &mut Vec<String>| variable(cx, &Expr::name(n), used);
+            let errd = |k: i64, used: &mut Vec<String>| {
+                variable(
+                    cx,
+                    &Expr::Name {
+                        parts: vec!["SQLERRD".into()],
+                        args: Some(vec![Expr::Num(super::super::dec::Dec::from_i64(k))]),
+                    },
+                    used,
+                )
+            };
+            let sqlca = [
+                field("SQLCODE", &mut used)?,
+                field("SQLSTATE", &mut used)?,
+                field("SQLERRMC", &mut used)?,
+                errd(3, &mut used)?,
+                errd(5, &mut used)?,
+            ];
+            used.push(format!(
+                "exec sql hosts {} in {} out",
+                inputs.len(),
+                outputs.len()
+            ));
+            ir::Lowered::ExecSqlHosts {
+                sqlca: Box::new(sqlca),
+                pieces,
+                inputs,
+                outputs,
+                into,
+            }
+        }
         // A read of a database file (S2.58).
         Ins::Stmt(Stmt::File {
             op,
@@ -3219,4 +3255,369 @@ fn sql_step1(sql: &str) -> bool {
         return false;
     }
     true
+}
+
+/// Whether an EXEC SQL is one S2.70 lowers: it names host variables, and
+/// exec_sql.rs runs it through single_row (SELECT, VALUES or WITH with
+/// INTO; SET :host) or bind_host and sql_change; not the statements step
+/// 1 leaves out, not DDL or DECLARE (whose host variables are not bound),
+/// not COMMIT, ROLLBACK or the precompiler's directives.
+fn sql_hosts_kind(sql: &str) -> bool {
+    if sql_step1(sql) {
+        return false;
+    }
+    let w: Vec<String> = sql
+        .split_whitespace()
+        .map(|x| x.to_ascii_uppercase())
+        .collect();
+    let first = w.first().map(String::as_str).unwrap_or("");
+    let second = w.get(1).map(String::as_str).unwrap_or("");
+    if matches!(
+        first,
+        "OPEN"
+            | "FETCH"
+            | "CLOSE"
+            | "PREPARE"
+            | "EXECUTE"
+            | "CALL"
+            | "GET"
+            | ""
+            | "CREATE"
+            | "DROP"
+            | "LABEL"
+            | "COMMENT"
+            | "ALTER"
+            | "RENAME"
+            | "DECLARE"
+            | "COMMIT"
+            | "ROLLBACK"
+            | "INCLUDE"
+            | "WHENEVER"
+            | "BEGIN"
+            | "END"
+            | "GRANT"
+            | "REVOKE"
+            | "LOCK"
+            | "MERGE"
+    ) || (first == "SET" && (second == "RESULT" || second == "OPTION"))
+        || (first == "INSERT" && w.iter().any(|x| x == "ROWS"))
+        || w.windows(2)
+            .any(|p| matches!(p, [a, b] if a == "CURRENT" && b == "OF"))
+    {
+        return false;
+    }
+    true
+}
+
+/// A keyword's byte offset at depth 0 outside literals (exec_sql.rs
+/// find_word).
+fn sql_word_at(sql: &str, word: &str) -> Option<usize> {
+    let up = word.to_ascii_uppercase();
+    let is_word = |c: char| c.is_ascii_alphanumeric() || "_#@$".contains(c);
+    let (mut depth, mut quote) = (0i32, None::<char>);
+    let mut prev: Option<char> = None;
+    for (at, c) in sql.char_indices() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None => match c {
+                '\'' | '"' => quote = Some(c),
+                '(' => depth = depth.saturating_add(1),
+                ')' => depth = depth.saturating_sub(1),
+                _ if depth == 0
+                    && is_word(c)
+                    && !prev.is_some_and(is_word)
+                    && sql
+                        .get(at..)
+                        .and_then(|r| r.get(..up.len()))
+                        .is_some_and(|w| w.eq_ignore_ascii_case(&up))
+                    && sql
+                        .get(at..)
+                        .and_then(|r| r.get(up.len()..))
+                        .is_some_and(|r| r.chars().next().is_none_or(|n| !is_word(n))) =>
+                {
+                    return Some(at);
+                }
+                _ => {}
+            },
+        }
+        prev = Some(c);
+    }
+    None
+}
+
+/// exec_sql.rs host_list: `:a :ai, :b INDICATOR :bi, :c` as names and
+/// indicators, upper case.
+fn sql_host_list(text: &str) -> Option<Vec<(String, Option<String>)>> {
+    let mut out = Vec::new();
+    for part in text.split(',') {
+        let p = part.trim();
+        if p.is_empty() {
+            continue;
+        }
+        let names: Vec<&str> = p
+            .split(|c: char| c.is_whitespace() || c == ':')
+            .filter(|w| !w.is_empty() && !w.eq_ignore_ascii_case("INDICATOR"))
+            .collect();
+        match names.as_slice() {
+            [v] => out.push((v.to_ascii_uppercase(), None)),
+            [v, i] => out.push((v.to_ascii_uppercase(), Some(i.to_ascii_uppercase()))),
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+/// exec_sql.rs bind_host's scan: the text in pieces around its host
+/// variables, and each one's name and indicator, in order.
+fn sql_bind_scan(sql: &str) -> (Vec<String>, Vec<(String, Option<String>)>) {
+    let cs: Vec<char> = sql.chars().collect();
+    let name_char = |c: char| c.is_ascii_alphanumeric() || "_#@$.".contains(c);
+    let read_name = |i: &mut usize| -> String {
+        let start = *i;
+        while cs.get(*i).is_some_and(|c| name_char(*c)) {
+            *i = i.saturating_add(1);
+        }
+        cs.get(start..*i)
+            .map(|s| s.iter().collect())
+            .unwrap_or_default()
+    };
+    let mut pieces = vec![String::new()];
+    let mut hosts = Vec::new();
+    let mut quote = None;
+    let mut i = 0usize;
+    while let Some(&c) = cs.get(i) {
+        let cur = pieces.last_mut();
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+            if let Some(p) = cur {
+                p.push(c);
+            }
+            i = i.saturating_add(1);
+            continue;
+        }
+        if c == '\'' || c == '"' {
+            quote = Some(c);
+            if let Some(p) = cur {
+                p.push(c);
+            }
+            i = i.saturating_add(1);
+            continue;
+        }
+        if c == ':'
+            && cs
+                .get(i.saturating_add(1))
+                .is_some_and(|n| n.is_ascii_alphabetic() || "_#@$".contains(*n))
+        {
+            i = i.saturating_add(1);
+            let name = read_name(&mut i);
+            let mut j = i;
+            while cs.get(j).is_some_and(|c| c.is_whitespace()) {
+                j = j.saturating_add(1);
+            }
+            let rest: String = cs.get(j..).map(|s| s.iter().collect()).unwrap_or_default();
+            let mut ind = None;
+            if rest.starts_with(':') {
+                let mut k = j.saturating_add(1);
+                ind = Some(read_name(&mut k));
+                i = k;
+            } else if rest.len() > 10
+                && rest
+                    .get(..9)
+                    .is_some_and(|w| w.eq_ignore_ascii_case("INDICATOR"))
+            {
+                let r2 = rest.get(9..).unwrap_or_default().trim_start();
+                if let Some(after) = r2.strip_prefix(':') {
+                    // bind_host adds the bytes skipped to a char index: the same here.
+                    let skip = rest.len().saturating_sub(after.len());
+                    let mut k = j.saturating_add(skip);
+                    ind = Some(read_name(&mut k));
+                    i = k;
+                }
+            }
+            hosts.push((name, ind));
+            pieces.push(String::new());
+            continue;
+        }
+        if let Some(p) = cur {
+            p.push(c);
+        }
+        i = i.saturating_add(1);
+    }
+    (pieces, hosts)
+}
+
+/// exec_sql.rs host_targets: a host variable as the fields it stands for
+/// (a data structure's subfields), never a LOB's _LEN and _DATA.
+fn sql_targets(cx: &Cx<'_>, name: &str) -> Option<Vec<Expr>> {
+    let e = super::super::expr::parse(name).ok()?;
+    if let Expr::Name { parts, args: None } = &e {
+        let full = parts.join(".");
+        if let Some(Sym::Ds(d)) = sym(cx, &full) {
+            if *d.subfields == [format!("{full}_LEN"), format!("{full}_DATA")] {
+                return None;
+            }
+            return Some(
+                d.subfields
+                    .iter()
+                    .map(|sf| {
+                        if d.qualified {
+                            Expr::Name {
+                                parts: vec![full.clone(), sf.clone()],
+                                args: None,
+                            }
+                        } else {
+                            Expr::name(sf)
+                        }
+                    })
+                    .collect(),
+            );
+        }
+        sym(cx, &full)?;
+    }
+    Some(vec![e])
+}
+
+/// A host variable's field (S2.70): numeric or character, as an operand.
+fn sql_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    let o = variable(cx, e, used)?;
+    match &o {
+        ir::Operand::Var {
+            ty:
+                ir::Ty::Packed(..)
+                | ir::Ty::Zoned(..)
+                | ir::Ty::Binary(..)
+                | ir::Ty::Int(_)
+                | ir::Ty::Uns(_)
+                | ir::Ty::Char(_)
+                | ir::Ty::Varchar(_),
+            based: None,
+            ..
+        } => Some(o),
+        _ => None,
+    }
+}
+
+/// The pieces, inputs and outputs of an EXEC SQL with host variables
+/// (S2.70), as exec_sql.rs's sql_statement and bind_host take it apart.
+#[allow(clippy::type_complexity)] // the four parts of ExecSqlHosts
+fn sql_hosts(
+    cx: &Cx<'_>,
+    sql: &str,
+    used: &mut Vec<String>,
+) -> Option<(Vec<String>, Vec<ir::SqlIn>, Vec<ir::SqlOut>, bool)> {
+    let sql = sql.trim();
+    let w: Vec<String> = sql
+        .split_whitespace()
+        .map(|x| x.to_ascii_uppercase())
+        .collect();
+    let first = w.first().map(String::as_str).unwrap_or("");
+    let second = w.get(1).map(String::as_str).unwrap_or("");
+    // (prefix, text to bind, suffix, the INTO hosts)
+    let (prefix, query, suffix, outs, into) = if first == "SET" && second.starts_with(':') {
+        let eq = sql.find('=')?;
+        let hosts = sql_host_list(sql.get(3..eq)?)?;
+        let expr = sql.get(eq.checked_add(1)?..)?.trim().to_string();
+        ("VALUES (".to_string(), expr, ")".to_string(), hosts, true)
+    } else if matches!(first, "SELECT" | "VALUES" | "WITH") && sql_word_at(sql, "INTO").is_some() {
+        let into = sql_word_at(sql, "INTO")?;
+        let end = sql
+            .get(into..)
+            .and_then(|r| sql_word_at(r, "FROM"))
+            .and_then(|e| into.checked_add(e))
+            .unwrap_or(sql.len());
+        let hosts = sql_host_list(sql.get(into.checked_add(4)?..end)?)?;
+        let query = format!("{} {}", sql.get(..into)?, sql.get(end..)?);
+        (String::new(), query, String::new(), hosts, true)
+    } else {
+        (
+            String::new(),
+            sql.to_string(),
+            String::new(),
+            Vec::new(),
+            false,
+        )
+    };
+    let (mut scanned, hosts) = sql_bind_scan(&query);
+    if let Some(f) = scanned.first_mut() {
+        f.insert_str(0, &prefix);
+    }
+    if let Some(l) = scanned.last_mut() {
+        l.push_str(&suffix);
+    }
+    // Each host's fields; a data structure's are joined with ", "
+    // (host_literal), with no indicator.
+    let mut pieces = Vec::new();
+    let mut inputs = Vec::new();
+    let mut parts = scanned.into_iter();
+    pieces.push(parts.next()?);
+    for (name, ind) in hosts {
+        let targets = sql_targets(cx, &name)?;
+        if targets.len() > 1 && ind.is_some() {
+            return None;
+        }
+        let ind = match ind {
+            Some(i) => Some(num_variable(
+                cx,
+                &super::super::expr::parse(&i).ok()?,
+                used,
+            )?),
+            None => None,
+        };
+        for (k, t) in targets.iter().enumerate() {
+            if k > 0 {
+                pieces.push(", ".to_string());
+            }
+            let value = sql_field(cx, t, used)?;
+            let char_len = match &value {
+                ir::Operand::Var {
+                    ty: ir::Ty::Char(n),
+                    ..
+                } => Some(*n),
+                _ => None,
+            };
+            inputs.push(ir::SqlIn {
+                value,
+                char_len,
+                ind: ind.clone(),
+            });
+        }
+        pieces.push(parts.next()?);
+    }
+    let mut outputs = Vec::new();
+    for (name, ind) in outs {
+        let ind = match ind {
+            Some(i) => {
+                let o = num_variable(cx, &super::super::expr::parse(&i).ok()?, used)?;
+                if !matches!(
+                    o,
+                    ir::Operand::Var {
+                        index: None,
+                        based: None,
+                        ..
+                    }
+                ) {
+                    return None;
+                }
+                Some(o)
+            }
+            None => None,
+        };
+        for t in sql_targets(cx, &name)? {
+            let target = sql_field(cx, &t, used)?;
+            if !matches!(target, ir::Operand::Var { index: None, .. }) {
+                return None;
+            }
+            let numeric = !is_char(&target);
+            outputs.push(ir::SqlOut {
+                target,
+                numeric,
+                ind: ind.clone(),
+            });
+        }
+    }
+    used.push(format!("sql pieces {pieces:?}"));
+    Some((pieces, inputs, outputs, into))
 }

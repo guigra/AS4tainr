@@ -633,3 +633,43 @@ The text helpers words, find_word and sql_error are written again without indexi
 The capture's CREATE (+7905, the table not journaled) and COMMIT under COMMIT(*NONE) (-7007) are interpreter defects (fidelity.md), so NSQL1 does not check those two lines.
 
 native_tripwire.rs watches the copied functions. It now also watches ops.rs's occurrence functions, which S2.64 wrote again.
+
+## S2.70: embedded SQL, step 2 (host variables)
+
+The plan's steps 2 and 3 in one block. These EXEC SQL statements with host variables are now lowered:
+- SELECT, VALUES or WITH ... INTO;
+- SET :host = expression;
+- the statements exec_sql.rs runs through bind_host and sql_change (INSERT, UPDATE, DELETE, a SELECT with no INTO).
+
+**Lowering** takes the statement apart as sql_statement and bind_host do:
+- the INTO list (host_list) and the text without it;
+- for SET, `VALUES (` around the expression;
+- bind_host's scan: `:name`, an indicator as `:ind` or `INDICATOR :ind`, nothing inside quotes, the byte count of `INDICATOR :` added to a char index as bind_host does.
+
+Each host variable is resolved as host_targets does: a data structure's subfields, qualified or not. The text goes to generated code in pieces around the inputs.
+
+Lowering keeps in the interpreter:
+- a LOB (`_LEN`/`_DATA`), a host variable not defined, and a data structure with an indicator;
+- a field that is not character, varying or numeric (dates, times, timestamps, floats, based fields);
+- an INTO target with an index, and an indicator with an index;
+- the statements step 1 leaves out, and DDL and DECLARE, whose host variables exec_sql.rs does not bind.
+
+**Generated code** makes each input's literal (`rpgrt::native::sql_literal`, literal and host_literal written again): `NULL` for a negative indicator, a fixed CHAR(n) as `CAST(... AS char(n))`. It passes the INTO targets' storage (`SqlSlot`) to `Runtime::exec_sql_hosts`. That runs:
+- sql_statement's start (`sql_prologue_n`, now shared with step 1);
+- the bound text;
+- single_row (none: +100; more than one: the first row, then -811) and assign_hosts (a null: the indicator -1, or -305 with none; a value: the indicator 0, a number parsed exactly or -302, the strict fit or -302); or else sql_change.
+
+The SQLCA is stored as in step 1.
+
+**Verified by** the native unit NSQL2, under both engines. The program captured on PUB400 (tools/golden/native70.txt n70_sql) runs:
+- a character and a numeric input;
+- a data structure INTO;
+- a null with `:ind` and a value with `INDICATOR :ind`;
+- no row and more than one row;
+- SET;
+- UPDATE and DELETE with host variables (SQLERRD(3));
+- an input indicator of -1.
+
+Two of the capture's lines are interpreter defects (fidelity.md), so NSQL2 does not check them: the variable is not cleared with a null, and a CHAR host variable loses its blanks in UPPER.
+
+native_tripwire.rs watches host_list, literal, host_literal, host_targets, bind_host, assign_hosts and single_row.

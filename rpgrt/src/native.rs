@@ -235,6 +235,19 @@ pub trait Runtime {
     /// Stage 2 (S2.69): run the EXEC SQL at `pc` (exec_sql.rs exec_sql up
     /// to the SQLCA), its outcome for generated code to store.
     fn exec_sql(&mut self, pc: usize) -> NResult<SqlResult>;
+    /// Stage 2 (S2.70): run the EXEC SQL with host variables at `pc`: its
+    /// text from `pieces` with the input literals between them
+    /// (bind_host), then, for SELECT/VALUES INTO or SET (`into`), the row
+    /// into the `outs` (single_row, assign_hosts), else the change
+    /// (sql_change); the outcome for generated code to store.
+    fn exec_sql_hosts(
+        &mut self,
+        pc: usize,
+        pieces: &[&str],
+        lits: Vec<String>,
+        outs: Vec<SqlSlot>,
+        into: bool,
+    ) -> NResult<SqlResult>;
     /// Stage 2 (S2.64): the current occurrence of the multiple-occurrence
     /// data structure in buffer `buf` (ops.rs occurrence).
     fn occurrence(&self, buf: usize) -> NResult<Dec>;
@@ -256,6 +269,38 @@ pub struct SqlResult {
     pub text: String,
     pub rows: i64,
     pub errd5: i64,
+}
+
+/// An INTO target (S2.70): its storage and type, whether it is numeric,
+/// and its indicator variable's storage and type.
+#[derive(Clone, Debug)]
+pub struct SqlSlot {
+    pub buf: usize,
+    pub off: usize,
+    pub ty: DType,
+    pub numeric: bool,
+    pub ind: Option<(usize, usize, DType)>,
+}
+
+/// An input host variable's value as an SQL literal (S2.70), as
+/// exec_sql.rs host_literal and literal make it: a number as its text, an
+/// indicator as '1' or '0', a figurative constant as '', characters
+/// quoted (null bytes dropped, quotes doubled), and a fixed character
+/// field of length 1 to 10 485 760 as CAST(... AS char(n)).
+pub fn sql_literal(v: &Value, char_len: Option<u32>) -> NResult<String> {
+    let lit = match v {
+        Value::Num(d) => d.to_string(),
+        Value::Ind(b) => if *b { "'1'" } else { "'0'" }.to_string(),
+        Value::Fig(_) => "''".to_string(),
+        Value::Char(c) => format!("'{}'", data::a(c).replace('\0', "").replace('\'', "''")),
+        other => anyhow::bail!("{} cannot be an SQL value", other.describe()),
+    };
+    Ok(match (char_len, v) {
+        (Some(n), Value::Char(_)) if (1..=10_485_760).contains(&n) => {
+            format!("CAST({lit} AS char({n}))")
+        }
+        _ => lit,
+    })
 }
 
 /// A key value of a file operation (S2.58), as the interpreter's

@@ -1,0 +1,5 @@
+# Captures for stage 2, S2.70: embedded SQL with host variables (one batch).
+# gn70sql.rpgle names its table in GUIGRA261, the library of the PUB400 account used.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native70.txt -f tools/golden/native70
+n70_crt_sql|!system "CRTSQLRPGI OBJ(@LIB@/GN70SQL) SRCSTMF('@HOME@/gld/gn70sql.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n70_sql|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN70SQL)"; cat gn1.out; rm -f gn1.out

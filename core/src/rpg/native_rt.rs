@@ -1014,6 +1014,24 @@ impl Runtime for Rt<'_, '_> {
         self.file_change_n(pc, keys, rec)
     }
 
+    fn exec_sql_hosts(
+        &mut self,
+        pc: usize,
+        pieces: &[&str],
+        lits: Vec<String>,
+        outs: Vec<rpgrt::native::SqlSlot>,
+        into: bool,
+    ) -> NResult<rpgrt::native::SqlResult> {
+        let o = self.exec_sql_hosts_n(pc, pieces, lits, outs, into)?;
+        Ok(rpgrt::native::SqlResult {
+            code: o.code,
+            state: o.state,
+            text: o.text,
+            rows: o.rows,
+            errd5: o.errd5,
+        })
+    }
+
     fn exec_sql(&mut self, pc: usize) -> NResult<rpgrt::native::SqlResult> {
         let o = self.exec_sql_n(pc)?;
         Ok(rpgrt::native::SqlResult {
@@ -2480,8 +2498,152 @@ impl Rt<'_, '_> {
         Ok(out)
     }
 
-    /// exec_sql.rs sql_statement, for what lowering lets through (step 1).
-    fn sql_statement_n(&mut self, sql: &str) -> NResult<SqlOut> {
+    /// exec_sql.rs exec_sql for a statement with host variables (S2.70):
+    /// sql_statement's start, then bind_host's text (the pieces with the
+    /// input literals between them), then single_row (SELECT or VALUES
+    /// INTO, SET :host) or sql_change; an SQL error as the outcome, kept as
+    /// the last.
+    fn exec_sql_hosts_n(
+        &mut self,
+        pc: usize,
+        pieces: &[&str],
+        lits: Vec<String>,
+        outs: Vec<rpgrt::native::SqlSlot>,
+        into: bool,
+    ) -> NResult<SqlOut> {
+        let text = match &at(self.code, pc)?.ins {
+            Ins::Stmt(super::super::ast::Stmt::Sql(t)) => t.clone(),
+            _ => return Err(mismatch(pc, "an EXEC SQL")),
+        };
+        let r = (|| -> NResult<SqlOut> {
+            if let Some(o) = self.sql_prologue_n(text.trim())? {
+                return Ok(o);
+            }
+            let mut bound = String::new();
+            let mut lit = lits.into_iter();
+            for (k, p) in pieces.iter().enumerate() {
+                if k > 0 {
+                    bound.push_str(
+                        &lit.next()
+                            .ok_or_else(|| anyhow!("native: a host literal"))?,
+                    );
+                }
+                bound.push_str(p);
+            }
+            if into {
+                self.single_row_n(&bound, &outs)
+            } else {
+                self.sql_change_n(&bound)
+            }
+        })();
+        let out = match r {
+            Ok(o) => o,
+            Err(e) => match sql_error_n(&e) {
+                Some(o) => o,
+                None => return Err(e),
+            },
+        };
+        self.m.sql.last = Some(out.clone());
+        Ok(out)
+    }
+
+    /// exec_sql.rs single_row: exactly one row into the host variables
+    /// (none: +100; more: the first row's values, then -811).
+    fn single_row_n(&mut self, query: &str, outs: &[rpgrt::native::SqlSlot]) -> NResult<SqlOut> {
+        let crate::sql::Exec::Rows { rows, .. } = self.run_sql_n(query)? else {
+            return Err(anyhow!("SQL0104: INTO needs a query"));
+        };
+        match rows.as_slice() {
+            [] => Ok(sql_not_found()),
+            [row] => Ok(self.assign_hosts_n(outs, row)?.unwrap_or(sql_ok(1))),
+            [row, ..] => {
+                self.assign_hosts_n(outs, row)?;
+                Ok(sql_err(
+                    -811,
+                    "SQL0811: The result of SELECT INTO has more than one row.".into(),
+                ))
+            }
+        }
+    }
+
+    /// exec_sql.rs assign_hosts: a row's values into the host variables in
+    /// order (a null: the indicator -1, or -305 with none; a value: the
+    /// indicator 0, a number parsed exactly (-302 if it is not one),
+    /// characters, stored with the strict fit (-302 if it does not fit)).
+    fn assign_hosts_n(
+        &mut self,
+        outs: &[rpgrt::native::SqlSlot],
+        row: &[Option<String>],
+    ) -> NResult<Option<SqlOut>> {
+        use rpgrt::rpg::data::Fit;
+        let mut values = row.iter();
+        for o in outs {
+            let Some(v) = values.next() else {
+                return Ok(None);
+            };
+            let set_ind = |rt: &mut Self, n: i64| -> NResult<()> {
+                if let Some((b, off, t)) = o.ind {
+                    rpgrt::native::store(
+                        &mut rt.m.bufs,
+                        b,
+                        off,
+                        t,
+                        &Value::Num(Dec::from_i64(n)),
+                        Fit::Truncate { half_adjust: false },
+                        false,
+                    )?;
+                }
+                Ok(())
+            };
+            match v {
+                None => {
+                    if o.ind.is_some() {
+                        set_ind(self, -1)?;
+                    } else {
+                        return Ok(Some(sql_err(
+                            -305,
+                            "SQL0305: A null value has no indicator variable.".into(),
+                        )));
+                    }
+                }
+                Some(text) => {
+                    set_ind(self, 0)?;
+                    let val = if o.numeric {
+                        match Dec::parse(text.trim()) {
+                            Ok(d) => Value::Num(d),
+                            Err(_) => {
+                                return Ok(Some(sql_err(
+                                    -302,
+                                    format!(
+                                        "SQL0302: '{text}' does not fit a numeric host variable."
+                                    ),
+                                )))
+                            }
+                        }
+                    } else {
+                        Value::str(text)
+                    };
+                    if let Err(e) = rpgrt::native::store(
+                        &mut self.m.bufs,
+                        o.buf,
+                        o.off,
+                        o.ty,
+                        &val,
+                        Fit::Strict { half_adjust: false },
+                        false,
+                    ) {
+                        return Ok(Some(sql_err(-302, format!("SQL0302: {e}"))));
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// exec_sql.rs sql_statement's start: the wait for another job's
+    /// locks on the statement's tables (an SQL error as the outcome), and
+    /// STACK_INFO's call stack.
+    fn sql_prologue_n(&mut self, sql: &str) -> NResult<Option<SqlOut>> {
         {
             let libl = self.m.io.libl.clone();
             let wait = crate::runtime::default_record_wait();
@@ -2494,7 +2656,7 @@ impl Rt<'_, '_> {
                 wait,
             )) {
                 if let Some(o) = sql_error_n(&e) {
-                    return Ok(o);
+                    return Ok(Some(o));
                 }
                 return Err(e);
             }
@@ -2517,6 +2679,14 @@ impl Rt<'_, '_> {
             let rt = self.m.io.rt.clone();
             let session = self.session_n()?;
             rt.block_on(session.set_stack(&json))?;
+        }
+        Ok(None)
+    }
+
+    /// exec_sql.rs sql_statement, for what lowering lets through (step 1).
+    fn sql_statement_n(&mut self, sql: &str) -> NResult<SqlOut> {
+        if let Some(o) = self.sql_prologue_n(sql)? {
+            return Ok(o);
         }
         let w = sql_words(sql);
         let first = w.first().map(String::as_str).unwrap_or("");

@@ -1751,3 +1751,30 @@ async fn native_unit_lowered_static_sql() {
     )
     .await;
 }
+
+// Stage 2, S2.70: embedded SQL with host variables lowered to Rust.
+// Source: golden capture tools/golden/native70 n70_sql (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_sql_host_variables() {
+    let _ = require_db!();
+    expect(
+        "NSQL2",
+        include_str!("native/NSQL2.rpgle"),
+        &[
+            "KEY 0 2",
+            "COUNT 0 2",
+            "DS 0 3 three",
+            // n70_sql's "NULL 0 -1 .00" and "VALUES 0 TWO       !" are not
+            // checked (NSQL2.rpgle; fidelity.md, interpreter defects).
+            "VAL 0 0 30.25",
+            "NONE 100 02000 x",
+            "MANY -811 21000 one",
+            "SET 0 21",
+            "UPDATE 0 2",
+            "AFTER 4.00",
+            "NULLIN 0 1",
+            "DELETE 0 1",
+        ],
+    )
+    .await;
+}
