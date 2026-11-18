@@ -836,3 +836,17 @@ native_tripwire.rs watches sql_call.
 - assigns and reads `list.users(n).name` and `.days` with literal and field indexes, in arithmetic;
 - runs a FOR loop over them;
 - catches an index past the elements with MONITOR (ERROR 121).
+
+## S2.77: a path with more than one index
+
+`ds_array_field` now takes a path with an index on any number of parts but the last, for example `gv(s).m(i).parmNo`: a LIKEDS subfield with DIM inside a data structure array. Each indexed part must be a data structure with DIM in the same storage. The operand's index is a chain:
+- `ir::Index::outer` holds the index further out on the path;
+- `elem_at` applies the outer one first, its value read and its range checked before the inner one's, as interp.rs path_sym goes part by part from the left.
+
+The base place is the field's own, which program.rs gives at every index's first element. A single index emits the same code as before.
+
+**Verified by** the native unit NNEST2, under both engines. The program captured on PUB400 (tools/golden/native77.txt n77_nested2) does four things:
+- writes and reads `gv(s).m(i)` subfields with literal and field indexes;
+- uses an index that is itself such a path (`gv(s).m(gv(s).nm)`);
+- reads a subfield never set (blanks: x'40404040' as an int(10), 1077952576);
+- catches an inner index past its elements with MONITOR (ERROR 121).

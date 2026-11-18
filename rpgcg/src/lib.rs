@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.76");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.77");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -169,6 +169,9 @@ pub mod ir {
         /// A varying-dimension array (S2.45): its name, and whether it is
         /// DIM(*AUTO) (grows when written past its elements in use).
         pub vary: Option<(String, bool)>,
+        /// The index of a data structure further out on the path (S2.77:
+        /// `gv(s).m(1).parmNo`): its element first, then this one's.
+        pub outer: Option<Box<Index>>,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1141,12 +1144,20 @@ fn elem_at(off: usize, ix: &ir::Index) -> String {
             ix.dim,
             json_str(name)
         ),
-        None => format!(
-            "rpgrt::native::elem_at({off}, {}, {}, &{})?",
-            ix.stride,
-            ix.dim,
-            value(&ix.of)
-        ),
+        None => {
+            // The outer index's element first (S2.77): its value read and
+            // checked before this one's, as path_sym goes from the left.
+            let base = match &ix.outer {
+                Some(o) => elem_at(off, o),
+                None => off.to_string(),
+            };
+            format!(
+                "rpgrt::native::elem_at({base}, {}, {}, &{})?",
+                ix.stride,
+                ix.dim,
+                value(&ix.of)
+            )
+        }
     }
 }
 

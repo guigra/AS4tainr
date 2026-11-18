@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.77: a path with two indexes (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native77.txt -f tools/golden/native77
+n77_crt_nested2|!system "CRTSQLRPGI OBJ(@LIB@/GN77NST) SRCSTMF('@HOME@/gld/gn77nst.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n77_nested2|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN77NST)"; cat gn1.out; rm -f gn1.out
