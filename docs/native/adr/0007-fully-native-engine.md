@@ -1057,3 +1057,16 @@ native_tripwire.rs watches sorta, movea_parts and movea.
 A procedure this activation has is called as call_proc calls it: more arguments than it has parameters are passed through a prototype that lists more (it does not see them; %PARMS counts them), so `call_frame` checks the count only for a call by the procedure's own name (`checked`), as call_named_inner's args_for does. OSSILE's OSSPARMS (rla_test's rpg_features_found_by_the_ossile_corpus) calls a one-parameter procedure through a two-parameter pointer prototype, and failed in the first native-diff of S2.87 before this.
 
 The call through *NULL is status 202 on IBM i but 222 in as4tainr, an interpreter defect (fidelity.md); NPROCPTR does not check that status.
+
+## S2.88: %STR as a value
+
+**Lowered:** %STR(p) and %STR(p: max), where p is a lowered pointer value (S2.47-S2.50: a pointer field, %ADDR, pointer arithmetic, %ALLOC) and max is a numeric expression, evaluated after the pointer as bif's STR arm does. %STR as an assignment target stays in the interpreter. %LEN of a character expression that is not a name (a function, a concatenation, a literal) is lowered too: interp.rs type_of gives such an expression no type, so bif's LEN arm takes its value's length.
+
+**Runtime.** `Runtime::str_at` writes again ptrs.rs str_at: the pointer's place (`addr_n`), then the bytes up to the first null, within max (else 16 MB) and the storage's end.
+
+**Verified by** the native unit NSTRPTR, under both engines. The program captured on PUB400 (tools/golden/native88.txt n88_str) takes %STR of a field holding 'Hello', a null, 'World' and a null:
+- of its address;
+- with a maximum of 3;
+- of a pointer field moved past the first null;
+- of a moved address with a maximum;
+- %LEN of a %STR.

@@ -188,6 +188,10 @@ pub trait Runtime {
     /// Stage 2 (S2.50): %ALLOC and ALLOC: new heap storage of `n` bytes
     /// (1 to 16 776 704, RNQ0425 otherwise), a pointer to it.
     fn alloc(&mut self, n: &Dec) -> NResult<Value>;
+    /// Stage 2 (S2.88): %STR(p) or %STR(p: max) as a value: the bytes the
+    /// pointer addresses up to the first null, at most `max` (or 16 MB),
+    /// and no further than its storage (ptrs.rs str_at).
+    fn str_at(&mut self, p: &Value, max: Option<Dec>) -> NResult<Value>;
     /// Stage 2 (S2.50): %REALLOC and REALLOC: the heap storage `p`
     /// addresses made `n` bytes, its bytes kept (RNQ0426 for a pointer
     /// that is not to the start of heap storage).

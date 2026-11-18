@@ -1156,6 +1156,26 @@ impl Runtime for Rt<'_, '_> {
         self.printer_op_n(pc)
     }
 
+    fn str_at(&mut self, p: &Value, max: Option<Dec>) -> NResult<Value> {
+        // ptrs.rs str_at: the pointer's place (addr), then the bytes up to
+        // the first null within max (else 16 MB) and the storage's end.
+        let max = match max {
+            Some(m) => Some(usize::try_from(m.to_i128()?).unwrap_or(usize::MAX)),
+            None => None,
+        };
+        let (buf, off) = self.addr_n(p, 0)?;
+        let b = self
+            .m
+            .bufs
+            .get(buf)
+            .ok_or_else(|| anyhow!("native: %STR's storage"))?;
+        let limit = max.unwrap_or(16 * 1024 * 1024);
+        let end = off.saturating_add(limit).min(b.len());
+        let s = b.get(off..end).unwrap_or(&[]);
+        let n = s.iter().position(|&c| c == 0).unwrap_or(s.len());
+        Ok(Value::Char(s.get(..n).unwrap_or(&[]).to_vec()))
+    }
+
     fn paddr(&mut self, name: &str) -> NResult<Value> {
         self.paddr_n(name)
     }

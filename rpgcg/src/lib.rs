@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.87");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.88");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -690,6 +690,12 @@ pub mod ir {
         /// An indicator as a part of a concatenation (S2.62): character
         /// data of length 1, '1' or '0' (Value::Ind's chars).
         Ind(String),
+        /// %STR(p[: max]) (S2.88): the pointer, then the maximum.
+        StrAt {
+            ptr: Box<PtrVal>,
+            max: Option<NumExpr>,
+            path: Vec<u8>,
+        },
         Leaf(Operand),
         /// A chain of concatenations down the left operands (S2.41): the
         /// parts in order.
@@ -866,6 +872,9 @@ pub mod ir {
         VarLen {
             var: Operand,
         },
+        /// %LEN of a character expression that is not a name (S2.88): its
+        /// value's length (interp.rs bif's LEN arm, with no type).
+        LenOf(Box<CharExpr>),
         /// %STATUS with no file (S2.31): the most recent status code.
         Status,
         /// %ELEM of a varying-dimension array (S2.45): its elements in use.
@@ -3502,6 +3511,26 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
             );
             format!("{name}(rt)?")
         }
+        ir::CharExpr::StrAt { ptr, max, path } => {
+            // bif's STR arm: the pointer, then the maximum, then ptrs.rs
+            // str_at (the runtime's).
+            let name = format!("k{pc}_{}", path_id(path));
+            // A pointer with no place is an error when it runs, as for a
+            // pointer argument (call arguments, S2.47), never a value.
+            let pv = ptr_val(pc, ptr, helpers).unwrap_or_else(|| {
+                "return Err(anyhow::anyhow!(\"native: the pointer of %STR has no place\"))"
+                    .to_string()
+            });
+            let m = match max {
+                Some(n) => format!("Some({})", num_expr(pc, n, helpers)),
+                None => "None".to_string(),
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let p = {pv};\n    let m = {m};\n    rt.str_at(&p, m)\n}}"
+            );
+            format!("{name}(rt)?")
+        }
         ir::CharExpr::Ind(name) => format!(
             "rpgrt::rpg::data::Value::Char(vec![if rt.ind({}) {{ 0xF1 }} else {{ 0xF0 }}])",
             json_str(name)
@@ -3936,6 +3965,10 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             json_str(name)
         ),
         ir::NumExpr::Status => "rpgrt::rpg::dec::Dec::from_i64(i64::from(rt.status()))".to_string(),
+        ir::NumExpr::LenOf(c) => format!(
+            "rpgrt::rpg::dec::Dec::from_i64(i64::try_from({}.chars()?.len())?)",
+            char_expr(pc, c, helpers)
+        ),
         ir::NumExpr::VarLen { var } => format!(
             "rpgrt::rpg::dec::Dec::from_i64(i64::try_from({}.chars()?.len())?)",
             value(var)
