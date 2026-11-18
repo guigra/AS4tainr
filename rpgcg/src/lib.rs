@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.67");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.68");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -627,6 +627,17 @@ pub mod ir {
             s: Box<CharExpr>,
             start: Option<Operand>,
             path: Vec<u8>,
+        },
+        /// %XFOOT, %MAXARR or %MINARR of a whole global array (S2.68):
+        /// `kind` is "XFOOT", "MAXARR" or "MINARR"; the array as for
+        /// %LOOKUP.
+        ArrFold {
+            kind: String,
+            buf: usize,
+            off: usize,
+            stride: usize,
+            dim: u32,
+            ty: Ty,
         },
         /// %SCANR of character expressions, with a start and a length
         /// that are numeric literals or fields (S2.67).
@@ -2657,6 +2668,17 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             );
             format!("{name}(rt)?")
         }
+        ir::NumExpr::ArrFold {
+            kind,
+            buf,
+            off,
+            stride,
+            dim,
+            ty: t,
+        } => format!(
+            "{{ let all = rpgrt::native::lookup_list(rt.mem(), ({buf}, {off}, {stride}, {dim}), {})?; rpgrt::native::arr_fold(&all, {kind:?})? }}",
+            ty(t)
+        ),
         ir::NumExpr::ScanR {
             pat,
             s,

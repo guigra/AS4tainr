@@ -588,3 +588,17 @@ Each step keeps the interpreter as the reference (native-diff), and records any 
 %SCANR of character expressions, with a start and a length that are numeric literals or fields, and %LEFT and %RIGHT of a character expression with such a length, are now lowered. They are bifs.rs's arms, written again in rpgrt (`scanr`, `left_right`): the same checks, the same RNQ0100 messages, and the arguments in the same order. One difference from the interpreter: a %SCANR start more than one past the end with no length is RNQ0100 there too, where the interpreter's default length subtracts past zero (fidelity.md).
 
 **Verified by** the native unit NSCANR, under both engines. Its program was captured on PUB400 (tools/golden/native67.txt n67_str). %SCANR is called with and without a start and a length, with a pattern that is not found, and with a pattern longer than the part searched. %LEFT and %RIGHT take a field and an expression, with lengths of 0 and of the whole string. Under MONITOR, a length longer than the string and a %SCANR length past the end both give 00100.
+
+## S2.68: %XFOOT, %MAXARR and %MINARR
+
+%XFOOT, %MAXARR and %MINARR of a whole global array, with no start or number of elements, are now lowered. The array's elements are read as %LOOKUP reads them (S2.27). The bifs.rs arms are written again in rpgrt `arr_fold`:
+- %XFOOT gives the sum of the elements' numbers;
+- %MAXARR and %MINARR give the index of the first greatest or smallest element, as data::compare orders them.
+
+With a start or a number of elements, these stay in the interpreter. There, as for %SCANR, the default number subtracts past zero for a start past the end.
+
+**Verified by** the native unit NARRFN, under both engines. Its program was captured on PUB400 (tools/golden/native68.txt n68_arr) and covers:
+- a packed array with decimals and negative values;
+- ties, where the first counts;
+- an integer array;
+- a character array.

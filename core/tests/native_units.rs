@@ -1711,3 +1711,22 @@ async fn native_unit_lowered_scanr_left_right() {
     )
     .await;
 }
+
+// Stage 2, S2.68: %XFOOT, %MAXARR and %MINARR lowered to Rust.
+// Source: golden capture tools/golden/native68 n68_arr (PUB400, IBM i 7.5, 2026-11-17)
+#[tokio::test]
+async fn native_unit_lowered_array_functions() {
+    let _ = require_db!();
+    expect(
+        "NARRFN",
+        include_str!("native/NARRFN.rpgle"),
+        &[
+            "XFOOT P 203.98",
+            "XFOOT Q 17",
+            "MAX P 3 MIN P 2",
+            "MAX Q 1 MIN Q 3",
+            "MAX C 3 MIN C 2",
+        ],
+    )
+    .await;
+}
