@@ -1135,6 +1135,26 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
         }
         // %CHAR of a numeric expression (S2.14). The program's DECEDIT is
         // part of the code, so it goes into the fingerprint's layout.
+        // %STR(p[: max]) (S2.88): a pointer value (ptr_val) and a number;
+        // ptrs.rs str_at is the runtime's.
+        Expr::Bif(b, args) if b == "STR" && matches!(args.len(), 1 | 2) => {
+            let mut pp = path.clone();
+            pp.push(0);
+            let ptr = ptr_val(cx, args.first()?, used, pp)?;
+            let max = match args.get(1) {
+                Some(m) => {
+                    let mut mp = path.clone();
+                    mp.push(1);
+                    Some(num_expr(cx, m, used, mp)?)
+                }
+                None => None,
+            };
+            Some(ir::CharExpr::StrAt {
+                ptr: Box::new(ptr),
+                max,
+                path,
+            })
+        }
         // %CHAR of an indicator (S2.85): its character, '1' or '0', as
         // interp.rs bif's CHAR arm gives a Value::Ind (an indicator in a
         // concatenation, S2.62, is the same value).
@@ -1485,6 +1505,21 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
         // %LEN of a varying-length field (S2.20): its current length, as
         // the interpreter's `(Some(DType::Varchar(_)), Value::Char(c))`
         // arm gives it.
+        // %LEN of a character expression that is not a name, an indicator
+        // or a path (S2.88): interp.rs type_of gives none, so the value's
+        // length.
+        Expr::Bif(b, args)
+            if b == "LEN"
+                && matches!(
+                    args.as_slice(),
+                    [Expr::Bif(..) | Expr::Bin(..) | Expr::Str(_)]
+                ) =>
+        {
+            let mut p = path.clone();
+            p.push(0);
+            let c = char_expr(cx, args.first()?, used, p)?;
+            Some(ir::NumExpr::LenOf(Box::new(c)))
+        }
         Expr::Bif(b, args) if b == "LEN" && args.len() == 1 => {
             let v = variable(cx, args.first()?, used)?;
             match v {

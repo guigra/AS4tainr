@@ -2252,3 +2252,16 @@ async fn native_unit_lowered_procedure_pointers() {
     )
     .await;
 }
+
+// Stage 2, S2.88: %STR as a value lowered to Rust.
+// Source: golden capture tools/golden/native88 n88_str (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_str_value() {
+    let _ = require_db!();
+    expect(
+        "NSTRPTR",
+        include_str!("native/NSTRPTR.rpgle"),
+        &["A Hello|Hel|World|ello|5"],
+    )
+    .await;
+}

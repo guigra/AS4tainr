@@ -508,6 +508,12 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    pub(super) fn ensure_printer(&mut self, file: &str) -> Result<()> {",
             "    ",
         ),
+        // S2.88: %STR as a value.
+        function(
+            PTRS,
+            "    pub(super) fn str_at(&self, p: &Value, max: Option<usize>) -> Result<Value> {",
+            "    ",
+        ),
         // S2.86: fixed-form SORTA and MOVEA.
         function(
             OPS,
@@ -698,9 +704,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // bif (its EDITC arm), S2.83 ops.rs split, put_positions, put_left,
     // op_error and string_op, S2.84 ops.rs bit_op and bit_mask and
     // interp.rs set_result_inds, S2.85 ops.rs array_op and lookup and
-    // interp.rs num_inds, S2.86 ops.rs sorta, movea_parts and movea;
+    // interp.rs num_inds, S2.86 ops.rs sorta, movea_parts and movea, S2.88
+    // ptrs.rs str_at;
     // upstream still dd47e28.
-    let reviewed = "6b96b57d8ab49801c1a41b6555ab51358e349b35abc80076fff0846811aa30ba";
+    let reviewed = "f92a682dd3c73123463928a35cd4a7eac00566932e3a9194d5fcd6fc76085066";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"
