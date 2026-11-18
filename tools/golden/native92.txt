@@ -1,0 +1,8 @@
+# Captures for the review of S2.79 (2026-11-18): a printer file's INFDS, blank after of a varying field, an edit word constant in a procedure (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native92.txt -f tools/golden/native92
+n92_cpy|!system "CPYFRMSTMF FROMSTMF('@HOME@/gld/gn92p.prtf') TOMBR('/QSYS.LIB/@LIB@.LIB/QDDSSRC.FILE/GN92P.MBR') MBROPT(*REPLACE)"
+n92_crtprtf|!system "CRTPRTF FILE(@LIB@/GN92P) SRCFILE(@LIB@/QDDSSRC) SRCMBR(GN92P)"
+n92_crtinf|!system "CRTSQLRPGI OBJ(@LIB@/GN92INF) SRCSTMF('@HOME@/gld/gn92inf.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n92_infds|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN92INF)"; cat gn1.out; rm -f gn1.out
+n92_crtexc|!system "CRTSQLRPGI OBJ(@LIB@/GN92EXC) SRCSTMF('@HOME@/gld/gn92exc.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n92_except|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN92EXC)"; cat gn1.out; rm -f gn1.out

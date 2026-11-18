@@ -4928,10 +4928,15 @@ fn except_fields(
         }
         for of in &r.fields {
             if let Some(w) = &of.edit_word {
+                // The runtime's out_text_n takes the module's constant: the
+                // name must be one, and the same one the interpreter's
+                // `sym` finds (a procedure's own constant of that name
+                // stays with the interpreter; the review of 2026-11-18).
                 if let Some(n) = w.strip_prefix('\u{1}') {
-                    if !matches!(sym(cx, n), Some(Sym::Const(_)))
-                        || !matches!(prog.syms.get(n), Some(Sym::Const(_)))
-                    {
+                    let here = sym(cx, n);
+                    let global = prog.syms.get(n);
+                    let same = matches!((here, global), (Some(a), Some(b)) if std::ptr::eq(a, b));
+                    if !matches!(global, Some(Sym::Const(_))) || !same {
                         return None;
                     }
                 }
@@ -4996,7 +5001,7 @@ fn printer_format<'p>(
         .position(|f| f.decl.name == fmt || f.format == fmt)
         .or_else(|| prog.file_index(fmt))?;
     let fi = prog.files.get(i)?;
-    if fi.decl.device != "PRINTER" {
+    if fi.decl.device != "PRINTER" || has_infds(fi) {
         return None;
     }
     let rec = fi.printer.as_ref()?.record(fmt)?;
@@ -5075,7 +5080,18 @@ fn printer_file(cx: &Cx<'_>, file: &str) -> bool {
         .position(|f| f.decl.name == file || f.format == file)
         .or_else(|| prog.file_index(file))
         .and_then(|i| prog.files.get(i))
-        .is_some_and(|f| f.decl.device == "PRINTER")
+        .is_some_and(|f| f.decl.device == "PRINTER" && !has_infds(f))
+}
+
+/// A file with an INFDS: errors.rs file_op ends each operation with
+/// infds_update, which the native runtime's file_end_n does not write
+/// again, so its WRITE, OPEN, CLOSE and FEOD stay with the interpreter
+/// (found by the review of 2026-11-18, as the database reads exclude it).
+fn has_infds(f: &super::super::program::FileInfo) -> bool {
+    f.decl
+        .keywords
+        .iter()
+        .any(|k| k.name.eq_ignore_ascii_case("INFDS"))
 }
 
 /// A data area's field (S2.80): a character, varying or numeric field, or

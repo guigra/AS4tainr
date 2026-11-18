@@ -1120,3 +1120,12 @@ The native runtime reaches all of these through the same Machine and the same se
 - the main module imports TOTAL, which the other module exports with INZ(100);
 - the main module exports LABEL, which the other module imports;
 - each side sees the other's changes across the calls: "100 x 105 mod5x 2 mod1y".
+
+## S2.92: the review of the printer functions
+
+An independent read-only review (codex) compared the printer functions of native_rt.rs (S2.78, S2.79) with the interpreter's. Three findings change the engine:
+- **A printer file with an INFDS.** It stays with the interpreter (lower.rs `has_infds`), because file_end_n does not write infds_update again. Database reads already excluded it.
+- **Blank after.** The native runtime writes the field's initial image over its storage, as the interpreter's CLEAR does (`out_clear_n`).
+- **A named edit word constant.** It is lowered only when the procedure's name is the module's own constant (`std::ptr::eq` of the two lookups).
+
+**Verified by** the native units NEXCPT2 and NPRTINF, under both engines, as captured on PUB400 (tools/golden/native92). The captures also showed five interpreter defects, recorded in fidelity.md and held for upstream. The units leave those parts out.
