@@ -508,6 +508,12 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    pub(super) fn ensure_printer(&mut self, file: &str) -> Result<()> {",
             "    ",
         ),
+        // S2.81: %EDITC's third argument (in bif's EDITC arm).
+        function(
+            INTERP,
+            "    fn bif(&mut self, b: &str, args: &[Expr]) -> Result<Value> {",
+            "    ",
+        ),
         // S2.80: IN and OUT of data areas.
         function(
             INTERP,
@@ -614,9 +620,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // overflow_routine, overflow_ind, out_text, print_record, print_line,
     // flush_printer and printer.rs form_of and ensure_printer, S2.79
     // printer.rs printer_op, printer_write, printer_text and print_ops,
-    // S2.80 data_area, dtaara_unlock_object and local_data_area;
+    // S2.80 data_area, dtaara_unlock_object and local_data_area, S2.81
+    // bif (its EDITC arm);
     // upstream still dd47e28.
-    let reviewed = "9c712358b517628619edbdb1831fe8dee6f324e9322c59baab320068b0ffc58f";
+    let reviewed = "973544aae35a8c3b37a737ea6609698e37443c9528b3ae739d3614475b853e41";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"
