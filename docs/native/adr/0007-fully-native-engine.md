@@ -827,3 +827,12 @@ Two interpreter defects (fidelity.md):
 - as4tainr's compiler cannot take the capture's EXEC SQL CREATE PROCEDURE with a compound body, so NSQL7 makes the procedures with EXECUTE IMMEDIATE.
 
 native_tripwire.rs watches sql_call.
+
+## S2.76: a path with one index on its middle part
+
+`ds_array_field` (S2.24, S2.63) took only `ds(i).field`. It now takes any path with one index on a part that is not the last. For example `list.users(i).name`: the indexed part is a LIKEDS subfield with DIM, whose subfields program.rs names LIST.USERS.NAME at the first element's place. The place is the field's, with that structure's size between elements, as interp.rs path_sym adds (i - 1) times it after its range check (status 121). A path with two indexes (`gv(s).m(1).parmNo`) stays in the interpreter.
+
+**Verified by** the native unit NNEST, under both engines. The program captured on PUB400 (tools/golden/native76.txt n76_nested) does three things:
+- assigns and reads `list.users(n).name` and `.days` with literal and field indexes, in arithmetic;
+- runs a FOR loop over them;
+- catches an index past the elements with MONITOR (ERROR 121).

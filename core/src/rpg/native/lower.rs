@@ -1981,12 +1981,30 @@ fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::O
     else {
         return None;
     };
-    // The index is on the data structure: the parser gives `idx` one
-    // entry per part, or only up to the last indexed part.
-    let (ds, field, ix) = match (parts.as_slice(), idx.as_slice()) {
-        ([ds, field], [Some(ix), None]) | ([ds, field], [Some(ix)]) => (ds, field, ix),
+    // The index is on a data structure: the parser gives `idx` one entry
+    // per part, or only up to the last indexed part. One index, on any
+    // part but the last (S2.76: `list.users(i).name`, a LIKEDS subfield
+    // with DIM, whose subfields program.rs names LIST.USERS.NAME at the
+    // first element's place); interp.rs path_sym adds (i - 1) times that
+    // structure's size. A path with two indexes stays in the interpreter.
+    let indexed: Vec<usize> = idx
+        .iter()
+        .enumerate()
+        .filter_map(|(k, x)| x.is_some().then_some(k))
+        .collect();
+    let (ds, field, ix) = match (indexed.as_slice(), parts.len()) {
+        ([k], n) if n >= 2 && k.checked_add(1).is_some_and(|k1| k1 < n) => {
+            let ix = idx.get(*k)?.as_ref()?;
+            (
+                parts.get(..=*k)?.join("."),
+                parts.get(k.checked_add(1)?..)?.join("."),
+                ix,
+            )
+        }
         _ => return None,
     };
+    let ds = &ds;
+    let field = &field;
     let prog = cx.prog;
     let Some(Sym::Ds(d)) = sym(cx, ds) else {
         return None;
