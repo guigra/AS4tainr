@@ -410,6 +410,34 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    ",
         ),
         function(EXEC_SQL, "pub(crate) fn sqlstate(code: i64) -> &'static str {", ""),
+        // S2.70: host variables.
+        function(
+            EXEC_SQL,
+            "fn host_list(text: &str) -> Result<Vec<(String, Option<String>)>> {",
+            "",
+        ),
+        function(EXEC_SQL, "fn literal(v: &Value) -> Result<String> {", ""),
+        function(
+            EXEC_SQL,
+            "    fn host_literal(&mut self, name: &str, ind: Option<&str>) -> Result<String> {",
+            "    ",
+        ),
+        function(
+            EXEC_SQL,
+            "    fn host_targets(&mut self, name: &str) -> Result<Vec<Expr>> {",
+            "    ",
+        ),
+        function(
+            EXEC_SQL,
+            "    fn bind_host(&mut self, sql: &str) -> Result<String> {",
+            "    ",
+        ),
+        function(EXEC_SQL, "    fn assign_hosts(\n", "    "),
+        function(
+            EXEC_SQL,
+            "    fn single_row(&mut self, query: &str, hosts: &[(String, Option<String>)]) -> Result<Outcome> {",
+            "    ",
+        ),
     ];
     let hash = sha256(&watched.concat());
     // Reviewed on 2026-11-15 against native_rt.rs and the stage 2
@@ -429,9 +457,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // sql_statement, sql_ddl, sql_change, run_sql, sql_overrides, session,
     // sql_error, words, find_word and sqlstate (exec_sql.rs's fields made
     // pub(super) for the native runtime, the user's authorization of
-    // 2026-11-18);
+    // 2026-11-18), S2.70 host_list, literal, host_literal, host_targets,
+    // bind_host, assign_hosts and single_row;
     // upstream still dd47e28.
-    let reviewed = "681eaeec5dbab984bce43860cf369b270d5416df345066a9973a0c440efce4bc";
+    let reviewed = "4d8345b0108260adadcf6f570fdcccfcc0e2843d7630c88cd1bdceb0fafc9b15";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"
