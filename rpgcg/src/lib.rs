@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.84");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.85");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -235,6 +235,22 @@ pub mod ir {
             input: Box<SqlIn>,
             out: Option<Box<SqlOut>>,
         },
+    }
+
+    /// A fixed-form array operation's parts (S2.85): LOOKUP's search
+    /// argument and index field, or XFOOT's result field and half adjust;
+    /// the array (its first element as an operand, the distance, the
+    /// elements); the indicators.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct ArrOpData {
+        pub lookup: Option<(Operand, Option<Operand>)>,
+        pub xfoot: Option<(Operand, bool)>,
+        pub arr: Operand,
+        pub stride: usize,
+        pub dim: u32,
+        pub hi: Option<String>,
+        pub lo: Option<String>,
+        pub eq: Option<String>,
     }
 
     /// A fixed-form bit or test operation's parts (S2.84).
@@ -529,6 +545,8 @@ pub mod ir {
         /// indicators, the result.
         /// Boxed: the variants' sizes stay close (clippy::large_enum_variant).
         StrOp(Box<StrOpData>),
+        /// LOOKUP of an array or XFOOT (S2.85).
+        ArrOp(Box<ArrOpData>),
         /// TESTN, TESTZ, TESTB, BITON or BITOFF (S2.84): the result field,
         /// the bits (a literal's mask, or a field), the indicators.
         BitOp(Box<BitOpData>),
@@ -2503,6 +2521,72 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("sk{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::ArrOp(d)) => {
+            // ops.rs lookup and XFOOT: the argument, the places, then the
+            // runtime.
+            let ir::ArrOpData {
+                lookup,
+                xfoot,
+                arr,
+                stride,
+                dim,
+                hi,
+                lo,
+                eq,
+            } = d.as_ref();
+            let name = |n: &Option<String>| match n {
+                Some(n) => format!("Some({}.to_string())", json_str(n)),
+                None => "None".to_string(),
+            };
+            let slot = |o: &ir::Operand| -> Result<String, Error> {
+                let ir::Operand::Var { ty: t, .. } = o else {
+                    return Err(bad());
+                };
+                let at = scalar_place(o).ok_or_else(bad)?;
+                Ok(format!(
+                    "{{ let (buf, off) = {at}; rpgrt::native::OutSlot {{ name: String::new(), buf, off, ty: {} }} }}",
+                    ty(t)
+                ))
+            };
+            let ir::Operand::Var {
+                ty: at, buf, off, ..
+            } = arr
+            else {
+                return Err(bad());
+            };
+            let lk = match lookup {
+                Some((arg, ix)) => format!(
+                    "Some(({}, {}))",
+                    value(arg),
+                    match ix {
+                        Some(i) => format!("Some({})", slot(i)?),
+                        None => "None".to_string(),
+                    }
+                ),
+                None => "None".to_string(),
+            };
+            let xf = match xfoot {
+                Some((r, h)) => format!("Some(({}, {h}))", slot(r)?),
+                None => "None".to_string(),
+            };
+            let mut body = String::new();
+            let _ = writeln!(
+                body,
+                "    let op = rpgrt::native::ArrOpIn {{\n        lookup: {lk},\n        xfoot: {xf},\n        arr: ({buf}, {off}, {stride}, {dim}, {}),\n        hi: {},\n        lo: {},\n        eq: {},\n    }};\n    rt.array_op({pc}, op)?;",
+                ty(at),
+                name(hi),
+                name(lo),
+                name(eq)
+            );
+            let _ = writeln!(
+                helpers,
+                "\nfn ao{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("ao{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::BitOp(d)) => {

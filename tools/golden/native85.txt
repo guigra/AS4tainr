@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.85: fixed-form LOOKUP and XFOOT (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native85.txt -f tools/golden/native85
+n85_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN85ARR) SRCSTMF('@HOME@/gld/gn85arr.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n85_arrops|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN85ARR)"; cat gn1.out; rm -f gn1.out

@@ -317,6 +317,9 @@ pub trait Runtime {
         exprs: Vec<String>,
         outs: Vec<Option<SqlSlot>>,
     ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.85): LOOKUP of an array (ops.rs lookup) or XFOOT
+    /// (array_op's XFOOT) on the array at `arr`.
+    fn array_op(&mut self, pc: usize, op: ArrOpIn) -> NResult<()>;
     /// Stage 2 (S2.84): TESTN, TESTZ, TESTB, BITON or BITOFF (ops.rs
     /// bit_op) on the result field at `slot`, with the bits of TESTB,
     /// BITON and BITOFF (`mask`, a literal's, or a field's bytes), and the
@@ -400,6 +403,21 @@ pub struct SqlResult {
     pub text: String,
     pub rows: i64,
     pub errd5: i64,
+}
+
+/// A fixed-form array operation's parts (S2.85): LOOKUP's search
+/// argument and the field holding its starting index, or XFOOT's result
+/// field and its half adjust; the array (its first element, the distance
+/// and the elements, the elements' type); the resulting indicators (high,
+/// low, equal).
+#[derive(Clone, Debug)]
+pub struct ArrOpIn {
+    pub lookup: Option<(Value, Option<OutSlot>)>,
+    pub xfoot: Option<(OutSlot, bool)>,
+    pub arr: (usize, usize, usize, u32, DType),
+    pub hi: Option<String>,
+    pub lo: Option<String>,
+    pub eq: Option<String>,
 }
 
 /// A fixed-form bit or test operation (S2.84).
