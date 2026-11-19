@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.128");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.129");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -976,6 +976,9 @@ pub mod ir {
         LenOf(Box<CharExpr>),
         /// %STATUS with no file (S2.31): the most recent status code.
         Status,
+        /// %PARMS (S2.129): the arguments passed to the running procedure
+        /// or program.
+        Parms,
         /// %ELEM of a varying-dimension array (S2.45): its elements in use.
         Elems(String),
         /// %ABS of a numeric expression (S2.32).
@@ -4427,6 +4430,7 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             json_str(name)
         ),
         ir::NumExpr::Status => "rpgrt::rpg::dec::Dec::from_i64(i64::from(rt.status()))".to_string(),
+        ir::NumExpr::Parms => "rpgrt::rpg::dec::Dec::from_i64(rt.parms()?)".to_string(),
         ir::NumExpr::FileCode(f) => format!(
             "rpgrt::rpg::dec::Dec::from_i64(i64::from(rt.file_code({})?))",
             json_str(f)

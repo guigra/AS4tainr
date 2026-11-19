@@ -166,6 +166,9 @@ pub trait Runtime {
     /// Stage 2 (S2.31): the most recent program or file status code, as
     /// %STATUS with no file gives it.
     fn status(&self) -> u32;
+    /// Stage 2 (S2.129): %PARMS, the arguments passed to the running
+    /// procedure (its frame), or to the program.
+    fn parms(&self) -> NResult<i64>;
     /// Stage 2 (S2.35, ADR 0007): call the procedure `proc` of this module
     /// with its arguments in order, natively: the frame, the call stack
     /// entry and the procedure's own generated code, with no interpreter

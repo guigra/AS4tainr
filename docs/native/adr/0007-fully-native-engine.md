@@ -1572,3 +1572,11 @@ OPEN and CLOSE of a database file are lowered (`Lowered::DiskOpenClose`, `Runtim
 - opened and read again from the start.
 
 NDSIO's OPEN and CLOSE (S2.120) are native now too.
+
+## S2.129: %PARMS
+
+%PARMS is lowered (`NumExpr::Parms`, `Runtime::parms`) as interp.rs bif's PARMS arm reads it: the number of arguments passed to the running procedure, which is its frame's `passed`, or the program's `parms_passed` in the main procedure. The runtime's call_frame records `passed` as call_proc does, so an *OMIT argument counts and an argument not passed does not.
+
+AS4TAINR_NATIVE_WHY now also notes each RETURN that is not lowered (`return=`). It gave `return %parms` four times and `if %parms >= n` once.
+
+**Verified by** the native unit NCALL, captured on PUB400 (tools/golden/native44.txt n44_call: `PARMS 1 1`, `PARMS 2 2` for a procedure with an OPTIONS(*NOPASS) parameter). Its `return %parms` is now native.
