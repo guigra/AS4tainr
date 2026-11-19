@@ -2134,24 +2134,33 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         // assigns it as a character field of its size (`eval`, `assign`).
         Some(Sym::Ds(d)) if args.is_none() => {
             let prog = cx.prog;
-            if d.local
-                || d.dim != 0
-                || prog.based.contains_key(&d.buf)
-                || prog.occurs.iter().any(|o| o.buf == d.buf)
-            {
+            // A procedure's own data structure (S2.93): its bytes where
+            // Machine::sym places it (the frame's buffer, or the caller's
+            // for a parameter by reference: the runtime's `local`); not
+            // based, not an array.
+            let excluded = if d.local {
+                d.dim != 0 || cx.based.is_none_or(|b| b.contains_key(&d.buf))
+            } else {
+                d.dim != 0
+                    || prog.based.contains_key(&d.buf)
+                    || prog.occurs.iter().any(|o| o.buf == d.buf)
+            };
+            if excluded {
                 return None;
             }
             let size = u32::try_from(d.size).ok()?;
             used.push(format!(
-                "layout {name} {} {} ds {size} global",
-                d.buf, d.off
+                "layout {name} {} {} ds {size} {}",
+                d.buf,
+                d.off,
+                if d.local { "local" } else { "global" }
             ));
             return Some(ir::Operand::Var {
                 name: name.clone(),
                 buf: d.buf,
                 off: d.off,
                 ty: ir::Ty::Char(size),
-                local: false,
+                local: d.local,
                 index: None,
                 based: None,
             });

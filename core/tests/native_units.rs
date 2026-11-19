@@ -2524,3 +2524,16 @@ async fn native_unit_printer_infds() {
         "NPRTINF"
     );
 }
+
+// Stage 2, S2.93: a procedure's own data structures as a whole.
+// Source: golden capture tools/golden/native93 n93_localds (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_local_ds() {
+    let _ = require_db!();
+    expect(
+        "NLOCDS",
+        include_str!("native/NLOCDS.rpgle"),
+        &["ABC|13|ABC012 QRS/42"],
+    )
+    .await;
+}

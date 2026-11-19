@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.93: a procedure's own data structures as a whole (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native93.txt -f tools/golden/native93
+n93_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN93LDS) SRCSTMF('@HOME@/gld/gn93lds.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n93_localds|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN93LDS)"; cat gn1.out; rm -f gn1.out
