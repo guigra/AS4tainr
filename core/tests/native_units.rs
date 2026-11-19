@@ -2650,3 +2650,16 @@ async fn native_unit_lowered_len_target() {
     assert_eq!(parts.last().copied(), Some("x"), "NLENSET {got:?}");
     assert_eq!(got.len(), 1, "NLENSET {got:?}");
 }
+
+// Stage 2, S2.104: indicator fields as character data.
+// Source: golden capture tools/golden/native104 n104_indchar (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_indicator_characters() {
+    let _ = require_db!();
+    expect(
+        "NINDCHR",
+        include_str!("native/NINDCHR.rpgle"),
+        &["10 f=1 s=0 1011 <11>"],
+    )
+    .await;
+}

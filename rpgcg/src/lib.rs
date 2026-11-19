@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.103");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.104");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -728,6 +728,8 @@ pub mod ir {
         /// An indicator as a part of a concatenation (S2.62): character
         /// data of length 1, '1' or '0' (Value::Ind's chars).
         Ind(String),
+        /// An indicator field as character data (S2.104): its '1' or '0'.
+        IndVar(Operand),
         /// %STR(p[: max]) (S2.88): the pointer, then the maximum.
         StrAt {
             ptr: Box<PtrVal>,
@@ -3712,6 +3714,10 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
         ir::CharExpr::Ind(name) => format!(
             "rpgrt::rpg::data::Value::Char(vec![if rt.ind({}) {{ 0xF1 }} else {{ 0xF0 }}])",
             json_str(name)
+        ),
+        ir::CharExpr::IndVar(o) => format!(
+            "rpgrt::rpg::data::Value::Char(vec![if {}.truth()? {{ 0xF1 }} else {{ 0xF0 }}])",
+            value(o)
         ),
         ir::CharExpr::Call(c) => returned(call_fn(pc, c, helpers), &c.proc),
         ir::CharExpr::Chain { parts, path } => {

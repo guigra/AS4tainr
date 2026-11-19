@@ -1247,3 +1247,11 @@ An indicator parameter passed by value takes a condition as its argument (`ir::C
 `arr(*NEXT) = value` of a global varying-dimension array is lowered (`ir::Index::next`). As interp.rs assign_value does, the index is the element after those in use, and the array grows to it, whatever its kind (`elem_grow` with growth allowed; RNQ0121 past its dimension). *NEXT is written only, and only as an EVAL's target (`target_var`). A codex review of 2026-11-19 found that the first version, in `variable`, also took `a(*NEXT)` read or passed by reference. The interpreter fails those as an undefined name, so they stay with it.
 
 **Verified by** the existing native unit NVARDIM (S2.45), whose `au(*next) = 9` line ("NEXT 3 9") was its last interpreted statement.
+
+## S2.104: indicator fields as characters
+
+An indicator field is character data, '1' or '0' (`ir::CharExpr::IndVar`), in the two places where an *INxx indicator already was:
+- %CHAR of it (bif's CHAR of a Value::Ind);
+- a part of a concatenation (eval's + of an indicator next to characters).
+
+**Verified by** the native unit NINDCHR, under both engines, as captured on PUB400 (tools/golden/native104.txt n104_indchar). It covers %CHAR of indicator fields, and indicator fields concatenated with text, with *IN42, with each other and with a qualified subfield, and a procedure's own.

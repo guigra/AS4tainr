@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.104: indicator fields as character data (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native104.txt -f tools/golden/native104
+n104_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN104ICH) SRCSTMF('@HOME@/gld/gn104ich.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n104_indchar|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN104ICH)"; cat gn1.out; rm -f gn1.out
