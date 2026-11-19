@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.119");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.120");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -502,6 +502,9 @@ pub mod ir {
             keys: Option<Vec<ValExpr>>,
             fields: Vec<FieldMove>,
             width: usize,
+            /// From a result data structure (S2.120): ds_to_record, with
+            /// no null values.
+            ds: bool,
         },
         /// RETURN (S2.38): the value, if any.
         Return(Option<ValExpr>),
@@ -2268,6 +2271,7 @@ fn lowered_step(
                 keys,
                 fields,
                 width,
+                ds,
             },
         ) => {
             // The interpreter's file_op for WRITE, UPDATE and DELETE: the
@@ -2317,7 +2321,10 @@ fn lowered_step(
             }
             let _ = writeln!(
                 helpers,
-                "\nfn fc{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    rt.file_change({pc}, keys, rec)\n}}"
+                "\nfn fc{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    rt.{}({pc}, keys, rec)\n}}",
+                // From a result data structure (S2.120): ds_to_record, with
+                // no null values.
+                if *ds { "file_change_ds" } else { "file_change" }
             );
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),

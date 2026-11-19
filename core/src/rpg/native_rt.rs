@@ -1135,7 +1135,16 @@ impl Runtime for Rt<'_, '_> {
         keys: Option<Vec<KeyArg>>,
         rec: NResult<Vec<Option<String>>>,
     ) -> NResult<()> {
-        self.file_change_n(pc, keys, rec)
+        self.file_change_n(pc, keys, rec, false)
+    }
+
+    fn file_change_ds(
+        &mut self,
+        pc: usize,
+        keys: Option<Vec<KeyArg>>,
+        rec: NResult<Vec<Option<String>>>,
+    ) -> NResult<()> {
+        self.file_change_n(pc, keys, rec, true)
     }
 
     fn exec_sql_dyn(
@@ -2609,6 +2618,7 @@ impl Rt<'_, '_> {
         pc: usize,
         keys: Option<Vec<KeyArg>>,
         rec: NResult<Vec<Option<String>>>,
+        from_ds: bool,
     ) -> NResult<()> {
         let (op, file, key, _, _) = self.file_stmt(pc)?;
         let file = file.to_string();
@@ -2635,7 +2645,7 @@ impl Rt<'_, '_> {
                     .collect()
             }),
         };
-        let made = rec.and_then(|cols| self.record_n(i, op, cols));
+        let made = rec.and_then(|cols| self.record_n(i, op, cols, from_ds));
         let r = made.and_then(|rec| self.record_change_n(i, op, &rec, &keys, cmt.as_deref()));
         match r {
             Ok(()) => {
@@ -2662,6 +2672,7 @@ impl Rt<'_, '_> {
         i: usize,
         op: FileOp,
         cols: Vec<Option<String>>,
+        from_ds: bool,
     ) -> NResult<crate::rla::Record> {
         let mut rec = crate::rla::Record::new();
         if op == FileOp::Delete {
@@ -2681,7 +2692,8 @@ impl Rt<'_, '_> {
                 rec.insert(fd.name.clone(), t);
             }
         }
-        if self.m.alwnull == super::AlwNull::UsrCtl {
+        // ds_to_record (S2.120) gives no null values.
+        if !from_ds && self.m.alwnull == super::AlwNull::UsrCtl {
             let nulls: Vec<String> = fref
                 .file
                 .fields

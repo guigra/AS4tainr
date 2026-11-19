@@ -251,6 +251,15 @@ pub trait Runtime {
         keys: Option<Vec<KeyArg>>,
         rec: NResult<Vec<Option<String>>>,
     ) -> NResult<()>;
+    /// Stage 2 (S2.120): `file_change` for a WRITE or UPDATE from a
+    /// result data structure: the record with no null values (bifs.rs
+    /// ds_to_record, not record_of).
+    fn file_change_ds(
+        &mut self,
+        pc: usize,
+        keys: Option<Vec<KeyArg>>,
+        rec: NResult<Vec<Option<String>>>,
+    ) -> NResult<()>;
     /// Stage 2 (S2.69): run the EXEC SQL at `pc` (exec_sql.rs exec_sql up
     /// to the SQLCA), its outcome for generated code to store.
     fn exec_sql(&mut self, pc: usize) -> NResult<SqlResult>;
