@@ -1256,6 +1256,10 @@ fn cat_part(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
             used.push(format!("ind {n}"));
             Some(ir::CharExpr::Ind(n.clone()))
         }
+        // An indicator field (S2.104), the same value as *INxx.
+        Expr::Name { args: None, .. } if ind_field_ok(cx, e) => {
+            Some(ir::CharExpr::IndVar(ind_field(cx, e, used)?))
+        }
         _ => char_expr(cx, e, used, path),
     }
 }
@@ -1370,6 +1374,13 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
         // %CHAR of an indicator (S2.85): its character, '1' or '0', as
         // interp.rs bif's CHAR arm gives a Value::Ind (an indicator in a
         // concatenation, S2.62, is the same value).
+        // %CHAR of an indicator field (S2.104): bif's CHAR of its
+        // Value::Ind, as for *INxx.
+        Expr::Bif(b, args)
+            if b == "CHAR" && matches!(args.as_slice(), [a] if ind_field_ok(cx, a)) =>
+        {
+            Some(ir::CharExpr::IndVar(ind_field(cx, args.first()?, used)?))
+        }
         Expr::Bif(b, args) if b == "CHAR" && matches!(args.as_slice(), [Expr::Ind(_)]) => {
             let [Expr::Ind(n)] = args.as_slice() else {
                 return None;
