@@ -138,10 +138,12 @@ Two more of the review's findings are numbers out of range and are left as they 
 
 **Also from the review of 2026-11-19, left as it is.** MOVEA with an array index of -1 gives RNQ0121 in both engines. The interpreter's text shows the index converted to usize (18446744073709551615); the native runtime's shows -1. Only the message text differs.
 
-## EXECUTE ... USING before the statement is prepared (found 2026-11-19, open)
+## EXECUTE ... USING before the statement is prepared (found 2026-11-19)
 
-The codex audit of 2026-11-19 (f1) found this difference; it is checked against the code.
-- **Interpreter.** exec_sql.rs sql_statement's EXECUTE looks up the prepared statement first. SQL0518 (SQLCODE -518) comes before the USING host variables are read.
-- **Native code.** The generated code reads the USING host variables (sql_inputs) before `exec_sql_dyn` looks the statement up.
+The codex audit of 2026-11-19 (f1) found that the two engines read EXECUTE's USING host variables at different times; it is checked against the code.
+- **Interpreter.** exec_sql.rs sql_statement's EXECUTE looks up the prepared statement first, so SQL0518 (SQLCODE -518, SQLSTATE 07003) comes before the values are read.
+- **Native code.** The generated code reads the USING values (sql_inputs) before `exec_sql_dyn` looks the statement up.
 
-The two differ only when the statement is not prepared and a USING variable cannot be read, for example invalid packed data: RNQ0907 natively, SQLCODE -518 under the interpreter. This is open; the fix is to check the prepared statement before the inputs in the generated EXECUTE.
+**What IBM i does** (tools/golden/native97 n97_execute, PUB400, IBM i 7.5, 2026-11-19). A statement never prepared, and a USING packed field holding x'FFFF', gives a decimal data error, status 907, which MONITOR catches. The host variable is read first, as the native code does. The interpreter's -518 is the defect: an upstream one, held for Kyle with the capture.
+
+The native code is left as it is: it already does what IBM i does. Making it follow the interpreter would make both engines wrong, with no test of IBM's value possible. The difference shows only for a statement that was not prepared and a USING value that cannot be read.
