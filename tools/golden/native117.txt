@@ -1,0 +1,5 @@
+# Captures for stage 2, S2.117: procedures with files of their own (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native117.txt -f tools/golden/native117
+n117_mkf|!system "RUNSQL SQL('create or replace table @LIB@/GN117F (n int)') COMMIT(*NONE)" && system "RUNSQL SQL('insert into @LIB@/GN117F values (7), (8), (9)') COMMIT(*NONE)"
+n117_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN117LF) SRCSTMF('@HOME@/gld/gn117lf.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n117_localfile|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN117LF)"; cat gn1.out; rm -f gn1.out

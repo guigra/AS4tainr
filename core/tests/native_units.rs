@@ -2850,3 +2850,47 @@ async fn native_unit_lowered_options_trim() {
     )
     .await;
 }
+
+// Stage 2, S2.117: procedures with files of their own.
+// Source: golden capture tools/golden/native117 n117_localfile (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_local_files() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    // As the capture's GN117F: six records, 7 8 9 7 8 9.
+    let _ = job.run("DLTF FILE(QGPL/GN117F)").await;
+    job.run_sql_script(
+        "CREATE TABLE QGPL.GN117F (N INT);\nINSERT INTO QGPL.GN117F VALUES (7), (8), (9), (7), (8), (9);",
+        "native unit NLOCFIL",
+        10,
+        None,
+        true,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    expect(
+        "NLOCFIL",
+        include_str!("native/NLOCFIL.rpgle"),
+        &["6 6 789"],
+    )
+    .await;
+}
