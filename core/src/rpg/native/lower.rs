@@ -423,6 +423,36 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 right: *right,
             }
         }
+        // EVAL with %LEN as its target (S2.102): assign_value's "LEN"
+        // arm, of a varying field with no index that is not based.
+        Ins::Stmt(Stmt::Eval {
+            target: Expr::Bif(b, args),
+            value,
+            ext,
+            ..
+        }) if b == "LEN"
+            && args.len() == 1
+            && !ext.error
+            && !ext.no_lock
+            && ext.other.is_empty() =>
+        {
+            let target = variable(cx, args.first()?, &mut used)?;
+            let ir::Operand::Var {
+                ty: ir::Ty::Varchar(max),
+                index: None,
+                based: None,
+                ..
+            } = &target
+            else {
+                return None;
+            };
+            let max = *max;
+            ir::Lowered::SetVarLen {
+                target,
+                max,
+                value: num_expr(cx, value, &mut used, Vec::new())?,
+            }
+        }
         // EVAL of an indicator field (S2.100): assign's data::store of
         // DType::Ind, the value's truth ('1' or '0'), for *ON, *OFF or a
         // condition.

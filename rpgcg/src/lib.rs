@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.101");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.102");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -661,6 +661,12 @@ pub mod ir {
         },
         /// EVAL of an indicator (S2.39): `*ON`, `*OFF` or a condition.
         EvalInd { name: String, value: IndValue },
+        /// `%LEN(v) = n` of a varying field (S2.102): its current length.
+        SetVarLen {
+            target: Operand,
+            max: u32,
+            value: NumExpr,
+        },
         /// EVAL of an indicator field (S2.100): `*ON`, `*OFF` or a
         /// condition, stored as the interpreter's assign stores its truth.
         EvalIndVar { target: Operand, value: IndValue },
@@ -2252,6 +2258,20 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("ei{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::SetVarLen { target, max, value }) => {
+            // Stmt::Eval with %LEN as its target: the value first, then
+            // assign_value's "LEN" arm (rpgrt::native::set_var_len).
+            let n = num_expr(pc, value, helpers);
+            let at = scalar_place(target).ok_or_else(bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn vl{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let n = {n};\n    let (b, o) = {at};\n    rpgrt::native::set_var_len(rt.mem(), b, o, {max}, &n)\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("vl{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::EvalIndVar { target, value }) => {

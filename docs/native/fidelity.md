@@ -157,3 +157,16 @@ On IBM i, two pointers into different fields of the same program can be subtract
 as4tainr keeps each field in its own buffer. ptrs.rs ptr_arith fails a subtraction of pointers to different buffers, which MONITOR sees as status 9999.
 
 Both engines do this; native code uses `rpgrt::native::ptr_diff`, which follows ptr_arith. This is an upstream interpreter defect, held for Kyle with the capture. The unit NPTRDIF leaves that part out.
+
+## %LEN as a target (found 2026-11-19)
+
+Source: tools/golden/native102 n102_lenset (PUB400, IBM i 7.5, 2026-11-19).
+
+The program cuts a varying field holding 'abcdef' to length 3, and then sets its length to 5.
+
+| Case | IBM i | Interpreter |
+|---|---|---|
+| The field after the length goes from 3 to 5 | `abc  `: the new positions are blanks | `abcde`: the old characters come back. interp.rs assign_value's "LEN" arm writes only the length, and its comment says the storage shows through |
+| A length past the field's maximum | status 115 | status 100 (RNQ0100) |
+
+Native code follows the interpreter (rpgrt::native::set_var_len). Both are upstream interpreter defects, held for Kyle with the capture, and the unit NLENSET leaves them out.

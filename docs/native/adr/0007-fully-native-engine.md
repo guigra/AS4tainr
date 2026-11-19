@@ -1235,3 +1235,9 @@ Comparing an indicator field, %CHAR of one, or an indicator field in a concatena
 An indicator parameter passed by value takes a condition as its argument (`ir::CallArg::Ind`): args_for's eval of the argument, a Value::Ind, which call_frame stores into the parameter as call_proc assigns it. This holds for an indicator field, *INxx, a comparison, NOT and the like. By reference and CONST indicator parameters still stay with the interpreter.
 
 **Verified by** S2.100's native unit NINDFLD, as captured on PUB400 (tools/golden/native101 n101_indfld). Its YN procedure takes an indicator field by value five times, and those calls were the unit's last interpreted statements.
+
+## S2.102: %LEN as a target
+
+`%LEN(v) = n` of a varying field with no index that is not based is lowered (`ir::Lowered::SetVarLen`). The value comes first. Then `rpgrt::native::set_var_len` writes again assign_value's "LEN" arm: the range check from 0 to the maximum (RNQ0100), then two big-endian bytes for the length, `n as u16`.
+
+**Verified by** the native unit NLENSET, under both engines, as captured on PUB400 (tools/golden/native102.txt n102_lenset). The capture showed two interpreter defects (fidelity.md), which the unit leaves out: the characters a longer length shows, and the error's status.

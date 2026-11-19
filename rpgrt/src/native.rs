@@ -1804,6 +1804,30 @@ pub fn ptr_move(p: &Value, n: &Dec, back: bool) -> NResult<Value> {
         })
 }
 
+/// Stage 2 (S2.102): `%LEN(v) = n` for a varying field of at most `max`
+/// characters, as interp.rs assign_value's "LEN" arm: n checked against
+/// 0 to max (RNQ0100), then written as two big-endian bytes at the
+/// field's start, `n as u16` (the arm writes two bytes for every
+/// varying field).
+pub fn set_var_len(mem: &mut Mem, buf: usize, off: usize, max: u32, n: &Dec) -> NResult<()> {
+    let n = n.to_i128()?;
+    if !(0..=i128::from(max)).contains(&n) {
+        anyhow::bail!(
+            "RNQ0100: The length {n} is out of range (0 to {max}) for the varying-length variable."
+        );
+    }
+    let low = u16::try_from(n.rem_euclid(1 << 16))?;
+    let end = off
+        .checked_add(2)
+        .ok_or_else(|| anyhow::anyhow!("native: a varying field past the end of storage"))?;
+    let dst = mem
+        .get_mut(buf)
+        .and_then(|b| b.get_mut(off..end))
+        .ok_or_else(|| anyhow::anyhow!("native: a varying field past the end of its storage"))?;
+    dst.copy_from_slice(&low.to_be_bytes());
+    Ok(())
+}
+
 /// Stage 2 (S2.98): a pointer minus a pointer, as ptrs.rs ptr_arith's
 /// Sub arm: the distance between their offsets when they address the
 /// same storage, else its error. A *NULL operand fails as the
