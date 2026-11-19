@@ -1283,3 +1283,22 @@ The float(4) values' %CHAR text is an interpreter defect (fidelity.md), and the 
 native_tripwire.rs now also watches the interpreter functions written again since S2.94: clear_ds, reset_to_initial, assign_value and float_value.
 
 **Verified by** S2.106's native unit NFLTEVL (tools/golden/native107), whose %CHAR of float fields was the unit's last interpreted part. Its float(4) text is an interpreter defect, common to both engines and left out by the unit.
+
+## S2.108: float arithmetic (ADR 0008, part 3)
+
+An EVAL of a numeric or float field to an expression with a float operand is lowered (`ir::Lowered::EvalValue`, `ir::FloatExpr`). What counts as float is decided as interp.rs is_float decides it (`is_float_static`): a float field, a call returning a float, %FLOAT, + or - of one, and arithmetic with one.
+
+Each part follows eval:
+- a part with no float in it is a decimal expression, with its own precision rules;
+- a float field is its loaded value;
+- %FLOAT of a numeric value is `rpgrt::native::float_of`;
+- + and - of a float is `float_neg`, under which a float stays a float;
+- +, -, * and / are `float_bin`, eval's float arm: both sides as f64, the operation, MCH1211 for a division by 0.0, and the result a decimal when it fits, else the float.
+
+assign's data::store then stores the value. ** and %FLOAT of character data still stay with the interpreter.
+
+**Verified by** the native unit NFLTARI, under both engines, as captured on PUB400 (tools/golden/native108.txt n108_floatarith). It covers:
+- a float times 2, a decimal divided by a float, minus a float, and %FLOAT(3) / 7 into float(4);
+- float results into packed and integer fields;
+- a procedure's own float;
+- a float division by zero caught by MONITOR (status 102).

@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.107");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.108");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -671,6 +671,14 @@ pub mod ir {
         },
         /// EVAL of an indicator (S2.39): `*ON`, `*OFF` or a condition.
         EvalInd { name: String, value: IndValue },
+        /// EVAL of a numeric or float field to a float expression's
+        /// value (S2.108), stored as assign stores it.
+        EvalValue {
+            target: Operand,
+            value: FloatExpr,
+            half_adjust: bool,
+            right: bool,
+        },
         /// `%LEN(v) = n` of a varying field (S2.102): its current length.
         SetVarLen {
             target: Operand,
@@ -1039,6 +1047,28 @@ pub mod ir {
             p: Box<PtrVal>,
             size: NumExpr,
         },
+    }
+
+    /// A float expression (S2.108, ADR 0008): a value, as the
+    /// interpreter's eval gives it, of an expression with a float operand
+    /// (its `is_float`). Its leaves are float fields and decimal
+    /// subexpressions; each operation is eval's float arm.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum FloatExpr {
+        Field(Operand),
+        Dec(NumExpr),
+        /// %FLOAT of a numeric value.
+        FloatOf(Box<FloatExpr>),
+        Neg(Box<FloatExpr>),
+        Bin(FloatOp, Box<FloatExpr>, Box<FloatExpr>),
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum FloatOp {
+        Add,
+        Sub,
+        Mul,
+        Div,
     }
 
     /// The value an indicator is set to (S2.39).
@@ -1452,6 +1482,36 @@ fn elem_place(buf: usize, local: bool) -> String {
         format!("let (b, o) = rt.local({buf}, o)?;")
     } else {
         format!("let b = {buf};")
+    }
+}
+
+/// A float expression's value (S2.108): each node in eval's order, left
+/// before right, through rpgrt's float functions.
+fn float_expr(pc: usize, e: &ir::FloatExpr, helpers: &mut String) -> String {
+    match e {
+        ir::FloatExpr::Field(o) => value(o),
+        ir::FloatExpr::Dec(n) => {
+            format!("rpgrt::rpg::data::Value::Num({})", num_expr(pc, n, helpers))
+        }
+        ir::FloatExpr::FloatOf(x) => {
+            format!("rpgrt::native::float_of(&{})?", float_expr(pc, x, helpers))
+        }
+        ir::FloatExpr::Neg(x) => {
+            format!("rpgrt::native::float_neg({})?", float_expr(pc, x, helpers))
+        }
+        ir::FloatExpr::Bin(op, l, r) => {
+            let op = match op {
+                ir::FloatOp::Add => "Add",
+                ir::FloatOp::Sub => "Sub",
+                ir::FloatOp::Mul => "Mul",
+                ir::FloatOp::Div => "Div",
+            };
+            let a = float_expr(pc, l, helpers);
+            let b = float_expr(pc, r, helpers);
+            format!(
+                "{{\n    let x = {a};\n    let y = {b};\n    rpgrt::native::float_bin(rpgrt::native::FloatOp::{op}, &x, &y)?\n    }}"
+            )
+        }
     }
 }
 
@@ -2289,6 +2349,30 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("ei{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::EvalValue {
+                target,
+                value,
+                half_adjust,
+                right,
+            },
+        ) => {
+            let ir::Operand::Var { ty: t, .. } = target else {
+                return Err(bad());
+            };
+            let (prelude, sb, so) = place_of(target).ok_or_else(bad)?;
+            let v = float_expr(pc, value, helpers);
+            let _ = writeln!(
+                helpers,
+                "\nfn ef{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let v = {v};\n{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        {},\n        &v,\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: {half_adjust} }},\n        {right},\n    )\n}}",
+                ty(t)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("ef{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::SetVarLen { target, max, value }) => {

@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.108 (ADR 0008): arithmetic with float operands (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native108.txt -f tools/golden/native108
+n108_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN108FAR) SRCSTMF('@HOME@/gld/gn108far.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n108_floatarith|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN108FAR)"; cat gn1.out; rm -f gn1.out

@@ -1814,6 +1814,59 @@ pub fn float_value(v: &Value) -> NResult<f64> {
     }
 }
 
+/// Stage 2 (S2.108, ADR 0008): an arithmetic operation of a float
+/// expression.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FloatOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
+
+/// A float result as eval gives it (S2.108): a decimal when it fits
+/// (data::float_dec), else the float.
+fn float_result(f: f64) -> Value {
+    match data::float_dec(f) {
+        Ok(d) => Value::Num(d),
+        Err(_) => Value::Float(f),
+    }
+}
+
+/// Stage 2 (S2.108, ADR 0008): +, -, * or / with a float operand, as
+/// interp.rs eval's float arm: both values as f64 (float_value), the
+/// operation, MCH1211 for a division by 0.0.
+pub fn float_bin(op: FloatOp, x: &Value, y: &Value) -> NResult<Value> {
+    let (fx, fy) = (float_value(x)?, float_value(y)?);
+    Ok(float_result(match op {
+        FloatOp::Add => fx + fy,
+        FloatOp::Sub => fx - fy,
+        FloatOp::Mul => fx * fy,
+        FloatOp::Div => {
+            if fy == 0.0 {
+                anyhow::bail!("MCH1211: Attempt made to divide by zero for floating point.");
+            }
+            fx / fy
+        }
+    }))
+}
+
+/// Stage 2 (S2.108): unary minus of a float expression's value, as eval's
+/// Unary arm: a float stays a float, a decimal is negated.
+pub fn float_neg(v: Value) -> NResult<Value> {
+    Ok(match v {
+        Value::Float(f) => Value::Float(-f),
+        other => Value::Num(other.num()?.neg()),
+    })
+}
+
+/// Stage 2 (S2.108): %FLOAT of a numeric value, as bif's FLOAT arm for
+/// one that is not character data: float_value, then a decimal when it
+/// fits.
+pub fn float_of(v: &Value) -> NResult<Value> {
+    Ok(float_result(float_value(v)?))
+}
+
 /// Stage 2 (S2.107, ADR 0008): %CHAR of a float field of `bytes` bytes,
 /// as interp.rs bif's CHAR arm for a float: data::float_text of its
 /// float_value.

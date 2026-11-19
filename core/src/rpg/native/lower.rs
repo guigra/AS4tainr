@@ -423,6 +423,46 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 right: *right,
             }
         }
+        // EVAL of a numeric or float field to an expression with a float
+        // operand (S2.108, ADR 0008): eval's float arithmetic, then
+        // assign's data::store of the value (a decimal when it fits, else
+        // the float).
+        Ins::Stmt(Stmt::Eval {
+            target,
+            value,
+            ext,
+            right,
+        }) if !ext.error
+            && !ext.no_lock
+            && ext.other.chars().all(|c| c == 'H')
+            && is_float_static(cx, value, 0) =>
+        {
+            let target = if float_target_ok(cx, target) {
+                float_target(cx, target, &mut used)?
+            } else {
+                target_var(cx, target, &mut used)?
+            };
+            if !matches!(
+                &target,
+                ir::Operand::Var {
+                    ty: ir::Ty::Packed(..)
+                        | ir::Ty::Zoned(..)
+                        | ir::Ty::Binary(..)
+                        | ir::Ty::Int(_)
+                        | ir::Ty::Uns(_)
+                        | ir::Ty::Float(_),
+                    ..
+                }
+            ) {
+                return None;
+            }
+            ir::Lowered::EvalValue {
+                target,
+                value: float_expr(cx, value, &mut used, Vec::new(), 0)?,
+                half_adjust: ext.half_adjust,
+                right: *right,
+            }
+        }
         // EVAL of a float field (S2.106, ADR 0008) to a decimal value:
         // eval's value (no float operand: `variable` leaves float fields
         // out, so the interpreter's float arithmetic never applies), then
@@ -3490,6 +3530,93 @@ fn target_var(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Opera
             next: true,
         })),
         based: None,
+    })
+}
+
+/// Whether eval takes an expression as float (S2.108): interp.rs
+/// is_float, by the names' types (a float field, a call returning a
+/// float, %FLOAT, + or - of one, arithmetic with one). `depth` bounds
+/// the walk.
+fn is_float_static(cx: &Cx<'_>, e: &Expr, depth: usize) -> bool {
+    if depth > MAX_NESTING {
+        return false;
+    }
+    match e {
+        Expr::Name { parts, args } => match sym(cx, &parts.join(".")) {
+            Some(Sym::Var(v)) => matches!(v.dtype, DType::Float(_)),
+            Some(_) => false,
+            None if args.is_some() || parts.len() == 1 => {
+                matches!(call_returns(cx, &parts.join(".")), Some(DType::Float(_)))
+            }
+            None => false,
+        },
+        Expr::Path { parts, .. } => {
+            matches!(sym(cx, &parts.join(".")), Some(Sym::Var(v)) if matches!(v.dtype, DType::Float(_)))
+        }
+        Expr::Bif(b, _) => b == "FLOAT",
+        Expr::Unary(super::super::ast::UnOp::Neg | super::super::ast::UnOp::Plus, x) => {
+            is_float_static(cx, x, depth.saturating_add(1))
+        }
+        Expr::Bin(BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Pow, l, r) => {
+            is_float_static(cx, l, depth.saturating_add(1))
+                || is_float_static(cx, r, depth.saturating_add(1))
+        }
+        _ => false,
+    }
+}
+
+/// A float expression (S2.108, ADR 0008), as eval takes it: a part that
+/// is not float is a decimal expression (its own precision rules); a
+/// float field; %FLOAT of a numeric value; + or - of a float; +, -, *
+/// and / with a float operand. ** and the rest stay with the
+/// interpreter.
+fn float_expr(
+    cx: &Cx<'_>,
+    e: &Expr,
+    used: &mut Vec<String>,
+    path: Vec<u8>,
+    depth: usize,
+) -> Option<ir::FloatExpr> {
+    if depth > MAX_NESTING {
+        return None;
+    }
+    if !is_float_static(cx, e, 0) {
+        return Some(ir::FloatExpr::Dec(num_expr(cx, e, used, path)?));
+    }
+    let child = |k: u8| {
+        let mut p = path.clone();
+        p.push(k);
+        p
+    };
+    let d = depth.saturating_add(1);
+    Some(match e {
+        Expr::Name { args: None, .. } if float_target_ok(cx, e) => {
+            ir::FloatExpr::Field(float_target(cx, e, used)?)
+        }
+        Expr::Bif(b, args) if b == "FLOAT" => {
+            let [x] = args.as_slice() else {
+                return None;
+            };
+            ir::FloatExpr::FloatOf(Box::new(float_expr(cx, x, used, child(0), d)?))
+        }
+        Expr::Unary(super::super::ast::UnOp::Neg, x) => {
+            ir::FloatExpr::Neg(Box::new(float_expr(cx, x, used, child(0), d)?))
+        }
+        Expr::Unary(super::super::ast::UnOp::Plus, x) => float_expr(cx, x, used, child(0), d)?,
+        Expr::Bin(op @ (BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div), l, r) => {
+            let op = match op {
+                BinOp::Add => ir::FloatOp::Add,
+                BinOp::Sub => ir::FloatOp::Sub,
+                BinOp::Mul => ir::FloatOp::Mul,
+                _ => ir::FloatOp::Div,
+            };
+            ir::FloatExpr::Bin(
+                op,
+                Box::new(float_expr(cx, l, used, child(0), d)?),
+                Box::new(float_expr(cx, r, used, child(1), d)?),
+            )
+        }
+        _ => return None,
     })
 }
 
