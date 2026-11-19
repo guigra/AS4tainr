@@ -1255,3 +1255,9 @@ An indicator field is character data, '1' or '0' (`ir::CharExpr::IndVar`), in th
 - a part of a concatenation (eval's + of an indicator next to characters).
 
 **Verified by** the native unit NINDCHR, under both engines, as captured on PUB400 (tools/golden/native104.txt n104_indchar). It covers %CHAR of indicator fields, and indicator fields concatenated with text, with *IN42, with each other and with a qualified subfield, and a procedure's own.
+
+## S2.105: indicator fields compared
+
+A comparison with an indicator field on one side, and another indicator field, *ON or *OFF on the other, is lowered as a `Cond::Cmp`. The comparison is eval's: the field's Value::Ind against the other side's value, by data::compare (`rpgrt::native::cmp`). `ir::FigOp` gets On and Off, which only this comparison builds; `fig_op` still leaves *ON and *OFF out of every other form.
+
+**Verified by** the native unit NINDCMP, under both engines, as captured on PUB400 (tools/golden/native105.txt n105_indcmp). It compares with *ON and *OFF on either side and with another indicator field (= and <>), in IF and DOW, and a procedure's own field.

@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.104");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.105");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -151,6 +151,10 @@ pub mod ir {
         All(Vec<u8>),
         /// *NULL (S2.47).
         Null,
+        /// *ON and *OFF (S2.105): only as the other side of an indicator
+        /// field's comparison.
+        On,
+        Off,
     }
 
     /// Where a based field is (S2.48): the pointer it is based on (a
@@ -1719,6 +1723,8 @@ fn fig(f: &ir::FigOp) -> String {
         ir::FigOp::LoVal => format!("{p}::Value::Fig({p}::Fig::LoVal)"),
         ir::FigOp::All(b) => format!("{p}::Value::Fig({p}::Fig::All(vec!{b:?}))"),
         ir::FigOp::Null => format!("{p}::Value::Fig({p}::Fig::Null)"),
+        ir::FigOp::On => format!("{p}::Value::Fig({p}::Fig::On)"),
+        ir::FigOp::Off => format!("{p}::Value::Fig({p}::Fig::Off)"),
     }
 }
 
