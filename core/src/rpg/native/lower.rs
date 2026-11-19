@@ -1060,6 +1060,54 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             used.push(format!("printer write {file} {} fields", fields.len()));
             ir::Lowered::PrinterWrite { fields, indds }
         }
+        // WRITE, UPDATE, EXFMT, READ, READC and CHAIN of a display file
+        // (S2.114): errors.rs file_op and interp.rs workstn_op, with the
+        // program fields of the file's formats, its subfiles' record
+        // number fields and its INDDS placed. OPEN, CLOSE and the E
+        // extender stay with the interpreter.
+        Ins::Stmt(Stmt::File {
+            op:
+                op @ (FileOp::Write
+                | FileOp::Update
+                | FileOp::Exfmt
+                | FileOp::Read
+                | FileOp::ReadC
+                | FileOp::Chain),
+            file,
+            key,
+            ds: None,
+            fields: None,
+            ext,
+            ..
+        }) if !ext.error && ext.other.is_empty() && workstn_file(cx, file).is_some() => {
+            let (fields, indds) = workstn_fields(cx, file, &mut used)?;
+            let key = match (op, key.as_deref()) {
+                // A numeric field (its place), which the runtime reads
+                // where workstn_op evaluates the key: after the open and
+                // format checks (the review of 2026-11-19).
+                (FileOp::Chain, Some([k])) => {
+                    let o = sql_field(cx, k, &mut used)?;
+                    if is_char(&o)
+                        || !matches!(
+                            o,
+                            ir::Operand::Var {
+                                index: None,
+                                based: None,
+                                ..
+                            }
+                        )
+                    {
+                        return None;
+                    }
+                    Some(o)
+                }
+                (FileOp::Chain, _) => return None,
+                (_, None) => None,
+                (_, Some(_)) => return None,
+            };
+            used.push(format!("workstn {op:?} {file} {} fields", fields.len()));
+            ir::Lowered::Workstn { fields, indds, key }
+        }
         Ins::Stmt(Stmt::File {
             op,
             file,
@@ -5747,6 +5795,94 @@ fn printer_fields(
         Some(n) => match sym(cx, &n) {
             Some(Sym::Ds(_)) => {
                 let o = variable(cx, &Expr::name(&n), used)?;
+                if !matches!(
+                    o,
+                    ir::Operand::Var {
+                        index: None,
+                        based: None,
+                        ..
+                    }
+                ) {
+                    return None;
+                }
+                Some(o)
+            }
+            _ => None,
+        },
+        None => None,
+    };
+    Some((fields, indds))
+}
+
+/// A display file of the program by its name or one of its formats
+/// (S2.114), as file_idx finds it: no file of a procedure and no LIKEFILE
+/// parameter anywhere, a WORKSTN file with its display description, no
+/// INFDS (file_end_n does not write infds_update again).
+fn workstn_file<'p>(cx: &Cx<'p>, file: &str) -> Option<&'p super::super::program::FileInfo> {
+    let prog = cx.prog;
+    if prog.files.iter().any(|f| f.decl.proc.is_some())
+        || prog.procs.values().any(|p| p.params.iter().any(|q| q.file))
+        || prog
+            .protos
+            .values()
+            .any(|p| p.params.iter().any(|q| q.file))
+    {
+        return None;
+    }
+    let i = prog
+        .files
+        .iter()
+        .position(|f| f.decl.name == file || f.format == file)
+        .or_else(|| prog.file_index(file))?;
+    let fi = prog.files.get(i)?;
+    (fi.decl.device == "WORKSTN" && fi.display.is_some() && !has_infds(fi)).then_some(fi)
+}
+
+/// The program fields a display file's formats use (S2.114): each
+/// format's fields and each subfile's record number field, a character
+/// or numeric field with no index; and the INDDS data structure.
+#[allow(clippy::type_complexity)] // the two parts of Workstn
+fn workstn_fields(
+    cx: &Cx<'_>,
+    file: &str,
+    used: &mut Vec<String>,
+) -> Option<(Vec<(String, ir::Operand)>, Option<ir::Operand>)> {
+    let fi = workstn_file(cx, file)?;
+    let d = fi.display.as_ref()?;
+    let mut names: Vec<&String> = Vec::new();
+    for (_, list) in &d.formats {
+        for (pname, _) in list {
+            if !names.contains(&pname) {
+                names.push(pname);
+            }
+        }
+    }
+    let mut rrns: Vec<&String> = d.sfile.values().collect();
+    rrns.sort();
+    for r in rrns {
+        if !names.contains(&r) {
+            names.push(r);
+        }
+    }
+    let mut fields: Vec<(String, ir::Operand)> = Vec::new();
+    for n in names {
+        let o = sql_field(cx, &Expr::name(n), used)?;
+        if !matches!(
+            o,
+            ir::Operand::Var {
+                index: None,
+                based: None,
+                ..
+            }
+        ) {
+            return None;
+        }
+        fields.push((n.clone(), o));
+    }
+    let indds = match &d.indds {
+        Some(n) => match sym(cx, n) {
+            Some(Sym::Ds(_)) => {
+                let o = variable(cx, &Expr::name(n), used)?;
                 if !matches!(
                     o,
                     ir::Operand::Var {

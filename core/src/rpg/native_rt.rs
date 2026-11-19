@@ -1224,6 +1224,16 @@ impl Runtime for Rt<'_, '_> {
         self.printer_write_n(pc, &fields, indds.as_ref())
     }
 
+    fn workstn(
+        &mut self,
+        pc: usize,
+        fields: Vec<rpgrt::native::OutSlot>,
+        indds: Option<rpgrt::native::OutSlot>,
+        key: Option<rpgrt::native::OutSlot>,
+    ) -> NResult<()> {
+        self.workstn_n(pc, &fields, indds.as_ref(), key.as_ref())
+    }
+
     fn printer_op(&mut self, pc: usize) -> NResult<()> {
         self.printer_op_n(pc)
     }
@@ -5705,5 +5715,416 @@ impl Rt<'_, '_> {
             None => {}
         }
         Ok(ProcTarget::Here(pname, args))
+    }
+}
+
+// ---- display files (S2.114) ------------------------------------------
+//
+// Written again from errors.rs file_op around interp.rs workstn_op and
+// its ws_values, ws_fill, ws_inds, ws_set_ind, ws_interact and
+// message_subfile, in their order; native_tripwire.rs watches them. The
+// program fields of the file's formats come as places (OutSlot), as for
+// printer files (S2.79); the display itself is workstn.rs's and the
+// job's display channel, as the interpreter's.
+impl Rt<'_, '_> {
+    fn workstn_n(
+        &mut self,
+        pc: usize,
+        fields: &[rpgrt::native::OutSlot],
+        indds: Option<&rpgrt::native::OutSlot>,
+        key: Option<&rpgrt::native::OutSlot>,
+    ) -> NResult<()> {
+        let (op, file, _, _, ind) = self.file_stmt(pc)?;
+        let file = file.to_string();
+        let ind = ind.clone();
+        let i = self
+            .file_idx_n(&file)
+            .ok_or_else(|| anyhow!("{file} is not a file of this program"))?;
+        self.file_n(i)?.status.error = false;
+        let cmt = self.file_n(i)?.cmt.clone();
+        if let Some(d) = &cmt {
+            self.m.block(async {
+                d.client
+                    .batch_execute("SAVEPOINT as4tainr_rla")
+                    .await
+                    .map_err(anyhow::Error::from)
+            })?;
+        }
+        let r = self.workstn_inner_n(op, i, &file, key, &ind, fields, indds);
+        self.file_end_n(i, op, &file, cmt.as_deref(), r.as_ref().map(|_| ()))?;
+        r
+    }
+
+    fn ws_slot<'f>(
+        fields: &'f [rpgrt::native::OutSlot],
+        name: &str,
+    ) -> NResult<&'f rpgrt::native::OutSlot> {
+        fields
+            .iter()
+            .find(|f| f.name == name)
+            .ok_or_else(|| anyhow!("native: display field {name} has no place"))
+    }
+
+    /// interp.rs workstn_op, for the operations lowering takes.
+    #[allow(clippy::too_many_arguments)] // workstn_op's own, and the places
+    fn workstn_inner_n(
+        &mut self,
+        op: FileOp,
+        i: usize,
+        name: &str,
+        key: Option<&rpgrt::native::OutSlot>,
+        ind: &super::super::ast::ResultInd,
+        fields: &[rpgrt::native::OutSlot],
+        indds: Option<&rpgrt::native::OutSlot>,
+    ) -> NResult<()> {
+        let prog: &super::super::program::Program = self.m.prog;
+        let fi = prog
+            .files
+            .get(i)
+            .ok_or_else(|| anyhow!("native: no file {i}"))?;
+        let d = fi
+            .display
+            .as_ref()
+            .ok_or_else(|| anyhow!("{name} is not a display file"))?;
+        if !self.file_n(i)?.ws_open {
+            anyhow::bail!("CPF4135: File {} is not open.", fi.decl.name);
+        }
+        if op == FileOp::Read {
+            let named = d.fields(name).is_some().then_some(name);
+            let file = d.file.clone();
+            let (frame, format) = self.m.ws.read_frame(&file, named)?;
+            self.ws_interact_n(i, d, &file, &format, frame, fields, indds)?;
+            let st = super::Status {
+                found: true,
+                ..super::Status::default()
+            };
+            self.file_n(i)?.status = st.clone();
+            self.m.last = st;
+            if let Some(eq) = &ind.eq {
+                self.m.set_ind(eq, false);
+            }
+            return Ok(());
+        }
+        if d.fields(name).is_none() {
+            anyhow::bail!(
+                "{op:?} {name}: name a record format of display file {}",
+                d.file.name
+            );
+        }
+        let format = name.to_string();
+        let file = d.file.clone();
+        let inds = self.ws_inds_n(d, indds);
+        match op {
+            FileOp::Write => {
+                let values = self.ws_values_n(d, &format, fields)?;
+                match d.sfile.get(&format) {
+                    Some(rrn_field) => {
+                        let slot = Self::ws_slot(fields, rrn_field)?;
+                        let rrn = rpgrt::native::load(&self.m.bufs, slot.buf, slot.off, slot.ty)?
+                            .num()?
+                            .to_i128()?;
+                        let rrn = i64::try_from(rrn).unwrap_or(-1);
+                        self.m.ws.sfl_write(&file, &format, rrn, values, inds)?;
+                    }
+                    None => {
+                        let values = self.message_subfile_n(&file, &format, values, &inds);
+                        self.m.ws.write(&file, &format, values, inds)?
+                    }
+                }
+                self.ws_status_n(i, super::Status::default())?;
+            }
+            FileOp::Update => {
+                let values = self.ws_values_n(d, &format, fields)?;
+                self.m.ws.sfl_update(&file, &format, values, inds)?;
+                self.ws_status_n(i, super::Status::default())?;
+            }
+            FileOp::Exfmt => {
+                if self.m.io.display.is_none() {
+                    anyhow::bail!(
+                        "Display file {} cannot be used here: this job has no display (it is not interactive).",
+                        d.file.name
+                    );
+                }
+                let values = self.ws_values_n(d, &format, fields)?;
+                let frame = self.m.ws.frame(&file, &format, values, inds)?;
+                self.ws_interact_n(i, d, &file, &format, frame, fields, indds)?;
+                self.ws_status_n(i, super::Status::default())?;
+            }
+            FileOp::ReadC => {
+                let r = self.m.ws.sfl_readc(&file, &format)?;
+                let found = r.is_some();
+                if let Some((rrn, values)) = r {
+                    self.ws_fill_n(d, &format, &values, fields)?;
+                    if let Some(f) = d.sfile.get(&format) {
+                        let slot = Self::ws_slot(fields, f)?;
+                        rpgrt::native::store(
+                            &mut self.m.bufs,
+                            slot.buf,
+                            slot.off,
+                            slot.ty,
+                            &Value::Num(Dec::from_i64(i64::from(rrn))),
+                            Fit::Strict { half_adjust: false },
+                            false,
+                        )?;
+                    }
+                }
+                self.ws_status_n(
+                    i,
+                    super::Status {
+                        found,
+                        eof: !found,
+                        ..super::Status::default()
+                    },
+                )?;
+                if let Some(eq) = &ind.eq {
+                    self.m.set_ind(eq, !found);
+                }
+            }
+            FileOp::Chain => {
+                let k = key.ok_or_else(|| {
+                    anyhow!("CHAIN {format}: a relative record number is needed")
+                })?;
+                let rrn = rpgrt::native::load(&self.m.bufs, k.buf, k.off, k.ty)?
+                    .num()?
+                    .to_i128()?;
+                let r = self
+                    .m
+                    .ws
+                    .sfl_chain(&file, &format, i64::try_from(rrn).unwrap_or(0))?;
+                let found = r.is_some();
+                if let Some(values) = r {
+                    self.ws_fill_n(d, &format, &values, fields)?;
+                }
+                self.ws_status_n(
+                    i,
+                    super::Status {
+                        found,
+                        ..super::Status::default()
+                    },
+                )?;
+                if let Some(hi) = &ind.hi {
+                    self.m.set_ind(hi, !found);
+                }
+            }
+            other => anyhow::bail!(
+                "{other:?} of display file record {format} is not supported by the native engine yet"
+            ),
+        }
+        Ok(())
+    }
+
+    /// workstn_op's set_status: the file's status and the last one.
+    fn ws_status_n(&mut self, i: usize, st: super::Status) -> NResult<()> {
+        self.file_n(i)?.status = st.clone();
+        self.m.last = st;
+        Ok(())
+    }
+
+    /// interp.rs ws_inds: indicators 01-99 from the INDDS data
+    /// structure's bytes, or *IN01-*IN99.
+    fn ws_inds_n(
+        &self,
+        d: &super::super::program::Display,
+        indds: Option<&rpgrt::native::OutSlot>,
+    ) -> [bool; 100] {
+        let mut out = [false; 100];
+        match (d.indds.as_ref(), indds) {
+            (Some(_), Some(slot)) => {
+                let size = slot.ty.size();
+                let bytes = self
+                    .m
+                    .bufs
+                    .get(slot.buf)
+                    .and_then(|b| b.get(slot.off..slot.off.saturating_add(size)))
+                    .unwrap_or(&[]);
+                for (n, v) in out.iter_mut().enumerate().skip(1) {
+                    *v = n.checked_sub(1).and_then(|k| bytes.get(k)) == Some(&0xF1);
+                }
+            }
+            _ => {
+                for (n, v) in out.iter_mut().enumerate().skip(1) {
+                    *v = self.m.ind(&format!("{n:02}"));
+                }
+            }
+        }
+        out
+    }
+
+    /// interp.rs ws_set_ind.
+    fn ws_set_ind_n(
+        &mut self,
+        d: &super::super::program::Display,
+        indds: Option<&rpgrt::native::OutSlot>,
+        n: u8,
+        v: bool,
+    ) {
+        if !(1..=99).contains(&n) {
+            return;
+        }
+        match (d.indds.as_ref(), indds) {
+            (Some(_), Some(slot)) => {
+                let size = slot.ty.size();
+                let k = usize::from(n).saturating_sub(1);
+                if k < size {
+                    if let Some(b) = self
+                        .m
+                        .bufs
+                        .get_mut(slot.buf)
+                        .and_then(|b| b.get_mut(slot.off.saturating_add(k)))
+                    {
+                        *b = if v { 0xF1 } else { 0xF0 };
+                    }
+                }
+            }
+            _ => self.m.set_ind(&format!("{n:02}"), v),
+        }
+    }
+
+    /// interp.rs ws_interact: the frame shown on the job's display, the
+    /// operator's input back into the fields, the response indicators,
+    /// *INKA-*INKY.
+    #[allow(clippy::too_many_arguments)] // ws_interact's own, and the places
+    fn ws_interact_n(
+        &mut self,
+        i: usize,
+        d: &super::super::program::Display,
+        file: &std::sync::Arc<crate::dspf::DisplayFile>,
+        format: &str,
+        frame: crate::workstn::Frame,
+        fields: &[rpgrt::native::OutSlot],
+        indds: Option<&rpgrt::native::OutSlot>,
+    ) -> NResult<()> {
+        let Some(display) = self.m.io.display.clone() else {
+            anyhow::bail!(
+                "Display file {} cannot be used here: this job has no display (it is not interactive).",
+                d.file.name
+            );
+        };
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let resp = self.m.block(async move {
+            display
+                .send(crate::runtime::DisplayRequest { frame, reply: tx })
+                .await
+                .map_err(|_| anyhow!("the job's display is gone"))?;
+            rx.await
+                .map_err(|_| anyhow!("the job's display is gone"))?
+                .map_err(|e| anyhow!(e))
+        })?;
+        self.m.ws.apply(file, format, &resp);
+        self.file_n(i)?.aid = Some(resp.aid.clone());
+        self.ws_fill_n(d, format, &resp.values, fields)?;
+        for (n, v) in &resp.indicators {
+            self.ws_set_ind_n(d, indds, *n, *v);
+        }
+        for (k, letter) in super::FKEYS.iter().enumerate() {
+            let on = resp.aid == format!("F{}", k.saturating_add(1));
+            self.m.set_ind(&format!("K{}", *letter as char), on);
+        }
+        Ok(())
+    }
+
+    /// interp.rs message_subfile: a message subfile's control record
+    /// with SFLINZ shows the messages of its SFLPGMQ program queue.
+    fn message_subfile_n(
+        &self,
+        file: &crate::dspf::DisplayFile,
+        format: &str,
+        mut values: std::collections::BTreeMap<String, String>,
+        inds: &[bool; 100],
+    ) -> std::collections::BTreeMap<String, String> {
+        use crate::dspf::Keyword;
+        let Some(ctl) = file.record(format) else {
+            return values;
+        };
+        let Some(sfl) = ctl.subfile_control().and_then(|s| file.record(s)) else {
+            return values;
+        };
+        let Some(line) = sfl.message_line() else {
+            return values;
+        };
+        if !ctl.active(inds, |k| *k == Keyword::SflInz) {
+            return values;
+        }
+        let queue = ctl
+            .pgmq_field()
+            .and_then(|f| values.get(&f.name))
+            .map(|q| q.trim().to_string())
+            .unwrap_or_default();
+        let queue = if queue.is_empty() || queue == "*" {
+            self.m.prog.name.clone()
+        } else {
+            queue
+        };
+        let msgs = crate::pgmmsg::named_messages(&self.m.io.job_key, &queue);
+        let pag = usize::from(ctl.sflpag());
+        values.insert(crate::dspf::MSG_LINE.into(), line.to_string());
+        for (k, m) in msgs.iter().take(pag).enumerate() {
+            values.insert(format!("{}{k}", crate::dspf::MSG_TEXT), m.text.clone());
+        }
+        if msgs.len() > pag {
+            values.insert(crate::dspf::MSG_MORE.into(), "1".into());
+        }
+        values
+    }
+
+    /// interp.rs ws_values: the format's program fields as display text
+    /// by display field name.
+    fn ws_values_n(
+        &mut self,
+        d: &super::super::program::Display,
+        format: &str,
+        fields: &[rpgrt::native::OutSlot],
+    ) -> NResult<std::collections::BTreeMap<String, String>> {
+        let rec = d.file.record(format);
+        let mut out = std::collections::BTreeMap::new();
+        for (pname, dname) in d.fields(format).unwrap_or_default() {
+            let decimals = rec
+                .and_then(|r| r.fields.iter().find(|f| &f.name == dname))
+                .and_then(|f| f.decimals);
+            let slot = Self::ws_slot(fields, pname)?;
+            let v = rpgrt::native::load(&self.m.bufs, slot.buf, slot.off, slot.ty)?;
+            let text = match (v, decimals) {
+                (Value::Num(n), Some(dec)) => n.rescale(u8::try_from(dec)?, false)?.to_string(),
+                (Value::Num(n), None) => n.to_string(),
+                (other, _) => a(&other.chars()?),
+            };
+            out.insert(dname.clone(), text);
+        }
+        Ok(out)
+    }
+
+    /// interp.rs ws_fill: display values into the format's program fields.
+    fn ws_fill_n(
+        &mut self,
+        d: &super::super::program::Display,
+        format: &str,
+        values: &std::collections::BTreeMap<String, String>,
+        fields: &[rpgrt::native::OutSlot],
+    ) -> NResult<()> {
+        let rec = d.file.record(format);
+        for (pname, dname) in d.fields(format).unwrap_or_default() {
+            let Some(text) = values.get(dname) else {
+                continue;
+            };
+            let numeric = rec
+                .and_then(|r| r.fields.iter().find(|f| &f.name == dname))
+                .is_some_and(|f| f.is_numeric());
+            let v = if numeric {
+                Value::Num(Dec::parse(text.trim())?)
+            } else {
+                Value::str(text)
+            };
+            let slot = Self::ws_slot(fields, pname)?;
+            rpgrt::native::store(
+                &mut self.m.bufs,
+                slot.buf,
+                slot.off,
+                slot.ty,
+                &v,
+                Fit::Truncate { half_adjust: false },
+                false,
+            )?;
+        }
+        Ok(())
     }
 }

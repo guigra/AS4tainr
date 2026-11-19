@@ -223,3 +223,11 @@ Source: tools/golden/native113 n113_sqrt (PUB400, IBM i 7.5, 2026-11-19).
 Assigned to a packed(15:13) field, the roots agree (4, 1.4142135623730, 2.5). Native code follows the interpreter (rpgrt::native::sqrt_bif).
 
 This is an upstream interpreter defect, held for Kyle with the capture. The unit NSQRT leaves the %CHAR value out.
+
+## A data structure shorter than declared, on a display (found 2026-11-19, codex)
+
+This needs a procedure's LIKEDS parameter that has a display field's name and is passed by reference with OPTIONS(*VARSIZE) in a shorter variable at the end of its buffer. A WRITE of that format then behaves differently:
+- **The interpreter:** it slices the whole data structure (eval, assign_value and ws_inds), and panics out of bounds.
+- **Native code:** it reads the storage there is, with blanks or "off" for the rest.
+
+The interpreter's panic is an upstream defect; the case is very contrived, and it is left as it is.
