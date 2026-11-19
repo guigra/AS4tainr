@@ -3058,3 +3058,16 @@ async fn native_unit_lowered_in_range_and_list() {
     let _ = require_db!();
     expect("NINLIST", include_str!("native/NINLIST.rpgle"), &["acdefg"]).await;
 }
+
+// Stage 2, S2.132: RETURN of figurative constants.
+// Source: golden capture tools/golden/native132 n132_retfig (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_return_figuratives() {
+    let _ = require_db!();
+    expect(
+        "NRETFIG",
+        include_str!("native/NRETFIG.rpgle"),
+        &["10[   ].00 999 abab"],
+    )
+    .await;
+}

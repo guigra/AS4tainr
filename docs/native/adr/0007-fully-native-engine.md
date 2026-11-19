@@ -1598,3 +1598,11 @@ The generated code reads the pointer as `value` reads any based field, through `
 All the sides are of one class, numeric or character. IN an array or an enumeration stays with the interpreter. As for any comparison (S2.13, `side`), arithmetic on a side stays with it too, because a condition has no target to take the precision of its intermediate results from: the unit's `n * 2 in %list(3 : 10)` runs in the interpreter.
 
 **Verified by** the native unit NINLIST, under both engines, as captured on PUB400 (tools/golden/native131.txt n131_inlist: `acdefg`). It covers numeric and character ranges and lists, NOT of IN, an expression on the left, and a range of one value.
+
+## S2.132: RETURN of a figurative constant
+
+A RETURN of a figurative constant is lowered (`*ON`, `*OFF`, `*BLANKS`, `*ZEROS`, `*HIVAL`, `*LOVAL`, `*ALL'x'`, `*NULL`). Its value is eval's `Value::Fig`, the same value the generated code makes for that operand, and the caller's return field takes it as the interpreter's does. This is the usual `return *on` and `return *off` of a procedure returning an indicator (rla_test.rs RUNITF).
+
+**Verified by** the native unit NRETFIG, under both engines, as captured on PUB400 (tools/golden/native132.txt n132_retfig: `10[   ].00 999 abab`):
+- *ON and *OFF from an indicator procedure;
+- *BLANKS into CHAR(3), *ZEROS into PACKED(5:2) (whose %CHAR is `.00`), *HIVAL into PACKED(3:0), and *ALL'ab' into CHAR(4).

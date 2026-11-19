@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.132: RETURN of figurative constants (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native132.txt -f tools/golden/native132
+n132_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN132RF) SRCSTMF('@HOME@/gld/gn132rf.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n132_retfig|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN132RF)"; cat gn1.out; rm -f gn1.out

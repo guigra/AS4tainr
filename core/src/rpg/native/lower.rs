@@ -616,6 +616,16 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
         // or of nothing (a whole data structure array is not eligible).
         Ins::Return(v) => ir::Lowered::Return(match v {
             None => None,
+            // A figurative constant (S2.132: `return *on` from a procedure
+            // that returns an indicator): eval's Value::Fig, which the
+            // caller's return field takes as the interpreter's does.
+            Some(Expr::Fig(f)) => Some(ir::ValExpr::Char(ir::CharExpr::Leaf(ir::Operand::Fig(
+                match f {
+                    Fig::On => ir::FigOp::On,
+                    Fig::Off => ir::FigOp::Off,
+                    other => fig_op(other)?,
+                },
+            )))),
             Some(x) => Some(match char_expr(cx, x, &mut used, Vec::new()) {
                 Some(c) => ir::ValExpr::Char(c),
                 None => ir::ValExpr::Num(num_expr(cx, x, &mut used, Vec::new())?),
