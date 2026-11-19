@@ -412,6 +412,9 @@ pub trait Runtime {
     /// Stage 2 (S2.58): %EOF, %FOUND or %EQUAL of the file named (as the
     /// running procedure finds it), or of the last file operation.
     fn file_status(&mut self, bit: FileBit, file: Option<&str>) -> NResult<bool>;
+    /// Stage 2 (S2.112): %STATUS of a file, as bifs.rs "STATUS" with an
+    /// argument (interp.rs file_status): that file's status code.
+    fn file_code(&mut self, file: &str) -> NResult<u32>;
 }
 
 /// How an EXEC SQL ended (S2.69): SQLCODE, SQLSTATE, SQLERRMC's text,
@@ -646,6 +649,8 @@ pub enum FileBit {
     Eof,
     Found,
     Equal,
+    /// %ERROR (S2.112): the last operation's error flag (no file).
+    Error,
 }
 
 /// How a field read becomes a value (S2.58).
@@ -1893,6 +1898,12 @@ fn char_number(t: &str) -> NResult<Dec> {
             t.trim()
         )
     })
+}
+
+/// Stage 2 (S2.112): %INT, %INTH, %DEC or %DECH of character data, as
+/// those bif arms take a Value::Char: char_number of its text.
+pub fn char_dec(v: &Value) -> NResult<Dec> {
+    char_number(&data::a(&v.chars()?))
 }
 
 /// Stage 2 (S2.110, ADR 0008): %FLOAT of character data, as bif's FLOAT

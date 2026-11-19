@@ -1,8 +1,51 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-19 03:55 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
+Last update: 2026-11-19 07:35 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
 
-## Now (2026-11-19, 03:55 UTC)
+## Now (2026-11-19, 07:35 UTC)
+
+**Committed up to S2.105** (1bc82c0; 94.6% native, level 2 rust 705 of 727 as under the interpreter):
+- S2.100-S2.101 and S2.104-S2.105: indicator fields as targets, conditions, VALUE arguments, characters, and compared;
+- S2.102: %LEN as a target;
+- S2.103: *NEXT, as EVAL targets only.
+
+**ADR 0008 (floats) was accepted by the user on 2026-11-19.** It is implemented in parts, each a snapshot that is validating:
+
+| Snapshot | What | Where |
+| --- | --- | --- |
+| s2106 | float EVAL targets, and the S2.97 review fix (ds_ref type) | jsr-test-2 |
+| s2107 | %CHAR of floats; the tripwire now also watches clear_ds, reset_to_initial, assign_value and float_value | ARM |
+| s2108 | float arithmetic (FloatExpr, EvalValue) | jsr-test-2 |
+| s2109 | float comparisons | ARM |
+| s2110 | %FLOAT of characters, %ADDR of a float; the tripwire watches char_number | jsr-test-2 |
+| s2111 | codex's float review fixes: unary precision, the return type order, no calls in float expressions | ARM |
+
+Commit them in order as each passes. A later snapshot that contains an earlier one validates both.
+
+**Flakes, not the backend's** (upstream, held for Kyle):
+- duplicate_objects: CRTDUPOBJ "could not open relation with OID";
+- change_a_physical_file_with_a_logical_file_over_it: CHGLP in QTEMP;
+- cl_declared_files_hold_shared_read_locks.
+
+**Interpreter defects found today** (fidelity.md, held for Kyle):
+- the 30-digit intermediate precision cap (IBM i keeps p + q's decimals);
+- %CHAR of float(4);
+- %LEN set longer;
+- pointers to different fields;
+- the EXECUTE USING order;
+- the S2.92 printer and EXCEPT items.
+
+**Not done, with the reason:**
+- DSPLY of a float: PUB400 through PASE system gave RNX9998, so there is no IBM value;
+- ** of floats;
+- based floats;
+- floats in calls.
+
+**Waiting for the user:** how to send the audit's security findings to Kyle. The proposal is a private advisory after 2026-11-24.
+
+**After the native engine is done** (the user's plan): fix every codex audit finding in the fork, on fix/<topic> branches, then tell Kyle what affects him.
+
+## Before (2026-11-19, 03:55 UTC)
 
 **Committed up to S2.99** (8ed9ae3; 94.3% native, level 2 rust 701 of 723 as under the interpreter):
 - S2.93: a procedure's data structures as a whole;

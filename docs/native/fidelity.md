@@ -201,3 +201,13 @@ The interpreter's precision rules (interp.rs num_precision) give the result at m
 This is the rule codex's audit pointed at for multiplication and division (its F4 and F5). It can change decimal expressions too, not only float ones. Native code follows the interpreter: a review of 2026-11-19 made the float path give decimal parts under + and - their precision, as eval does.
 
 This is an upstream interpreter defect, held for Kyle with the capture. The unit NFLTUNA leaves that value out.
+
+## OPEN of an open file (found 2026-11-19)
+
+Source: tools/golden/native112 n112_charconv (PUB400, IBM i 7.5, 2026-11-19).
+
+A second `OPEN(E)` of a printer file that is already open differs:
+- **IBM i:** it is an error, with %ERROR on and %STATUS of the file 1215.
+- **The interpreter:** it takes it with no error (0, 0).
+
+Both engines run the OPEN(E) in the interpreter (OPEN with E stays with it), so this is an upstream interpreter defect, held for Kyle with the capture. The unit NCHRCNV leaves those two values out.

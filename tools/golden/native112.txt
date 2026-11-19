@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.112: %INT and %DEC of character data, %ERROR, %STATUS of a file (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native112.txt -f tools/golden/native112
+n112_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN112CNV) SRCSTMF('@HOME@/gld/gn112cnv.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n112_charconv|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN112CNV)"; cat gn1.out; rm -f gn1.out

@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.111");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.112");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -242,6 +242,8 @@ pub mod ir {
         Eof,
         Found,
         Equal,
+        /// %ERROR (S2.112).
+        Error,
     }
 
     /// An input host variable (S2.70): its value, the length of a fixed
@@ -748,6 +750,9 @@ pub mod ir {
         Ind(String),
         /// An indicator field as character data (S2.104): its '1' or '0'.
         IndVar(Operand),
+        /// %CHAR of an indicator-valued built-in function (S2.112:
+        /// %ERROR): '1' or '0'.
+        CondChar(Box<Cond>),
         /// %CHAR of a float field of this many bytes (S2.107, ADR 0008):
         /// its external display form.
         FloatChar(Operand, u32),
@@ -892,6 +897,11 @@ pub mod ir {
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum NumExpr {
         Leaf(Operand),
+        /// %STATUS of a file (S2.112): its status code.
+        FileCode(String),
+        /// Character data read as a number, as %INT and %DEC take it
+        /// (S2.112): char_number.
+        CharDec(Box<CharExpr>),
         /// A pointer field minus a pointer field (S2.98), ptrs.rs
         /// ptr_arith: the distance between them.
         PtrDiff(Operand, Operand),
@@ -3844,6 +3854,14 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
         ir::CharExpr::FloatChar(o, n) => {
             format!("rpgrt::native::float_char(&{}, {n})?", value(o))
         }
+        ir::CharExpr::CondChar(c) => {
+            let name = format!("cc{pc}_{}", helpers.len());
+            let mut n = 0;
+            cond_fns(pc, c, &name, helpers, &mut n);
+            format!(
+                "rpgrt::rpg::data::Value::Char(vec![if {name}(rt)? {{ 0xF1 }} else {{ 0xF0 }}])"
+            )
+        }
         ir::CharExpr::IndVar(o) => format!(
             "rpgrt::rpg::data::Value::Char(vec![if {}.truth()? {{ 0xF1 }} else {{ 0xF0 }}])",
             value(o)
@@ -4283,6 +4301,11 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             json_str(name)
         ),
         ir::NumExpr::Status => "rpgrt::rpg::dec::Dec::from_i64(i64::from(rt.status()))".to_string(),
+        ir::NumExpr::FileCode(f) => format!(
+            "rpgrt::rpg::dec::Dec::from_i64(i64::from(rt.file_code({})?))",
+            json_str(f)
+        ),
+        ir::NumExpr::CharDec(c) => format!("rpgrt::native::char_dec(&{})?", char_expr(pc, c, helpers)),
         ir::NumExpr::LenOf(c) => format!(
             "rpgrt::rpg::dec::Dec::from_i64(i64::try_from({}.chars()?.len())?)",
             char_expr(pc, c, helpers)
