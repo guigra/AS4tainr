@@ -1804,6 +1804,39 @@ pub fn ptr_move(p: &Value, n: &Dec, back: bool) -> NResult<Value> {
         })
 }
 
+/// Stage 2 (S2.98): a pointer minus a pointer, as ptrs.rs ptr_arith's
+/// Sub arm: the distance between their offsets when they address the
+/// same storage, else its error. A *NULL operand fails as the
+/// interpreter's path for it does (`num` of *NULL): the left one first,
+/// as eval's own order.
+pub fn ptr_diff(x: &Value, y: &Value) -> NResult<Dec> {
+    match (x, y) {
+        (Value::Ptr(p), Value::Ptr(q)) => {
+            if (p.kind, p.owner, p.buf) == (q.kind, q.owner, q.buf) {
+                let d = i64::from(p.off)
+                    .checked_sub(i64::from(q.off))
+                    .ok_or_else(|| anyhow::anyhow!("native: a pointer difference"))?;
+                Ok(Dec::from_i64(d))
+            } else {
+                anyhow::bail!(
+                    "the pointers do not address the same storage; they cannot be subtracted"
+                )
+            }
+        }
+        // ptr_arith's (Sub, Ptr, n) arm: moved(p, n.num()).
+        (Value::Ptr(_), other) => {
+            other.num()?;
+            anyhow::bail!("native: pointer minus {}", other.describe())
+        }
+        // No arm of ptr_arith: eval's arithmetic takes x.num() first.
+        (other, _) => {
+            other.num()?;
+            y.num()?;
+            anyhow::bail!("native: {} minus a pointer", other.describe())
+        }
+    }
+}
+
 /// Stage 2 (S2.53): how %CHAR shows a date, time or timestamp field: the
 /// format the interpreter's bif_override picks for it (the explicit one,
 /// or the field's, or the control specification's), known when the code

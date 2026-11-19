@@ -147,3 +147,13 @@ The codex audit of 2026-11-19 (f1) found that the two engines read EXECUTE's USI
 **What IBM i does** (tools/golden/native97 n97_execute, PUB400, IBM i 7.5, 2026-11-19). A statement never prepared, and a USING packed field holding x'FFFF', gives a decimal data error, status 907, which MONITOR catches. The host variable is read first, as the native code does. The interpreter's -518 is the defect: an upstream one, held for Kyle with the capture.
 
 The native code is left as it is: it already does what IBM i does. Making it follow the interpreter would make both engines wrong, with no test of IBM's value possible. The difference shows only for a statement that was not prepared and a USING value that cannot be read.
+
+## A pointer minus a pointer to another field (found 2026-11-19)
+
+Source: tools/golden/native99 n99_ptrdiff (PUB400, IBM i 7.5, 2026-11-19).
+
+On IBM i, two pointers into different fields of the same program can be subtracted: the program's static storage is one space, so `%addr(other) - %addr(buf)` gives the distance between the two fields, and the capture's MONITOR is not reached.
+
+as4tainr keeps each field in its own buffer. ptrs.rs ptr_arith fails a subtraction of pointers to different buffers, which MONITOR sees as status 9999.
+
+Both engines do this; native code uses `rpgrt::native::ptr_diff`, which follows ptr_arith. This is an upstream interpreter defect, held for Kyle with the capture. The unit NPTRDIF leaves that part out.

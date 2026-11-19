@@ -1536,6 +1536,21 @@ fn char_value(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::CharE
 /// A numeric expression of +, - and * over literals and eligible fields
 /// (S2.2), each operation with its place in the statement's expression.
 fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::NumExpr> {
+    // A pointer field minus a pointer field (S2.98), as a whole value
+    // only (an EVAL's or a RETURN's): eval gives ptr_arith's number, with
+    // no precision of its own for an enclosing expression to use.
+    if path.is_empty() {
+        if let Expr::Bin(BinOp::Sub, l, r) = e {
+            if is_pointer_name(cx, l) && is_pointer_name(cx, r) {
+                let a = variable(cx, l, used)?;
+                let b = variable(cx, r, used)?;
+                if !(is_pointer(&a) && is_pointer(&b)) {
+                    return None;
+                }
+                return Some(ir::NumExpr::PtrDiff(a, b));
+            }
+        }
+    }
     match e {
         // %DIFF and %SUBDT of temporal values (S2.55), as bif_more: the
         // arguments in order, the unit a special value.

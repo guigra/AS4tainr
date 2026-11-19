@@ -1196,3 +1196,13 @@ The argument is args_for's `Arg::Ref(loc_of(a))`: the data structure's bytes as 
 CONST and VALUE data structure parameters still stay with the interpreter, which may build a value or pass by reference (same_type_variable), as do LIKEDS DIM parameters.
 
 **Verified by** the native unit NDSPARM, under both engines, as captured on PUB400 (tools/golden/native98.txt n98_dsparm). BUMP changes its parameter's subfields, and the caller sees them. It is given a global data structure (twice), a qualified one, and another procedure's local one.
+
+## S2.98: a pointer minus a pointer
+
+An EVAL or RETURN whose whole value is a pointer field minus a pointer field is lowered (`ir::NumExpr::PtrDiff`). `rpgrt::native::ptr_diff` writes again ptrs.rs ptr_arith's Sub arm: the distance between the offsets when both pointers address the same storage, and its error otherwise. A *NULL operand fails as the interpreter's path for it does. Inside a larger expression, the difference stays with the interpreter.
+
+**Verified by** the native unit NPTRDIF, under both engines, as captured on PUB400 (tools/golden/native99.txt n99_ptrdiff):
+- two pointers into the same field, both ways (5, -5);
+- two into the same %ALLOC storage (7).
+
+The capture's subtraction of pointers to two different fields is an interpreter defect (fidelity.md) and is left out.
