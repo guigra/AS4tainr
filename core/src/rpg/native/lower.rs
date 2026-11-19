@@ -19,6 +19,7 @@ pub fn lower(prog: &Program, place: &Place, code: &Code) -> (Vec<ir::Ins>, Vec<S
     let cx = match place {
         Place::Detail | Place::Total | Place::Sub(_) => Some(Cx {
             prog,
+            proc: None,
             syms: &prog.syms,
             based: None,
             protos: None,
@@ -26,6 +27,7 @@ pub fn lower(prog: &Program, place: &Place, code: &Code) -> (Vec<ir::Ins>, Vec<S
         }),
         Place::Proc(name, _) => prog.procs.get(name).map(|pi| Cx {
             prog,
+            proc: Some(pi.name.as_str()),
             syms: &pi.syms,
             based: Some(&pi.based),
             protos: Some(&pi.protos),
@@ -61,6 +63,9 @@ pub fn lower(prog: &Program, place: &Place, code: &Code) -> (Vec<ir::Ins>, Vec<S
 /// What lowering looks names up in.
 struct Cx<'p> {
     prog: &'p Program,
+    /// The procedure the routine belongs to (S2.118), None in the main
+    /// procedure: file_idx's scope.
+    proc: Option<&'p str>,
     syms: &'p super::super::program::SymMap,
     /// A procedure's based locals (frame buffer → pointer).
     based: Option<&'p std::collections::HashMap<usize, String>>,
@@ -1143,6 +1148,19 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             used.push(format!("workstn {op:?} {file} {} fields", fields.len()));
             ir::Lowered::Workstn { fields, indds, key }
         }
+        // A read into a result data structure (S2.119): bifs.rs
+        // record_to_ds in place of the program fields.
+        Ins::Stmt(Stmt::File {
+            op,
+            file,
+            key,
+            ds: Some(ds),
+            fields: None,
+            ext,
+            ind,
+        }) if !ext.error && ext.other.is_empty() && ind.lo.is_none() => {
+            file_read(cx, *op, file, key.as_deref(), Some(ds), &mut used)?
+        }
         Ins::Stmt(Stmt::File {
             op,
             file,
@@ -1152,7 +1170,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             ext,
             ind,
         }) if !ext.error && ext.other.is_empty() && ind.lo.is_none() => {
-            file_read(cx, *op, file, key.as_deref(), &mut used)?
+            file_read(cx, *op, file, key.as_deref(), None, &mut used)?
         }
         // DSPLY with no response field (S2.36): Stmt::Dsply's batch path.
         // A float, date or time message is not an eligible expression.
@@ -4360,9 +4378,15 @@ fn file_read(
     op: FileOp,
     file: &str,
     key: Option<&[Expr]>,
+    ds: Option<&str>,
     used: &mut Vec<String>,
 ) -> Option<ir::Lowered> {
     let change = matches!(op, FileOp::Write | FileOp::Update | FileOp::Delete);
+    // A result data structure (S2.119) only for reads: record_to_ds; a
+    // change's ds_to_record stays with the interpreter.
+    if ds.is_some() && (change || matches!(op, FileOp::SetLL | FileOp::SetGT)) {
+        return None;
+    }
     if !change
         && !matches!(
             op,
@@ -4386,22 +4410,8 @@ fn file_read(
         return None;
     }
     let prog = cx.prog;
-    // No file of a procedure and no LIKEFILE parameter anywhere: file_idx
-    // then finds a name among the program's files only.
-    if prog.files.iter().any(|f| f.decl.proc.is_some())
-        || prog.procs.values().any(|p| p.params.iter().any(|q| q.file))
-        || prog
-            .protos
-            .values()
-            .any(|p| p.params.iter().any(|q| q.file))
-    {
-        return None;
-    }
-    let i = prog
-        .files
-        .iter()
-        .position(|f| f.decl.name == file || f.format == file)
-        .or_else(|| prog.file_index(file))?;
+    // The file as file_idx finds it (S2.118: a procedure's own first).
+    let i = file_of(cx, file)?;
     let fi = prog.files.get(i)?;
     let fref = fi.fref.as_ref()?;
     if fi.decl.device != "DISK"
@@ -4469,11 +4479,48 @@ fn file_read(
             | FileOp::Write
             | FileOp::Update
     ) {
-        for (col, (fd, pname)) in fref.file.fields.iter().zip(&fi.fields).enumerate() {
-            if pname.is_empty() {
-                continue;
+        // bifs.rs ds_members: a result data structure's subfields, by the
+        // name to assign them through (S2.119).
+        let members: Option<Vec<(String, String)>> = match ds {
+            Some(n) => {
+                let Some(Sym::Ds(d)) = sym(cx, n) else {
+                    return None;
+                };
+                Some(
+                    d.subfields
+                        .iter()
+                        .map(|sf| {
+                            let key = if d.qualified {
+                                format!("{n}.{sf}")
+                            } else {
+                                sf.clone()
+                            };
+                            (sf.clone(), key)
+                        })
+                        .collect(),
+                )
             }
-            let target = variable(cx, &Expr::name(pname), used)?;
+            None => None,
+        };
+        for (col, (fd, pname)) in fref.file.fields.iter().zip(&fi.fields).enumerate() {
+            // record_to_ds: each field into the subfield of its program or
+            // file name, the others left as they are.
+            let tname = match &members {
+                Some(m) => match m.iter().find(|(sf, _)| sf == pname || *sf == fd.name) {
+                    Some((_, key)) => key.clone(),
+                    None => continue,
+                },
+                None => {
+                    if pname.is_empty() {
+                        continue;
+                    }
+                    pname.clone()
+                }
+            };
+            if members.is_some() && fd.data_type == crate::dds::DataType::Hex {
+                return None;
+            }
+            let target = variable(cx, &Expr::name(&tname), used)?;
             let ir::Operand::Var { ty, index, .. } = &target else {
                 return None;
             };
@@ -4535,8 +4582,12 @@ fn file_read(
             width: fref.file.fields.len(),
         });
     }
-    used.push(format!("file read {op:?} {file} {i}"));
-    Some(ir::Lowered::FileRead { keys, moves })
+    used.push(format!("file read {op:?} {file} {i} ds {ds:?}"));
+    Some(ir::Lowered::FileRead {
+        keys,
+        moves,
+        ds: ds.is_some(),
+    })
 }
 
 /// Whether an EXEC SQL is one step 1 lowers (S2.69): no host variable
@@ -5793,16 +5844,11 @@ fn printer_format<'p>(
     &'p crate::prtf::PRecord,
 )> {
     let prog = cx.prog;
-    if prog.files.iter().any(|f| f.decl.proc.is_some()) {
-        return None;
-    }
-    let i = prog
-        .files
-        .iter()
-        .position(|f| f.decl.name == fmt || f.format == fmt)
-        .or_else(|| prog.file_index(fmt))?;
+    // A printer file of the program's (S2.118: as file_idx finds it, and
+    // not a procedure's own: printers are kept by file name).
+    let i = file_of(cx, fmt)?;
     let fi = prog.files.get(i)?;
-    if fi.decl.device != "PRINTER" || has_infds(fi) {
+    if fi.decl.proc.is_some() || fi.decl.device != "PRINTER" || has_infds(fi) {
         return None;
     }
     let rec = fi.printer.as_ref()?.record(fmt)?;
@@ -5875,20 +5921,7 @@ fn printer_fields(
 /// INFDS (file_end_n does not write infds_update again).
 fn workstn_file<'p>(cx: &Cx<'p>, file: &str) -> Option<&'p super::super::program::FileInfo> {
     let prog = cx.prog;
-    if prog.files.iter().any(|f| f.decl.proc.is_some())
-        || prog.procs.values().any(|p| p.params.iter().any(|q| q.file))
-        || prog
-            .protos
-            .values()
-            .any(|p| p.params.iter().any(|q| q.file))
-    {
-        return None;
-    }
-    let i = prog
-        .files
-        .iter()
-        .position(|f| f.decl.name == file || f.format == file)
-        .or_else(|| prog.file_index(file))?;
+    let i = file_of(cx, file)?;
     let fi = prog.files.get(i)?;
     (fi.decl.device == "WORKSTN" && fi.display.is_some() && !has_infds(fi)).then_some(fi)
 }
@@ -5961,15 +5994,38 @@ fn workstn_fields(
 /// it (not of a procedure).
 fn printer_file(cx: &Cx<'_>, file: &str) -> bool {
     let prog = cx.prog;
-    if prog.files.iter().any(|f| f.decl.proc.is_some()) {
-        return false;
-    }
-    prog.files
-        .iter()
-        .position(|f| f.decl.name == file || f.format == file)
-        .or_else(|| prog.file_index(file))
+    file_of(cx, file)
         .and_then(|i| prog.files.get(i))
-        .is_some_and(|f| f.decl.device == "PRINTER" && !has_infds(f))
+        .is_some_and(|f| f.decl.proc.is_none() && f.decl.device == "PRINTER" && !has_infds(f))
+}
+
+/// The file a name in the calculations refers to (S2.118), as
+/// errors.rs file_idx finds it: one declared in the routine's procedure
+/// first (by name, then by format), then the program's, then
+/// file_index. A LIKEFILE parameter anywhere (file_idx looks at the
+/// frame's files first) leaves it to the interpreter.
+fn file_of(cx: &Cx<'_>, file: &str) -> Option<usize> {
+    let prog = cx.prog;
+    if prog.procs.values().any(|p| p.params.iter().any(|q| q.file))
+        || prog
+            .protos
+            .values()
+            .any(|p| p.params.iter().any(|q| q.file))
+    {
+        return None;
+    }
+    let files = &prog.files;
+    let local = |f: &super::super::program::FileInfo| f.decl.proc.as_deref() == cx.proc;
+    files
+        .iter()
+        .position(|f| local(f) && f.decl.name == file)
+        .or_else(|| files.iter().position(|f| local(f) && f.format == file))
+        .or_else(|| {
+            files
+                .iter()
+                .position(|f| f.decl.proc.is_none() && (f.decl.name == file || f.format == file))
+        })
+        .or_else(|| prog.file_index(file))
 }
 
 /// A file with an INFDS: errors.rs file_op ends each operation with

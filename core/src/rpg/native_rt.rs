@@ -1110,7 +1110,15 @@ impl Runtime for Rt<'_, '_> {
         pc: usize,
         keys: Option<Vec<KeyArg>>,
     ) -> NResult<Option<Vec<Option<String>>>> {
-        self.file_read_n(pc, keys)
+        self.file_read_n(pc, keys, false)
+    }
+
+    fn file_read_ds(
+        &mut self,
+        pc: usize,
+        keys: Option<Vec<KeyArg>>,
+    ) -> NResult<Option<Vec<Option<String>>>> {
+        self.file_read_n(pc, keys, true)
     }
 
     fn file_done(&mut self, pc: usize, moved: NResult<()>) -> NResult<()> {
@@ -2130,6 +2138,7 @@ impl Rt<'_, '_> {
         &mut self,
         pc: usize,
         keys: Option<Vec<KeyArg>>,
+        into_ds: bool,
     ) -> NResult<Option<Vec<Option<String>>>> {
         let (op, file, key, ext, _) = self.file_stmt(pc)?;
         let file = file.to_string();
@@ -2162,6 +2171,9 @@ impl Rt<'_, '_> {
         let read = self.read_inner_n(i, op, &file, special, keys, no_lock, cmt.as_deref());
         let read = read.and_then(|r| {
             let rec = match &r.record {
+                // record_to_ds (S2.119): the fields by their place, with
+                // no null checks.
+                Some(rec) if into_ds => Some(self.record_fields_n(i, rec)?),
                 Some(rec) => Some(self.fields_read_n(i, rec)?),
                 None => None,
             };
@@ -2263,6 +2275,30 @@ impl Rt<'_, '_> {
             }
             _ => return Err(anyhow!("native: {op:?} is not a read")),
         })
+    }
+
+    /// The record's fields by their place in the record format (S2.119,
+    /// bifs.rs record_to_ds: no null checks).
+    fn record_fields_n(
+        &mut self,
+        i: usize,
+        rec: &crate::rla::Record,
+    ) -> NResult<Vec<Option<String>>> {
+        let prog: &super::super::program::Program = self.m.prog;
+        let fi = prog
+            .files
+            .get(i)
+            .ok_or_else(|| anyhow!("native: no file {i}"))?;
+        let fref = fi
+            .fref
+            .as_ref()
+            .ok_or_else(|| anyhow!("native: file {} has no description", fi.decl.name))?;
+        Ok(fref
+            .file
+            .fields
+            .iter()
+            .map(|fd| rec.get(&fd.name).cloned())
+            .collect())
     }
 
     /// interp.rs fill_fields up to the moves: null values (ALWNULL(*NO):

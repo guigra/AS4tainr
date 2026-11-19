@@ -224,6 +224,14 @@ pub trait Runtime {
         pc: usize,
         keys: Option<Vec<KeyArg>>,
     ) -> NResult<Option<Vec<Option<String>>>>;
+    /// Stage 2 (S2.119): `file_read` for a read into a result data
+    /// structure: the record's fields with no null checks (bifs.rs
+    /// record_to_ds, not fill_fields).
+    fn file_read_ds(
+        &mut self,
+        pc: usize,
+        keys: Option<Vec<KeyArg>>,
+    ) -> NResult<Option<Vec<Option<String>>>>;
     /// Stage 2 (S2.58): the rest of the file operation at `pc` once its
     /// fields are moved (`moved`, or the error of a move): the status,
     /// %EOF/%FOUND/%EQUAL, the result indicators, the counters and the

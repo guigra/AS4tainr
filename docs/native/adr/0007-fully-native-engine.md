@@ -1423,3 +1423,31 @@ The file operations of such a program still stay with the interpreter. Lowering 
 **Verified by** the native unit NLOCFIL, under both engines, as captured on PUB400 (tools/golden/native117.txt n117_localfile):
 - COUNT's file opens at each call and is read from the start (6, 6);
 - NEXT's STATIC file stays open, so each call reads the next record (7, 8, 9).
+
+## S2.118: file operations in programs with procedures' own files
+
+Lowering now resolves a file name as errors.rs file_idx does (`file_of`): the routine's procedure's own file by name, then by format, then the program's, then file_index. `Cx` carries the procedure.
+
+Before, a file of any procedure kept every file operation of the program with the interpreter. Now database and display file operations take a procedure's own files, which the runtime's file_idx_n finds the same way at run time.
+
+**Still with the interpreter:**
+- a program with a LIKEFILE parameter, since file_idx looks at the frame's files first;
+- a procedure's own printer file, since printers are kept by file name.
+
+**Verified by** S2.117's native unit NLOCFIL (tools/golden/native117 n117_localfile), whose READs of COUNT's and NEXT's own files are now native.
+
+## S2.119: reads into a result data structure
+
+CHAIN, READ, READE, READP and READPE of a database file into a result data structure are lowered (`FileRead::ds`, `Runtime::file_read_ds`), as bifs.rs record_to_ds takes them:
+- each field of the record goes to the subfield named like its program field or its file field (ds_members, the data structure's name before it when qualified);
+- the moves are the ones of the program fields, `field_value` and a store with Fit::Strict;
+- there are no null checks, since fill_fields' ALWNULL handling is not record_to_ds's.
+
+**Stays with the interpreter:**
+- hexadecimal fields;
+- program-described files;
+- WRITE and UPDATE from a data structure (ds_to_record).
+
+A procedure's own file is implicitly qualified, so every I/O on one takes a result data structure (RNF7274 on PUB400 otherwise). With S2.118, a procedure's own files are now native.
+
+**Verified by** S2.117's native unit NLOCFIL (tools/golden/native117 n117_localfile). Its READs into LIKEREC data structures, of COUNT's file and of NEXT's STATIC file, are now native.
