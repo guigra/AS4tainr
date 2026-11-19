@@ -1395,6 +1395,22 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
         // %CHAR of an indicator (S2.85): its character, '1' or '0', as
         // interp.rs bif's CHAR arm gives a Value::Ind (an indicator in a
         // concatenation, S2.62, is the same value).
+        // %CHAR of a float field (S2.107, ADR 0008): bif's CHAR arm for
+        // a float, float_text of its float_value with the field's bytes.
+        Expr::Bif(b, args)
+            if b == "CHAR" && matches!(args.as_slice(), [a] if float_target_ok(cx, a)) =>
+        {
+            let o = float_target(cx, args.first()?, used)?;
+            let ir::Operand::Var {
+                ty: ir::Ty::Float(n),
+                ..
+            } = &o
+            else {
+                return None;
+            };
+            let n = *n;
+            Some(ir::CharExpr::FloatChar(o, n))
+        }
         // %CHAR of an indicator field (S2.104): bif's CHAR of its
         // Value::Ind, as for *INxx.
         Expr::Bif(b, args)

@@ -36,6 +36,12 @@ Commit them in order as each passes, checking each time that the snapshot's pare
   - The proposal is to send them to Kyle as a private security advisory, after 2026-11-24.
 - **Codex on ARM** is not logged in. jsr-test-2 has no codex.
 
+**A new upstream flake, not the backend's.** duplicate_objects fails now and then: CRTDUPOBJ OBJ(DUP*) OBJTYPE(*DTAARA) gives "could not open relation with OID n". It has no RPG.
+- It failed in S2.101's and S2.105's cargo test on jsr-test-2.
+- It failed in S2.102's reference run, under the interpreter, on ARM.
+
+This looks like a PostgreSQL race between catalog DDL in parallel tests. It is held for Kyle.
+
 **Interpreter defects found by captures today** (fidelity.md, held for Kyle):
 - the EXECUTE USING order (SQL0518 before the values; IBM reads the values first, 907);
 - pointers to different fields cannot be subtracted (IBM i allows it);

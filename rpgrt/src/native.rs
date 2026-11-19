@@ -1804,6 +1804,23 @@ pub fn ptr_move(p: &Value, n: &Dec, back: bool) -> NResult<Value> {
         })
 }
 
+/// Stage 2 (S2.107, ADR 0008): interp.rs float_value, a value as an
+/// `f64`: a float as it is, else its number's text read as one (0.0 when
+/// the text is no float, as the interpreter's `unwrap_or`).
+pub fn float_value(v: &Value) -> NResult<f64> {
+    match v {
+        Value::Float(x) => Ok(*x),
+        other => Ok(other.num()?.to_string().parse().unwrap_or(0.0)),
+    }
+}
+
+/// Stage 2 (S2.107, ADR 0008): %CHAR of a float field of `bytes` bytes,
+/// as interp.rs bif's CHAR arm for a float: data::float_text of its
+/// float_value.
+pub fn float_char(v: &Value, bytes: u32) -> NResult<Value> {
+    Ok(Value::str(&data::float_text(float_value(v)?, bytes)))
+}
+
 /// Stage 2 (S2.102): `%LEN(v) = n` for a varying field of at most `max`
 /// characters, as interp.rs assign_value's "LEN" arm: n checked against
 /// 0 to max (RNQ0100), then written as two big-endian bytes at the

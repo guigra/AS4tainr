@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.106");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.107");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -737,6 +737,9 @@ pub mod ir {
         Ind(String),
         /// An indicator field as character data (S2.104): its '1' or '0'.
         IndVar(Operand),
+        /// %CHAR of a float field of this many bytes (S2.107, ADR 0008):
+        /// its external display form.
+        FloatChar(Operand, u32),
         /// %STR(p[: max]) (S2.88): the pointer, then the maximum.
         StrAt {
             ptr: Box<PtrVal>,
@@ -3725,6 +3728,9 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
             "rpgrt::rpg::data::Value::Char(vec![if rt.ind({}) {{ 0xF1 }} else {{ 0xF0 }}])",
             json_str(name)
         ),
+        ir::CharExpr::FloatChar(o, n) => {
+            format!("rpgrt::native::float_char(&{}, {n})?", value(o))
+        }
         ir::CharExpr::IndVar(o) => format!(
             "rpgrt::rpg::data::Value::Char(vec![if {}.truth()? {{ 0xF1 }} else {{ 0xF0 }}])",
             value(o)

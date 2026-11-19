@@ -1275,3 +1275,11 @@ A comparison with an indicator field on one side, and another indicator field, *
 - a procedure's own float(8).
 
 The float(4) values' %CHAR text is an interpreter defect (fidelity.md), and the unit leaves it out.
+
+## S2.107: %CHAR of float fields (ADR 0008, part 2)
+
+%CHAR of a float field is lowered (`ir::CharExpr::FloatChar`). `rpgrt::native::float_char` writes again bif's CHAR arm for a float: data::float_text of the field's float_value (interp.rs float_value, written again as `rpgrt::native::float_value`), with the field's bytes.
+
+native_tripwire.rs now also watches the interpreter functions written again since S2.94: clear_ds, reset_to_initial, assign_value and float_value.
+
+**Verified by** S2.106's native unit NFLTEVL (tools/golden/native107), whose %CHAR of float fields was the unit's last interpreted part. Its float(4) text is an interpreter defect, common to both engines and left out by the unit.
