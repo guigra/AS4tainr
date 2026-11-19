@@ -380,6 +380,9 @@ pub trait Runtime {
     /// Stage 2 (S2.79): OPEN, CLOSE or FEOD of a printer file (errors.rs
     /// file_op around printer.rs printer_op).
     fn printer_op(&mut self, pc: usize) -> NResult<()>;
+    /// Stage 2 (S2.128): OPEN or CLOSE of a database file (errors.rs
+    /// file_op around file_op_inner's OPEN and CLOSE).
+    fn disk_open_close(&mut self, pc: usize) -> NResult<()>;
     /// Stage 2 (S2.79): WRITE of an externally described printer file's
     /// record format (errors.rs file_op around printer.rs printer_write),
     /// its fields read at `fields`, its indicators the INDDS structure at

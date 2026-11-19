@@ -1078,6 +1078,22 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             used.push(format!("printer {op:?} {file}"));
             ir::Lowered::PrinterOp
         }
+        // OPEN and CLOSE of a database file (S2.128): errors.rs file_op
+        // around file_op_inner's OPEN (CPF4161 when open, then
+        // open_file) and CLOSE (close_open_file of the open file). No
+        // INFDS: open_file writes it, file_end_n does not again.
+        Ins::Stmt(Stmt::File {
+            op: op @ (FileOp::Open | FileOp::Close),
+            file,
+            key: None,
+            ds: None,
+            fields: None,
+            ext,
+            ind,
+        }) if !ext.error && ext.other.is_empty() && ind.is_empty() && disk_file(cx, file) => {
+            used.push(format!("disk {op:?} {file}"));
+            ir::Lowered::DiskOpenClose
+        }
         // WRITE of an externally described printer file's record format
         // (S2.79): errors.rs file_op and printer.rs printer_write, with
         // the fields the format prints and the INDDS structure placed.
@@ -6150,6 +6166,14 @@ fn file_of(cx: &Cx<'_>, file: &str) -> Option<usize> {
                 .position(|f| f.decl.proc.is_none() && (f.decl.name == file || f.format == file))
         })
         .or_else(|| prog.file_index(file))
+}
+
+/// A database file (S2.128) as file_idx finds it, with no INFDS.
+fn disk_file(cx: &Cx<'_>, file: &str) -> bool {
+    let prog = cx.prog;
+    file_of(cx, file)
+        .and_then(|i| prog.files.get(i))
+        .is_some_and(|f| f.decl.device == "DISK" && !has_infds(f))
 }
 
 /// A file with an INFDS: errors.rs file_op ends each operation with

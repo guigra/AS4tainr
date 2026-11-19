@@ -1288,6 +1288,10 @@ impl Runtime for Rt<'_, '_> {
         self.printer_op_n(pc)
     }
 
+    fn disk_open_close(&mut self, pc: usize) -> NResult<()> {
+        self.disk_open_close_n(pc)
+    }
+
     fn str_at(&mut self, p: &Value, max: Option<Dec>) -> NResult<Value> {
         // ptrs.rs str_at: the pointer's place (addr), then the bytes up to
         // the first null within max (else 16 MB) and the storage's end.
@@ -4508,6 +4512,47 @@ impl Rt<'_, '_> {
             })?;
         }
         let r = self.printer_write_inner_n(i, &file, fields, indds);
+        self.file_end_n(i, op, &file, cmt.as_deref(), r.as_ref().map(|_| ()))?;
+        r
+    }
+
+    /// errors.rs file_op for OPEN or CLOSE of a database file (S2.128):
+    /// the error flag off and the savepoint (file_read_n's start), then
+    /// file_op_inner's arms: OPEN of an open file is CPF4161, else
+    /// open_file; CLOSE closes the open file, if any (close_open_file);
+    /// then file_op's end (file_end_n).
+    fn disk_open_close_n(&mut self, pc: usize) -> NResult<()> {
+        let (op, file, _, _, _) = self.file_stmt(pc)?;
+        let file = file.to_string();
+        if !matches!(op, FileOp::Open | FileOp::Close) {
+            return Err(mismatch(pc, "an OPEN or CLOSE"));
+        }
+        let i = self
+            .file_idx_n(&file)
+            .ok_or_else(|| anyhow!("{file} is not a file of this program"))?;
+        self.file_n(i)?.status.error = false;
+        let cmt = self.file_n(i)?.cmt.clone();
+        if let Some(d) = &cmt {
+            self.m.block(async {
+                d.client
+                    .batch_execute("SAVEPOINT as4tainr_rla")
+                    .await
+                    .map_err(anyhow::Error::from)
+            })?;
+        }
+        let r = (|| -> NResult<()> {
+            if op == FileOp::Open {
+                if self.file_n(i)?.open.is_some() {
+                    return Err(anyhow!("CPF4161: File {file} is already open."));
+                }
+                self.m.open_file(i)
+            } else {
+                match self.file_n(i)?.open.take() {
+                    Some(f) => self.m.close_open_file(f),
+                    None => Ok(()),
+                }
+            }
+        })();
         self.file_end_n(i, op, &file, cmt.as_deref(), r.as_ref().map(|_| ()))?;
         r
     }
