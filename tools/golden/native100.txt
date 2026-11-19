@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.99: calls that return a pointer (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native100.txt -f tools/golden/native100
+n100_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN100RP) SRCSTMF('@HOME@/gld/gn100rp.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n100_retptr|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN100RP)"; cat gn1.out; rm -f gn1.out

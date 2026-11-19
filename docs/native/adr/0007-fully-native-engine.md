@@ -1206,3 +1206,16 @@ An EVAL or RETURN whose whole value is a pointer field minus a pointer field is 
 - two into the same %ALLOC storage (7).
 
 The capture's subtraction of pointers to two different fields is an interpreter defect (fidelity.md) and is left out.
+
+## S2.99: calls returning a pointer
+
+A call that returns a pointer is a pointer value (`ir::PtrVal::Call`): the value it returns, a pointer or *NULL, as eval gives it. It is lowered as `call_of` lowers the calls that return numbers:
+- a procedure of this module;
+- a procedure bound into the program;
+- a C function.
+
+Like any other pointer value, it can be an EVAL's value, the base of pointer arithmetic, or an argument.
+
+**Verified by** the native unit NRETPTR, under both engines, as captured on PUB400 (tools/golden/native100.txt n100_retptr):
+- a procedure returning `%ADDR(buf) + n`, read with %STR, and pointer arithmetic on the call's result;
+- the C function strstr on null-terminated buffers: a match, and *NULL when there is none.

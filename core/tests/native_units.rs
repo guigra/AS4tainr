@@ -2604,3 +2604,16 @@ async fn native_unit_lowered_pointer_difference() {
         .collect();
     assert_eq!(first, ["5 -5 7"], "NPTRDIF {got:?}");
 }
+
+// Stage 2, S2.99: calls that return a pointer.
+// Source: golden capture tools/golden/native100 n100_retptr (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_pointer_returns() {
+    let _ = require_db!();
+    expect(
+        "NRETPTR",
+        include_str!("native/NRETPTR.rpgle"),
+        &["world|llo|world|null"],
+    )
+    .await;
+}
