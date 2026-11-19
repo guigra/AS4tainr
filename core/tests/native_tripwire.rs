@@ -184,6 +184,22 @@ fn native_runtime_matches_the_interpreter_it_copies() {
         function(INTERP, "    pub fn ind(&self, n: &str) -> bool {", "    "),
         function(INTERP, "    pub fn set_ind(&mut self, n: &str, v: bool) {", "    "),
         function(INTERP, "fn ind_name(n: &str) -> String {", ""),
+        // S2.94 and S2.95: CLEAR and RESET (lower.rs clear_areas and
+        // reset_area write again clear_ds and reset_to_initial); S2.102:
+        // assign_value's "LEN" arm (rpgrt::native::set_var_len); S2.107:
+        // float_value (rpgrt::native::float_value).
+        function(
+            INTERP,
+            "    fn assign_value(&mut self, target: &Expr, val: &Value, fit: Fit, right: bool) -> Result<()> {",
+            "    ",
+        ),
+        function(
+            INTERP,
+            "    fn reset_to_initial(&mut self, name: &str) -> Result<bool> {",
+            "    ",
+        ),
+        function(INTERP, "    fn clear_ds(&mut self, name: &str, d: &DsInfo) {", "    "),
+        function(INTERP, "fn float_value(v: &Value) -> Result<f64> {", ""),
         // S2.40: EXSR runs a routine as run_code does.
         function(
             INTERP,
@@ -711,9 +727,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // op_error and string_op, S2.84 ops.rs bit_op and bit_mask and
     // interp.rs set_result_inds, S2.85 ops.rs array_op and lookup and
     // interp.rs num_inds, S2.86 ops.rs sorta, movea_parts and movea, S2.88
-    // ptrs.rs str_at, S2.89 bifs.rs list_of;
+    // ptrs.rs str_at, S2.89 bifs.rs list_of, S2.94-S2.95 clear_ds and
+    // reset_to_initial, S2.102 assign_value, S2.107 float_value;
     // upstream still dd47e28.
-    let reviewed = "d998832ea54835be22f30a8ee4659a0782648577993e5780c103a32aec798a8d";
+    let reviewed = "59c4f0ee37773eed66192499aefbdac3d3dc165a942cd65dd6f7f7eb2600d360";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"
