@@ -614,6 +614,24 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
         },
         // RETURN (S2.38) of an eligible numeric or character expression,
         // or of nothing (a whole data structure array is not eligible).
+        // RETURN of a comparison, AND, OR or NOT (S2.133, `return x > 5`
+        // from a procedure returning an indicator): eval's Value::Ind of
+        // the condition.
+        Ins::Return(Some(
+            x @ (Expr::Bin(
+                BinOp::Eq
+                | BinOp::Ne
+                | BinOp::Lt
+                | BinOp::Le
+                | BinOp::Gt
+                | BinOp::Ge
+                | BinOp::And
+                | BinOp::Or,
+                _,
+                _,
+            )
+            | Expr::Unary(super::super::ast::UnOp::Not, _)),
+        )) => ir::Lowered::ReturnInd(Box::new(cond(cx, x, &mut used)?)),
         Ins::Return(v) => ir::Lowered::Return(match v {
             None => None,
             // A figurative constant (S2.132: `return *on` from a procedure
@@ -1580,6 +1598,20 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                 path,
             ))
         }
+        // %CHAR of a call returning an indicator (S2.133): bif's CHAR of
+        // the indicator it returns, '1' or '0'.
+        Expr::Bif(b, args)
+            if b == "CHAR"
+                && matches!(args.as_slice(), [Expr::Name { parts, args: Some(_) }]
+                    if is_call(cx, parts) && call_returns(cx, &parts.join(".")) == Some(DType::Ind)) =>
+        {
+            let mut cp = path.clone();
+            cp.push(0);
+            Some(ir::CharExpr::CondChar(
+                Box::new(cond_at(cx, args.first()?, used, cp)?),
+                path,
+            ))
+        }
         // %CHAR of a comparison, AND, OR or NOT (S2.123): eval gives its
         // Value::Ind, which bif's CHAR arm makes '1' or '0'; the condition
         // as IF takes it.
@@ -2327,6 +2359,14 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
             let mut p = path.clone();
             p.push(0);
             return Some(ir::Cond::Not(Box::new(cond_at(cx, x, used, p)?)));
+        }
+        // A call of a procedure returning an indicator (S2.133): eval's
+        // call, then the value's truth, as IF takes it.
+        Expr::Name {
+            parts,
+            args: Some(args),
+        } if is_call(cx, parts) && call_returns(cx, &parts.join(".")) == Some(DType::Ind) => {
+            return Some(ir::Cond::Call(call_of(cx, parts, args, used, path)?));
         }
         _ => {}
     }
