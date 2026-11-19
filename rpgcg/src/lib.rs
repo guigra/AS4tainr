@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.112");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.113");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -899,6 +899,8 @@ pub mod ir {
         Leaf(Operand),
         /// %STATUS of a file (S2.112): its status code.
         FileCode(String),
+        /// %SQRT of a numeric expression (S2.113).
+        Sqrt(Box<NumExpr>),
         /// Character data read as a number, as %INT and %DEC take it
         /// (S2.112): char_number.
         CharDec(Box<CharExpr>),
@@ -4305,6 +4307,7 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             "rpgrt::rpg::dec::Dec::from_i64(i64::from(rt.file_code({})?))",
             json_str(f)
         ),
+        ir::NumExpr::Sqrt(x) => format!("rpgrt::native::sqrt_bif(&{})?", num_expr(pc, x, helpers)),
         ir::NumExpr::CharDec(c) => format!("rpgrt::native::char_dec(&{})?", char_expr(pc, c, helpers)),
         ir::NumExpr::LenOf(c) => format!(
             "rpgrt::rpg::dec::Dec::from_i64(i64::try_from({}.chars()?.len())?)",

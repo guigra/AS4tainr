@@ -2793,3 +2793,33 @@ async fn native_unit_lowered_char_conversions() {
     );
     assert_eq!(parts.len(), 9, "NCHRCNV {got:?}");
 }
+
+// Stage 2, S2.113: %SQRT.
+// Source: golden capture tools/golden/native113 n113_sqrt (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_sqrt() {
+    let _ = require_db!();
+    // The capture's line is "4.0000000000000 1.4142135623730
+    // 2.5000000000000 3.16227766016837933199889354443 E101". Its fourth
+    // value, %CHAR(%SQRT(10)), is left out: IBM i gives the root with 29
+    // decimal places, the interpreter with 15 (3.162277660168379), an
+    // interpreter defect recorded in docs/native/fidelity.md ("%SQRT's
+    // decimal places").
+    let got = shown("NSQRT", include_str!("native/NSQRT.rpgle")).await;
+    let line = got.first().cloned().unwrap_or_default();
+    let parts: Vec<&str> = line.split(' ').collect();
+    let pick: Vec<&str> = [0usize, 1, 2, 4]
+        .iter()
+        .map(|i| parts.get(*i).copied().unwrap_or("?"))
+        .collect();
+    assert_eq!(
+        pick,
+        [
+            "4.0000000000000",
+            "1.4142135623730",
+            "2.5000000000000",
+            "E101"
+        ],
+        "NSQRT {got:?}"
+    );
+}

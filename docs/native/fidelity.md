@@ -211,3 +211,15 @@ A second `OPEN(E)` of a printer file that is already open differs:
 - **The interpreter:** it takes it with no error (0, 0).
 
 Both engines run the OPEN(E) in the interpreter (OPEN with E stays with it), so this is an upstream interpreter defect, held for Kyle with the capture. The unit NCHRCNV leaves those two values out.
+
+## %SQRT's decimal places (found 2026-11-19)
+
+Source: tools/golden/native113 n113_sqrt (PUB400, IBM i 7.5, 2026-11-19).
+
+%CHAR(%SQRT(10)) differs:
+- **IBM i:** 3.16227766016837933199889354443, 29 decimal places.
+- **The interpreter:** 3.162277660168379. bifs.rs's "SQRT" arm takes dec_sqrt with 15 places, normalized.
+
+Assigned to a packed(15:13) field, the roots agree (4, 1.4142135623730, 2.5). Native code follows the interpreter (rpgrt::native::sqrt_bif).
+
+This is an upstream interpreter defect, held for Kyle with the capture. The unit NSQRT leaves the %CHAR value out.

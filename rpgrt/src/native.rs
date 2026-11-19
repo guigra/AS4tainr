@@ -1900,6 +1900,56 @@ fn char_number(t: &str) -> NResult<Dec> {
     })
 }
 
+/// ops.rs dec_sqrt (S2.113), written again with checked arithmetic: the
+/// square root of a non-negative decimal with `scale` decimal places,
+/// truncated (sqrt(m / 10^s) = sqrt(m * 10^(2k - s)) / 10^k, Newton's
+/// integer square root).
+fn dec_sqrt(x: &Dec, scale: u8) -> NResult<Dec> {
+    let too_large = || anyhow::anyhow!("SQRT: the value is too large");
+    let s = i32::from(x.scale());
+    let k = i32::from(scale);
+    let e = k
+        .checked_mul(2)
+        .and_then(|t| t.checked_sub(s))
+        .ok_or_else(too_large)?;
+    let mut m = u128::try_from(x.mantissa()).map_err(|_| too_large())?;
+    if e >= 0 {
+        for _ in 0..e {
+            m = m.checked_mul(10).ok_or_else(too_large)?;
+        }
+    } else {
+        for _ in 0..e.unsigned_abs() {
+            m = m.checked_div(10).ok_or_else(too_large)?;
+        }
+    }
+    let r = if m < 2 {
+        m
+    } else {
+        let step = |x0: u128| -> NResult<u128> {
+            let q = m.checked_div(x0).ok_or_else(too_large)?;
+            Ok(x0.checked_add(q).ok_or_else(too_large)? / 2)
+        };
+        let mut x0 = m;
+        let mut x1 = step(x0)?;
+        while x1 < x0 {
+            x0 = x1;
+            x1 = step(x0)?;
+        }
+        x0
+    };
+    Ok(Dec::new(i128::try_from(r).map_err(|_| too_large())?, scale))
+}
+
+/// Stage 2 (S2.113): %SQRT of a numeric value, as bifs.rs's "SQRT" arm:
+/// RNQ0101 for a negative one, else dec_sqrt with 15 decimal places,
+/// normalized.
+pub fn sqrt_bif(x: &Dec) -> NResult<Dec> {
+    if x.is_negative() {
+        anyhow::bail!("RNQ0101: %SQRT of a negative number.");
+    }
+    Ok(dec_sqrt(x, 15)?.normalized())
+}
+
 /// Stage 2 (S2.112): %INT, %INTH, %DEC or %DECH of character data, as
 /// those bif arms take a Value::Char: char_number of its text.
 pub fn char_dec(v: &Value) -> NResult<Dec> {
