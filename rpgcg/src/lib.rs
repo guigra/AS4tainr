@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.114");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.115");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -676,6 +676,14 @@ pub mod ir {
         },
         /// EVAL of an indicator (S2.39): `*ON`, `*OFF` or a condition.
         EvalInd { name: String, value: IndValue },
+        /// MOVE or MOVEL with a date, time or timestamp on either side
+        /// (S2.115): factor 1's format, factor 2, the result.
+        MoveTemporal {
+            left: bool,
+            fmt: Option<String>,
+            from: Operand,
+            to: Operand,
+        },
         /// A display file operation (S2.114): its format's program fields
         /// placed, the INDDS, and a subfile CHAIN's record number.
         Workstn {
@@ -3203,6 +3211,40 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("pw{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::MoveTemporal {
+                left,
+                fmt,
+                from,
+                to,
+            },
+        ) => {
+            // Stmt::Move's move_temporal: factor 2's value and type, then
+            // the runtime with the result's place.
+            let from_ty = match from {
+                ir::Operand::Var { ty: t, .. } => format!("Some({})", ty(t)),
+                _ => "None".to_string(),
+            };
+            let ir::Operand::Var { ty: tt, .. } = to else {
+                return Err(bad());
+            };
+            let at = scalar_place(to).ok_or_else(bad)?;
+            let f = match fmt {
+                Some(f) => format!("Some({})", json_str(f)),
+                None => "None".to_string(),
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn mt{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let v = {};\n    let (buf, off) = {at};\n    let to = rpgrt::native::OutSlot {{ name: String::new(), buf, off, ty: {} }};\n    rt.move_temporal({left}, {f}, v, {from_ty}, to)\n}}",
+                value(from),
+                ty(tt)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("mt{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::Workstn { fields, indds, key }) => {

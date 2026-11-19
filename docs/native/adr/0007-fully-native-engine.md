@@ -1380,3 +1380,20 @@ A subfile CHAIN's key is a numeric field, passed as its place, which the runtime
 - rpg_read_of_a_display_record (WRITE and READ).
 
 The database CHAINs and READs in those programs, which were interpreted before, are native too.
+
+## S2.115: MOVE of dates, times and timestamps
+
+MOVE and MOVEL with a date, time or timestamp field on either side are lowered (`ir::Lowered::MoveTemporal`). Factor 2 is a field or a literal, and the result a field with no index.
+
+`rpgrt::native::move_temporal` writes again interp.rs move_temporal as a pure function:
+- from temporal to temporal, with no factor 1, the timestamp keeps its other part;
+- from temporal to character or numeric, in factor 1's format, else the field's or DATFMT or TIMFMT;
+- from character or numeric to temporal, the rightmost or leftmost characters the format needs.
+
+`Runtime::move_temporal` loads the result's current value, passes the program's DATFMT and TIMFMT, and stores with Fit::Truncate. native_tripwire.rs watches move_temporal.
+
+**Verified by** the native unit NMOVDAT, under both engines, as captured on PUB400 (tools/golden/native115.txt n115_movedate). It moves:
+- a date to character (*ISO, and factor 1 *MDY) and to numeric;
+- character and numeric (*YMD) to a date;
+- a time to character (MOVEL);
+- a timestamp to a date, and a date into a timestamp.

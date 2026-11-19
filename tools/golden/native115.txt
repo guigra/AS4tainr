@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.115: MOVE with dates, times and timestamps (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native115.txt -f tools/golden/native115
+n115_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN115MVD) SRCSTMF('@HOME@/gld/gn115mvd.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n115_movedate|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN115MVD)"; cat gn1.out; rm -f gn1.out
