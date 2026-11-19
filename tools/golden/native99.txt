@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.98: a pointer minus a pointer (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native99.txt -f tools/golden/native99
+n99_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN99PDF) SRCSTMF('@HOME@/gld/gn99pdf.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n99_ptrdiff|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN99PDF)"; cat gn1.out; rm -f gn1.out

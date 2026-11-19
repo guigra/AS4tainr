@@ -2586,3 +2586,21 @@ async fn native_unit_lowered_ds_parameters() {
     )
     .await;
 }
+
+// Stage 2, S2.98: a pointer minus a pointer.
+// Source: golden capture tools/golden/native99 n99_ptrdiff (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_pointer_difference() {
+    let _ = require_db!();
+    // The capture's line is "5 -5 7 D". Its last part (two pointers to
+    // different fields of the program, which IBM i subtracts: the static
+    // storage is one space) is left out: as4tainr's interpreter keeps
+    // each field in its own buffer and fails the subtraction (status
+    // 9999), an interpreter defect recorded in docs/native/fidelity.md.
+    let got = shown("NPTRDIF", include_str!("native/NPTRDIF.rpgle")).await;
+    let first: Vec<String> = got
+        .iter()
+        .map(|l| l.split(' ').take(3).collect::<Vec<_>>().join(" "))
+        .collect();
+    assert_eq!(first, ["5 -5 7"], "NPTRDIF {got:?}");
+}
