@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.113");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.114");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -676,6 +676,13 @@ pub mod ir {
         },
         /// EVAL of an indicator (S2.39): `*ON`, `*OFF` or a condition.
         EvalInd { name: String, value: IndValue },
+        /// A display file operation (S2.114): its format's program fields
+        /// placed, the INDDS, and a subfile CHAIN's record number.
+        Workstn {
+            fields: Vec<(String, Operand)>,
+            indds: Option<Operand>,
+            key: Option<Operand>,
+        },
         /// EVAL of a numeric or float field to a float expression's
         /// value (S2.108), stored as assign stores it.
         EvalValue {
@@ -3196,6 +3203,50 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("pw{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::Workstn { fields, indds, key }) => {
+            // errors.rs file_op and interp.rs workstn_op: the fields'
+            // places for this call, then the runtime.
+            let mut body = String::new();
+            out_slots(&mut body, fields, &bad)?;
+            let ind = match indds {
+                Some(o) => {
+                    let ir::Operand::Var { ty: t, .. } = o else {
+                        return Err(bad());
+                    };
+                    let at = scalar_place(o).ok_or_else(bad)?;
+                    format!(
+                        "{{ let (buf, off) = {at}; Some(rpgrt::native::OutSlot {{ name: String::new(), buf, off, ty: {} }}) }}",
+                        ty(t)
+                    )
+                }
+                None => "None".to_string(),
+            };
+            let k = match key {
+                Some(o) => {
+                    let ir::Operand::Var { ty: t, .. } = o else {
+                        return Err(bad());
+                    };
+                    let at = scalar_place(o).ok_or_else(bad)?;
+                    format!(
+                        "{{ let (buf, off) = {at}; Some(rpgrt::native::OutSlot {{ name: String::new(), buf, off, ty: {} }}) }}",
+                        ty(t)
+                    )
+                }
+                None => "None".to_string(),
+            };
+            let _ = writeln!(
+                body,
+                "    let indds = {ind};\n    let key = {k};\n    rt.workstn({pc}, fields, indds, key)?;"
+            );
+            let _ = writeln!(
+                helpers,
+                "\nfn ws{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("ws{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::Except { name, fields }) => {

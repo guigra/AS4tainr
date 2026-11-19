@@ -1357,3 +1357,26 @@ The capture's second OPEN(E) of an open printer is an interpreter defect (fideli
 - %SQRT(-1) caught by MONITOR (101).
 
 %CHAR(%SQRT(10)) shows that the interpreter keeps 15 decimal places where IBM i keeps 29 (fidelity.md), and the unit leaves it out.
+
+## S2.114: display files
+
+WRITE, UPDATE, EXFMT, READ, READC and CHAIN of a display file (WORKSTN) are lowered (`ir::Lowered::Workstn`, `Runtime::workstn`). As for printer files (S2.79), the program fields of the file's formats come as places (`OutSlot`), together with each subfile's record number field and the INDDS.
+
+The runtime writes again errors.rs file_op around interp.rs workstn_op, and workstn_op's helpers: ws_values, ws_fill, ws_inds, ws_set_ind, ws_interact and message_subfile. native_tripwire.rs watches them.
+
+The display itself stays where it was: workstn.rs's state (frame, write, sfl_write, sfl_update, sfl_readc, sfl_chain, read_frame, apply) and the job's display channel, as the interpreter uses them.
+
+**Stays with the interpreter:**
+- OPEN and CLOSE;
+- the E extender;
+- a display file with an INFDS;
+- a program with files of procedures or LIKEFILE parameters.
+
+A subfile CHAIN's key is a numeric field, passed as its place, which the runtime reads where workstn_op evaluates the key: after the open and format checks. A codex review found that the first version read it before the operation started.
+
+**Verified by** rla_test's display tests, whose expected values come from the ILE RPG Reference and DDS for display files. A stand-in display answers each screen. They run under both engines in the differential suite, and their display operations are now native:
+- rpg_exfmt_with_a_display (CUSTINQ: EXFMT, the response indicators, *INKx, ERRMSG under *IN30);
+- rpg_subfile_with_a_display (WRITE of a subfile, READC, UPDATE of a subfile record);
+- rpg_read_of_a_display_record (WRITE and READ).
+
+The database CHAINs and READs in those programs, which were interpreted before, are native too.

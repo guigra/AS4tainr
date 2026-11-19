@@ -373,6 +373,17 @@ pub trait Runtime {
         fields: Vec<OutSlot>,
         indds: Option<OutSlot>,
     ) -> NResult<()>;
+    /// Stage 2 (S2.114): WRITE, UPDATE, EXFMT, READ, READC or CHAIN of a
+    /// display file (errors.rs file_op around interp.rs workstn_op), the
+    /// program fields of its formats placed, its INDDS, a subfile
+    /// CHAIN's record number.
+    fn workstn(
+        &mut self,
+        pc: usize,
+        fields: Vec<OutSlot>,
+        indds: Option<OutSlot>,
+        key: Option<OutSlot>,
+    ) -> NResult<()>;
     /// Stage 2 (S2.78): EXCEPT `name` (or the records with no name): the
     /// exception records whose conditions are met printed (interp.rs
     /// except, print_record, print_line, out_text), their program
