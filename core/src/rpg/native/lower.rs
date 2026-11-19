@@ -423,6 +423,21 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 right: *right,
             }
         }
+        // EVAL of an indicator field (S2.100): assign's data::store of
+        // DType::Ind, the value's truth ('1' or '0'), for *ON, *OFF or a
+        // condition.
+        Ins::Stmt(Stmt::Eval {
+            target, value, ext, ..
+        }) if !ext.error && !ext.no_lock && ext.other.is_empty() && ind_field_ok(cx, target) => {
+            ir::Lowered::EvalIndVar {
+                target: ind_field(cx, target, &mut used)?,
+                value: match value {
+                    Expr::Fig(Fig::On) => ir::IndValue::On,
+                    Expr::Fig(Fig::Off) => ir::IndValue::Off,
+                    v => ir::IndValue::Cond(Box::new(cond_at(cx, v, &mut used, Vec::new())?)),
+                },
+            }
+        }
         // EVAL of an indicator (S2.39): Stmt::Eval then assign's
         // `set_ind(n, val.truth()?)`, for *ON, *OFF or a condition.
         Ins::Stmt(Stmt::Eval {
@@ -1969,6 +1984,10 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
     // `Value::Ind(self.ind(n))` and `Value::Ind(!v.truth()?)`.
     match e {
         Expr::Ind(n) => return Some(ir::Cond::Ind(n.clone())),
+        // An indicator field (S2.100): eval's Value::Ind, its truth.
+        Expr::Name { args: None, .. } if ind_field_ok(cx, e) => {
+            return Some(ir::Cond::IndVar(ind_field(cx, e, used)?));
+        }
         // %EOF, %FOUND, %EQUAL (S2.58): interp.rs bif's file_status, of
         // the file named or of the last file operation.
         Expr::Bif(b, args) if matches!(b.as_str(), "EOF" | "FOUND" | "EQUAL") => {
@@ -3307,6 +3326,56 @@ fn is_pointer_name(cx: &Cx<'_>, e: &Expr) -> bool {
 /// apart from the steps of pointer arithmetic (0, 1, ...), so their
 /// helpers' names differ.
 const ALLOC_PATH: u8 = 200;
+
+/// An indicator field by name (S2.100): a standalone or subfield of
+/// type indicator, not an array, not based, not in a multiple-occurrence
+/// data structure; a procedure's own only in that procedure. Only the
+/// forms that take it as an indicator (an EVAL's target, a condition)
+/// use it; `variable` leaves indicator fields out.
+fn ind_field_ok(cx: &Cx<'_>, e: &Expr) -> bool {
+    let Expr::Name { parts, args: None } = e else {
+        return false;
+    };
+    let Some(Sym::Var(v)) = sym(cx, &parts.join(".")) else {
+        return false;
+    };
+    if v.dtype != DType::Ind || v.dim != 0 {
+        return false;
+    }
+    if v.local {
+        cx.based.is_some_and(|b| !b.contains_key(&v.buf))
+    } else {
+        !cx.prog.based.contains_key(&v.buf) && !cx.prog.occurs.iter().any(|o| o.buf == v.buf)
+    }
+}
+
+fn ind_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    if !ind_field_ok(cx, e) {
+        return None;
+    }
+    let Expr::Name { parts, .. } = e else {
+        return None;
+    };
+    let name = parts.join(".");
+    let Some(Sym::Var(v)) = sym(cx, &name) else {
+        return None;
+    };
+    used.push(format!(
+        "layout {name} {} {} Ind {}",
+        v.buf,
+        v.off,
+        if v.local { "local" } else { "global" }
+    ));
+    Some(ir::Operand::Var {
+        name,
+        buf: v.buf,
+        off: v.off,
+        ty: ir::Ty::Ind,
+        local: v.local,
+        index: None,
+        based: None,
+    })
+}
 
 /// The path of a call returning a pointer (S2.99), apart from the steps
 /// and %ALLOC's size.
