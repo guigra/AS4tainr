@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.108");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.109");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -223,6 +223,9 @@ pub mod ir {
         Ind(String),
         /// An indicator field (S2.100): the truth of its value.
         IndVar(Operand),
+        /// A comparison with a float operand (S2.109, ADR 0008): both
+        /// sides' values as f64.
+        FloatCmp(CmpOp, Box<FloatExpr>, Box<FloatExpr>),
         /// A chain of ANDs (`true`) or ORs down the left operands (S2.41):
         /// the conditions in order, each evaluated only while needed.
         Chain(bool, Vec<Cond>),
@@ -1920,6 +1923,24 @@ fn cond_fns(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usize) 
         }
         ir::Cond::IndVar(o) => {
             let _ = writeln!(out, "    {}.truth()\n}}", value(o));
+        }
+        ir::Cond::FloatCmp(op, a, b) => {
+            let op = match op {
+                ir::CmpOp::Eq => "Eq",
+                ir::CmpOp::Ne => "Ne",
+                ir::CmpOp::Lt => "Lt",
+                ir::CmpOp::Le => "Le",
+                ir::CmpOp::Gt => "Gt",
+                ir::CmpOp::Ge => "Ge",
+            };
+            let mut inner = String::new();
+            let x = float_expr(pc, a, &mut inner);
+            let y = float_expr(pc, b, &mut inner);
+            let _ = writeln!(
+                out,
+                "    let x = {x};\n    let y = {y};\n    rpgrt::native::float_cmp(rpgrt::native::CmpOp::{op}, &x, &y)\n}}"
+            );
+            out.push_str(&inner);
         }
         ir::Cond::FileStatus(bit, file) => {
             let f = match file {

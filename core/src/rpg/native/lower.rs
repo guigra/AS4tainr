@@ -2194,6 +2194,13 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
             ));
         }
     }
+    // A comparison with a float operand (S2.109, ADR 0008): eval's float
+    // arm (is_float of either side), both values compared as f64.
+    if is_float_static(cx, l, 0) || is_float_static(cx, r, 0) {
+        let a = float_expr(cx, l, used, child(0), 0)?;
+        let b = float_expr(cx, r, used, child(1), 0)?;
+        return Some(ir::Cond::FloatCmp(cmp, Box::new(a), Box::new(b)));
+    }
     // An indicator field compared (S2.105) with another or with *ON or
     // *OFF: eval's Value::Ind against the other side's value, by
     // data::compare (rpgrt::native::cmp).

@@ -1851,6 +1851,20 @@ pub fn float_bin(op: FloatOp, x: &Value, y: &Value) -> NResult<Value> {
     }))
 }
 
+/// Stage 2 (S2.109, ADR 0008): a comparison with a float operand, as
+/// eval's float arm: both values as f64 (float_value), compared.
+pub fn float_cmp(op: CmpOp, x: &Value, y: &Value) -> NResult<bool> {
+    let (fx, fy) = (float_value(x)?, float_value(y)?);
+    Ok(match op {
+        CmpOp::Eq => fx == fy,
+        CmpOp::Ne => fx != fy,
+        CmpOp::Lt => fx < fy,
+        CmpOp::Le => fx <= fy,
+        CmpOp::Gt => fx > fy,
+        CmpOp::Ge => fx >= fy,
+    })
+}
+
 /// Stage 2 (S2.108): unary minus of a float expression's value, as eval's
 /// Unary arm: a float stays a float, a decimal is negated.
 pub fn float_neg(v: Value) -> NResult<Value> {
