@@ -2373,6 +2373,26 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
         let b = float_expr(cx, r, used, child(1), 0)?;
         return Some(ir::Cond::FloatCmp(cmp, Box::new(a), Box::new(b)));
     }
+    // An indicator (*INnn, *INLR...) compared with *ON or *OFF, = or <>
+    // (S2.126): data::compare's `a.cmp(&b.truth())`, so the indicator or
+    // its negation (fixed-form IFEQ, DOUEQ).
+    let ind_fig = match (&**l, &**r) {
+        (Expr::Ind(n), Expr::Fig(f)) | (Expr::Fig(f), Expr::Ind(n))
+            if matches!(f, Fig::On | Fig::Off) =>
+        {
+            Some((n, matches!(f, Fig::On)))
+        }
+        _ => None,
+    };
+    if let Some((n, on)) = ind_fig {
+        let want = match cmp {
+            ir::CmpOp::Eq => on,
+            ir::CmpOp::Ne => !on,
+            _ => return None,
+        };
+        let c = ir::Cond::Ind(n.clone());
+        return Some(if want { c } else { ir::Cond::Not(Box::new(c)) });
+    }
     // An indicator field compared (S2.105) with another or with *ON or
     // *OFF: eval's Value::Ind against the other side's value, by
     // data::compare (rpgrt::native::cmp).
@@ -3563,6 +3583,15 @@ fn note_why(cx: &Cx<'_>, i: &Ins, at: usize) {
                     response.is_some(),
                     nodes.join(",")
                 )
+            }
+            // An IF, DOW, DOU or WHEN condition not lowered (S2.126): its
+            // nodes, as an EVAL's value.
+            Ins::JumpIfNot(c, _) => {
+                let mut nodes = Vec::new();
+                shape(cx, c, &mut nodes, 0);
+                nodes.sort();
+                nodes.dedup();
+                format!("cond={}\n", nodes.join(","))
             }
             _ => return,
         };
