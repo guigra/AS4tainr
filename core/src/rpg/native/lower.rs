@@ -1975,6 +1975,9 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
         // %STATUS with no file (S2.31): the code the interpreter's
         // bifs.rs "STATUS" arm gives, `Dec::new(code, 0)`.
         Expr::Bif(b, args) if b == "STATUS" && args.is_empty() => Some(ir::NumExpr::Status),
+        // %PARMS (S2.129): interp.rs bif's PARMS arm, the running
+        // procedure's frame's arguments passed, or the program's.
+        Expr::Bif(b, args) if b == "PARMS" && args.is_empty() => Some(ir::NumExpr::Parms),
         // %SQRT (S2.113): bifs.rs's "SQRT" arm, of a numeric expression.
         Expr::Bif(b, args) if b == "SQRT" && args.len() == 1 => {
             let mut ip = path.clone();
@@ -3601,6 +3604,14 @@ fn note_why(cx: &Cx<'_>, i: &Ins, at: usize) {
                     response.is_some(),
                     nodes.join(",")
                 )
+            }
+            // A RETURN not lowered (S2.129): its value's nodes.
+            Ins::Return(Some(x)) => {
+                let mut nodes = Vec::new();
+                shape(cx, x, &mut nodes, 0);
+                nodes.sort();
+                nodes.dedup();
+                format!("return={}\n", nodes.join(","))
             }
             // An IF, DOW, DOU or WHEN condition not lowered (S2.126): its
             // nodes, as an EVAL's value.

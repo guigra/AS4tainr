@@ -1512,6 +1512,16 @@ impl Runtime for Rt<'_, '_> {
         self.m.last.code
     }
 
+    fn parms(&self) -> NResult<i64> {
+        // interp.rs bif's "PARMS": the last frame's `passed`, or the
+        // program's parms_passed.
+        let n = match self.m.frames.last() {
+            Some(f) => f.passed,
+            None => self.m.parms_passed,
+        };
+        i64::try_from(n).map_err(|_| anyhow!("native: %PARMS {n} out of range"))
+    }
+
     fn remainder(&self) -> Dec {
         self.m.remainder
     }
