@@ -2721,3 +2721,16 @@ async fn native_unit_lowered_float_arithmetic() {
         "NFLTARI"
     );
 }
+
+// Stage 2, S2.109 (ADR 0008): comparisons with a float operand.
+// Source: golden capture tools/golden/native109 n109_floatcmp (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_float_comparisons() {
+    let _ = require_db!();
+    expect(
+        "NFLTCMP",
+        include_str!("native/NFLTCMP.rpgle"),
+        &["abcd4 neg"],
+    )
+    .await;
+}

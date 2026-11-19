@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.109 (ADR 0008): comparisons with a float operand (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native109.txt -f tools/golden/native109
+n109_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN109FCM) SRCSTMF('@HOME@/gld/gn109fcm.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n109_floatcmp|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN109FCM)"; cat gn1.out; rm -f gn1.out

@@ -1302,3 +1302,12 @@ assign's data::store then stores the value. ** and %FLOAT of character data stil
 - float results into packed and integer fields;
 - a procedure's own float;
 - a float division by zero caught by MONITOR (status 102).
+
+## S2.109: float comparisons (ADR 0008, part 4)
+
+A comparison with a float operand on either side, by is_float, is lowered (`ir::Cond::FloatCmp`). `rpgrt::native::float_cmp` writes again eval's float arm for =, <>, <, <=, > and >=: both sides' values as f64 (float_value), then compared. The sides are float expressions (S2.108).
+
+**Verified by** the native unit NFLTCMP, under both engines, as captured on PUB400 (tools/golden/native109.txt n109_floatcmp). It compares:
+- a float with a literal and with a packed field;
+- %FLOAT(1) / 3 with a float;
+- in a compound condition, a DOW, and a procedure's own float.
