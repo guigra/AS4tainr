@@ -25,9 +25,27 @@ macro_rules! require_db {
     };
 }
 
-/// A cycle program with *INZSR and *PSSR, each saying it ran. The
-/// process number is in its text, so no earlier run can have generated
-/// native code for it (the refusal below depends on there being none).
+/// What makes the program's text this process's own: its number and the
+/// time it first asked, in nanoseconds. The number alone is not enough
+/// since S2.121: scripts/native-diff.sh runs each test binary as process
+/// 1 of a PID namespace, so every run would have the same text, and the
+/// generation run's code for it would then exist.
+fn run_tag() -> String {
+    static TAG: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    TAG.get_or_init(|| {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        format!("{} {nanos}", std::process::id())
+    })
+    .clone()
+}
+
+/// A cycle program with *INZSR and *PSSR, each saying it ran. This
+/// process's own tag (run_tag) is in its text, so no earlier run can have
+/// generated native code for it (the refusal below depends on there
+/// being none).
 fn program() -> String {
     format!(
         "**FREE
@@ -40,7 +58,7 @@ begsr *pssr;
   dsply 'PSSR';
 endsr;
 ",
-        std::process::id()
+        run_tag()
     )
 }
 

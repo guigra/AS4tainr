@@ -1470,3 +1470,22 @@ WRITE and UPDATE of a database file from a result data structure are lowered (`F
 A qualified file's format named as `file.format` is not found by the interpreter (fidelity.md), so lowering leaves it to the interpreter too.
 
 **Verified by** the native unit NDSIO, under both engines (tools/golden/native120.txt): two WRITEs from a LIKEREC(*OUTPUT) data structure, a READ and an UPDATE from a LIKEREC(*INPUT) one, then the reads. IBM i gives `50:zz 6:de` with the file qualified (n120_dsio) and not qualified (n120_dsiou).
+
+## S2.121: native-diff's runs with the same library names
+
+The 23 programs that `rust` mode refused whole (native-diff level 2, "none generated") had no native code because their source was different in every run. Tests such as rla_test.rs's put their library name in the RPG text (`qlichgll('{lib}': ...)` in change_and_retrieve_library_list). setup makes that name from the process ID and a sequence number ("T<pid><seq>"), so it changed between the generation run and the `rust` run.
+
+scripts/native-diff.sh now makes its three runs of the suite (generation, auto, rust) the same way:
+- Each test binary runs as process 1 of a PID namespace of its own. Cargo's target runner (`CARGO_TARGET_<host>_RUNNER="unshare -cpf"`) does this and keeps the current user, so no root privileges are involved.
+- Its tests run one at a time (`--test-threads=1`).
+
+The names, and the source that has them, are then the same in every run. Two runs of rla_test's library_list tests gave the same fingerprints (2026-11-19).
+
+The tests themselves are unchanged. A machine where `unshare -cpf` fails makes the script stop with a message rather than run differently. The cost is time: rla_test one test at a time, about 270 s with two at a time on the 2-CPU machines.
+
+The first validation with it (jsr-test-2, s7f-s2121) failed in ways that came from the harness, not from the engine:
+- **Leftover rows.** With the same names in every run, the auto and rust runs met rows the reference run had left on the same database: duplicate keys in logical_files and display_files, since setup removes a library's objects and files but not every catalog table's rows. Each of the three runs now has a new database of its own (`suitedb`).
+- **Split result lines.** A test that writes to standard error while it runs splits its result line when tests run one at a time (`test NAME ... <text>`, then `ok`), and `results` missed it. It now reads the result from the next line.
+- **A broken premise.** native_engine.rs's NATSW1 must have no generated code: its text carried the process number, which is now always 1. It now carries the number and the time the process first asked (`run_tag`), so its premise holds as before.
+
+Upstream's tests are still not touched.

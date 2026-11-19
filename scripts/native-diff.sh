@@ -19,6 +19,15 @@
 #      be one whose generated code does not exist (its source changes from
 #      one process to the next, as tests that put their random library
 #      name in the RPG text do), never a difference in behavior.
+#   The suite's three runs (generation, auto, rust) are made the same way
+#   (S2.121): each test binary as process 1 of a PID namespace of its own
+#   (cargo's target runner `unshare -cpf`, the current user kept), its
+#   tests one at a time. The library names tests make from the process ID
+#   and a sequence number (rla_test.rs setup, "T<pid><seq>") are then the
+#   same in every run, and so is the RPG source that has them, which can
+#   then run on its generated code. Each of the three runs has a new
+#   database of its own (suitedb), so rows one leaves cannot collide with
+#   the same names in the next.
 #   5. Level 3: scripts/demo.sh under =rust on a new database: the same
 #      output as under the interpreter, matching the golden files.
 #      tools/golden.py when captures exist in target/ibmi/golden.
@@ -54,7 +63,18 @@ step() { # name status detail
 }
 
 results() { # log -> sorted "test NAME ... RESULT" lines
-  grep -E '^test .* \.\.\. (ok|FAILED|ignored)$' "$1" | sort
+  # A test that writes to standard error while it runs (one at a time,
+  # S2.121) splits its line: "test NAME ... <its text>", then the result
+  # on a line of its own.
+  awk '
+    /^test .* \.\.\. / {
+      name = $0; sub(/ \.\.\. .*/, "", name); pending = ""
+      if (match($0, / \.\.\. (ok|FAILED|ignored)$/)) print name " ... " substr($0, RSTART + 5)
+      else pending = name
+      next
+    }
+    pending != "" && /^(ok|FAILED|ignored)$/ { print pending " ... " $0; pending = "" }
+  ' "$1" | sort
 }
 
 # A new database for demo.sh, as upstream CI does.
@@ -71,9 +91,29 @@ demo_out() { # log -> the programs' output (the setup lines differ by design;
     sed -e 's/[[:space:]]*$//' -e 's#[ 0-9][0-9]/[0-9][0-9]/[0-9][0-9]#MM/DD/YY#g'
 }
 
+# The suite's runs: every test binary as process 1 of its own PID
+# namespace, one test at a time (see the header).
+host=$(rustc -vV | sed -n 's/^host: //p')
+runner_var="CARGO_TARGET_$(echo "$host" | tr 'a-z-' 'A-Z_')_RUNNER"
+if ! unshare -cpf true 2> /dev/null; then
+  echo "native-diff: unshare -cpf (a PID namespace as the current user) does not work here" >&2
+  exit 2
+fi
+# Each run of the suite on a new database of its own: with the same
+# library names in every run, rows an earlier run left (setup removes a
+# library's objects and files, not every catalog table's rows) would
+# collide with the next run's.
+suitedb() { # name suffix -> URL of a new database
+  newdb "${db##*/}_$1"
+}
+suite() { # cargo test of the whole suite, as the header says
+  env "$runner_var=unshare -cpf" cargo test --locked --no-fail-fast -- --test-threads=1
+}
+
 # 1. Generation run.
-AS4TAINR_TEST_DATABASE_URL="$db" AS4TAINR_NATIVE_EMIT="$emit" AS4TAINR_RPG_ENGINE=interp \
-  cargo test --locked --no-fail-fast > "$out/1-interp.log" 2>&1
+refdb=$(suitedb ref) || { echo "native-diff: no database for the reference run" >&2; exit 2; }
+AS4TAINR_TEST_DATABASE_URL="$refdb" AS4TAINR_NATIVE_EMIT="$emit" AS4TAINR_RPG_ENGINE=interp \
+  suite > "$out/1-interp.log" 2>&1
 echo "exit=$?" >> "$out/1-interp.log"
 results "$out/1-interp.log" > "$out/1-interp.res"
 # The reference must be a whole run: a test binary killed by a signal (a
@@ -116,9 +156,10 @@ else
 fi
 
 # 4. Level 2: auto (parity), then rust (coverage).
-AS4TAINR_NATIVE_DIR="$emit" AS4TAINR_TEST_DATABASE_URL="$db" AS4TAINR_RPG_ENGINE=auto \
+autodb=$(suitedb auto) || { echo "native-diff: no database for the auto run" >&2; exit 2; }
+AS4TAINR_NATIVE_DIR="$emit" AS4TAINR_TEST_DATABASE_URL="$autodb" AS4TAINR_RPG_ENGINE=auto \
   AS4TAINR_NATIVE_REFUSALS="$out/4-auto.refusals" \
-  cargo test --locked --no-fail-fast > "$out/4-auto.log" 2>&1
+  suite > "$out/4-auto.log" 2>&1
 echo "exit=$?" >> "$out/4-auto.log"
 results "$out/4-auto.log" > "$out/4-auto.res"
 if diff "$out/1-interp.res" "$out/4-auto.res" > "$out/4-auto.diff"; then
@@ -126,9 +167,10 @@ if diff "$out/1-interp.res" "$out/4-auto.res" > "$out/4-auto.diff"; then
 else
   step level2-auto FAIL "see 4-auto.diff"
 fi
-AS4TAINR_NATIVE_DIR="$emit" AS4TAINR_TEST_DATABASE_URL="$db" AS4TAINR_RPG_ENGINE=rust \
+rustdb=$(suitedb rust) || { echo "native-diff: no database for the rust run" >&2; exit 2; }
+AS4TAINR_NATIVE_DIR="$emit" AS4TAINR_TEST_DATABASE_URL="$rustdb" AS4TAINR_RPG_ENGINE=rust \
   AS4TAINR_NATIVE_REFUSALS="$out/4-rust.refusals" \
-  cargo test --locked --no-fail-fast > "$out/4-rust.log" 2>&1
+  suite > "$out/4-rust.log" 2>&1
 echo "exit=$?" >> "$out/4-rust.log"
 results "$out/4-rust.log" > "$out/4-rust.res"
 total=$(wc -l < "$out/4-rust.res")
