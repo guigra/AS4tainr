@@ -1881,6 +1881,33 @@ pub fn float_of(v: &Value) -> NResult<Value> {
     Ok(float_result(float_value(v)?))
 }
 
+/// interp.rs char_number (S2.110): a number in character form; blanks,
+/// or anything but a number, are RNQ0105.
+fn char_number(t: &str) -> NResult<Dec> {
+    if t.trim().is_empty() {
+        anyhow::bail!("RNQ0105: The character value '{t}' is not a number.");
+    }
+    Dec::parse(t).map_err(|_| {
+        anyhow::anyhow!(
+            "RNQ0105: The character value '{}' is not a number.",
+            t.trim()
+        )
+    })
+}
+
+/// Stage 2 (S2.110, ADR 0008): %FLOAT of character data, as bif's FLOAT
+/// arm for Value::Char: a number as %DEC reads it, else the text in
+/// float form (1.5E3, a comma as the point), else char_number's error;
+/// then a decimal when it fits.
+pub fn float_of_chars(v: &Value) -> NResult<Value> {
+    let t = data::a(&v.chars()?);
+    let x = match char_number(&t) {
+        Ok(d) => float_value(&Value::Num(d))?,
+        Err(e) => t.trim().replace(',', ".").parse::<f64>().map_err(|_| e)?,
+    };
+    Ok(float_result(x))
+}
+
 /// Stage 2 (S2.107, ADR 0008): %CHAR of a float field of `bytes` bytes,
 /// as interp.rs bif's CHAR arm for a float: data::float_text of its
 /// float_value.
