@@ -34,15 +34,29 @@ macro_rules! require_db {
 /// under the interpreter); the checks are unchanged.
 static DDL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// catalog::init once per test process. Each init grants on every
+/// table, and one run while another unit drops a table can fail in
+/// PostgreSQL with "tuple concurrently updated" (NSQL1's DROP TABLE, in
+/// S2.74, S2.89, S2.90, S2.93 and S2.95's runs). The catalog is the same
+/// after the first init; the checks are unchanged.
+static INIT: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+
+async fn init_catalog(client: &tokio_postgres::Client) {
+    INIT.get_or_init(|| async {
+        catalog::init(client)
+            .await
+            .unwrap_or_else(|e| panic!("{e:#}"));
+    })
+    .await;
+}
+
 /// Run a program and give its DSPLY lines (without the DSPLY prefix).
 async fn shown(name: &str, source: &str) -> Vec<String> {
     let url = require_db_url();
     let client = runtime::connect_db(&url)
         .await
         .unwrap_or_else(|e| panic!("{e:#}"));
-    catalog::init(&client)
-        .await
-        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
     let r = rpg::call(
         &url,
         vec!["QGPL".to_string()],
@@ -75,9 +89,7 @@ async fn printed(name: &str, source: &str) -> Vec<String> {
     let client = runtime::connect_db(&url)
         .await
         .unwrap_or_else(|e| panic!("{e:#}"));
-    catalog::init(&client)
-        .await
-        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
     let r = rpg::call(
         &url,
         vec!["QGPL".to_string()],
@@ -106,9 +118,7 @@ async fn shown_and_printed(name: &str, source: &str) -> (Vec<String>, Vec<String
     let client = runtime::connect_db(&url)
         .await
         .unwrap_or_else(|e| panic!("{e:#}"));
-    catalog::init(&client)
-        .await
-        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
     let r = rpg::call(
         &url,
         vec!["QGPL".to_string()],
@@ -1524,9 +1534,7 @@ async fn native_unit_lowered_file_reads() {
     let mut client = runtime::connect_db(&url)
         .await
         .unwrap_or_else(|e| panic!("{e:#}"));
-    catalog::init(&client)
-        .await
-        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
     let libl = ["QGPL".to_string()];
     if catalog::resolve_file(&client, &libl, "NFR58PF")
         .await
@@ -1616,9 +1624,7 @@ async fn native_unit_lowered_file_writes() {
     let mut client = runtime::connect_db(&url)
         .await
         .unwrap_or_else(|e| panic!("{e:#}"));
-    catalog::init(&client)
-        .await
-        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
     let libl = ["QGPL".to_string()];
     if catalog::resolve_file(&client, &libl, "NFW59PF")
         .await
@@ -2022,9 +2028,7 @@ async fn native_unit_lowered_printer_write() {
     let client = runtime::connect_db(&url)
         .await
         .unwrap_or_else(|e| panic!("{e:#}"));
-    catalog::init(&client)
-        .await
-        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
     // QGPL's QDDSSRC may be there already (other tests, an earlier run).
     let _ = source::create_file(&client, "QGPL", "QDDSSRC", "").await;
     source::put_member(
@@ -2082,9 +2086,7 @@ async fn native_unit_lowered_data_areas() {
     let client = runtime::connect_db(&url)
         .await
         .unwrap_or_else(|e| panic!("{e:#}"));
-    catalog::init(&client)
-        .await
-        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
     let env = Environment {
         database_url: String::new(),
     };
@@ -2162,9 +2164,7 @@ async fn native_unit_lowered_temporal_file_fields() {
     let client = runtime::connect_db(&url)
         .await
         .unwrap_or_else(|e| panic!("{e:#}"));
-    catalog::init(&client)
-        .await
-        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
     let env = Environment {
         database_url: url.clone(),
     };
@@ -2343,9 +2343,7 @@ async fn native_unit_lowered_data_imports() {
     let client = runtime::connect_db(&url)
         .await
         .unwrap_or_else(|e| panic!("{e:#}"));
-    catalog::init(&client)
-        .await
-        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
     let _ = source::create_file(&client, "QGPL", "QRPGLESRC", "").await;
     for (name, text) in [
         ("NDATAMOD", include_str!("native/NDATAMOD.rpgle")),
@@ -2457,9 +2455,7 @@ async fn native_unit_printer_infds() {
     let client = runtime::connect_db(&url)
         .await
         .unwrap_or_else(|e| panic!("{e:#}"));
-    catalog::init(&client)
-        .await
-        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
     let _ = source::create_file(&client, "QGPL", "QDDSSRC", "").await;
     source::put_member(
         &client,
