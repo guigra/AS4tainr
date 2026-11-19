@@ -1580,3 +1580,11 @@ NDSIO's OPEN and CLOSE (S2.120) are native now too.
 AS4TAINR_NATIVE_WHY now also notes each RETURN that is not lowered (`return=`). It gave `return %parms` four times and `if %parms >= n` once.
 
 **Verified by** the native unit NCALL, captured on PUB400 (tools/golden/native44.txt n44_call: `PARMS 1 1`, `PARMS 2 2` for a procedure with an OPTIONS(*NOPASS) parameter). Its `return %parms` is now native.
+
+## S2.130: a field based on a based pointer
+
+A based field or data structure may now be based on a pointer that is itself based, once (`base_pointer_ok`). This is the pattern of a subfield of a based structure: `dcl-s s char(5) based(h.p)` with `h` based on a pointer parameter, as in rla_test.rs RDR's callback. Its own pointer must then not be based.
+
+The generated code reads the pointer as `value` reads any based field, through `Runtime::based_at`. That is where the interpreter's based_place finds it through `sym`.
+
+**Verified by** the native unit NBASED2, under both engines, as captured on PUB400 (tools/golden/native130.txt n130_based2: `Jello Jello Jel XYZlo`). A procedure changes and returns such a field over the caller's storage, and a global one is read and assigned.

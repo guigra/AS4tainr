@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.130: fields based on based pointers (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native130.txt -f tools/golden/native130
+n130_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN130B2) SRCSTMF('@HOME@/gld/gn130b2.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n130_based2|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN130B2)"; cat gn1.out; rm -f gn1.out

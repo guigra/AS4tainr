@@ -3037,3 +3037,16 @@ async fn native_unit_lowered_disk_open_close() {
     )
     .await;
 }
+
+// Stage 2, S2.130: fields based on based pointers.
+// Source: golden capture tools/golden/native130 n130_based2 (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_based_on_based() {
+    let _ = require_db!();
+    expect(
+        "NBASED2",
+        include_str!("native/NBASED2.rpgle"),
+        &["Jello Jello Jel XYZlo"],
+    )
+    .await;
+}
