@@ -2630,3 +2630,23 @@ async fn native_unit_lowered_indicator_fields() {
     )
     .await;
 }
+
+// Stage 2, S2.102: %LEN as the target of an assignment.
+// Source: golden capture tools/golden/native102 n102_lenset (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_len_target() {
+    let _ = require_db!();
+    // The capture's line is "[abc][abc  ][]0 E 115 x". Checked: the cut
+    // to 3, the length 0, the error being caught, the local field. Left
+    // out, interpreter defects recorded in docs/native/fidelity.md
+    // ("%LEN as a target"): a longer length shows the old characters
+    // ("abcde"), IBM i shows blanks; the error's status is 100, IBM i's
+    // is 115.
+    let got = shown("NLENSET", include_str!("native/NLENSET.rpgle")).await;
+    let line = got.first().cloned().unwrap_or_default();
+    let parts: Vec<&str> = line.split(' ').collect();
+    assert!(line.starts_with("[abc]["), "NLENSET {got:?}");
+    assert!(line.contains("][]0 E "), "NLENSET {got:?}");
+    assert_eq!(parts.last().copied(), Some("x"), "NLENSET {got:?}");
+    assert_eq!(got.len(), 1, "NLENSET {got:?}");
+}
