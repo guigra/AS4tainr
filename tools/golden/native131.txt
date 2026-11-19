@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.131: IN %RANGE and IN %LIST (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native131.txt -f tools/golden/native131
+n131_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN131IN) SRCSTMF('@HOME@/gld/gn131in.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n131_inlist|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN131IN)"; cat gn1.out; rm -f gn1.out

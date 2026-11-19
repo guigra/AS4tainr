@@ -1588,3 +1588,13 @@ A based field or data structure may now be based on a pointer that is itself bas
 The generated code reads the pointer as `value` reads any based field, through `Runtime::based_at`. That is where the interpreter's based_place finds it through `sym`.
 
 **Verified by** the native unit NBASED2, under both engines, as captured on PUB400 (tools/golden/native130.txt n130_based2: `Jello Jello Jel XYZlo`). A procedure changes and returns such a field over the caller's storage, and a global one is read and assigned.
+
+## S2.131: IN %RANGE and IN %LIST
+
+`x IN %RANGE(a:b)` and `x IN %LIST(v1:...)` in a condition are lowered (`Cond::In`), as bifs.rs eval_in runs them:
+- x first, then the range's two values, or every value of the list (bif LIST evaluates them all);
+- then data::compare. For a range that is a <= x <= b, the second comparison only when the first holds, as `&&` does. For a list, x must equal one of the values, in order.
+
+All the sides are of one class, numeric or character. IN an array or an enumeration stays with the interpreter. As for any comparison (S2.13, `side`), arithmetic on a side stays with it too, because a condition has no target to take the precision of its intermediate results from: the unit's `n * 2 in %list(3 : 10)` runs in the interpreter.
+
+**Verified by** the native unit NINLIST, under both engines, as captured on PUB400 (tools/golden/native131.txt n131_inlist: `acdefg`). It covers numeric and character ranges and lists, NOT of IN, an expression on the left, and a range of one value.

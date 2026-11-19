@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.130");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.131");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -217,6 +217,13 @@ pub mod ir {
         /// A comparison with an expression on either side (S2.13):
         /// %SCAN, %SUBST, %TRIM, %XLATE, concatenation.
         CmpExpr(CmpOp, Box<CmpSide>, Box<CmpSide>),
+        /// x IN %RANGE(a:b) or x IN %LIST(...) (S2.131): the range's low
+        /// and high values, or the list's values.
+        In {
+            x: Box<CmpSide>,
+            range: bool,
+            items: Vec<CmpSide>,
+        },
         And(Box<Cond>, Box<Cond>),
         Or(Box<Cond>, Box<Cond>),
         /// An indicator (`*IN50`, `*INLR`; S2.39).
@@ -1948,6 +1955,33 @@ fn cond_fns_in(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usiz
                 out,
                 "    rpgrt::native::cmp(rpgrt::native::CmpOp::{op}, &x, &y)\n}}"
             );
+        }
+        ir::Cond::In { x, range, items } => {
+            // bifs.rs eval_in: x, then every value, then the comparisons
+            // (the range's second only when the first holds, as `&&`).
+            let mut extra = String::new();
+            let xs = side(pc, x, &mut extra);
+            let _ = writeln!(out, "    // IN {}", if *range { "%RANGE" } else { "%LIST" });
+            let _ = writeln!(out, "    let x = {xs};");
+            for (k, it) in items.iter().enumerate() {
+                let v = side(pc, it, &mut extra);
+                let _ = writeln!(out, "    let v{k} = {v};");
+            }
+            if *range {
+                let _ = writeln!(
+                    out,
+                    "    Ok(rpgrt::native::cmp(rpgrt::native::CmpOp::Ge, &x, &v0)?\n        && rpgrt::native::cmp(rpgrt::native::CmpOp::Le, &x, &v1)?)\n}}"
+                );
+            } else {
+                for k in 0..items.len() {
+                    let _ = writeln!(
+                        out,
+                        "    if rpgrt::native::cmp(rpgrt::native::CmpOp::Eq, &x, &v{k})? {{\n        return Ok(true);\n    }}"
+                    );
+                }
+                let _ = writeln!(out, "    Ok(false)\n}}");
+            }
+            out.push_str(&extra);
         }
         ir::Cond::CmpExpr(op, a, b) => {
             let op = match op {

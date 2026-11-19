@@ -2362,6 +2362,39 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
                 ir::Cond::Or(Box::new(a), Box::new(b))
             });
         }
+        // x IN %RANGE(a:b) and x IN %LIST(...) (S2.131): bifs.rs eval_in,
+        // x first, then the range's two values or the list's values (bif
+        // LIST evaluates them all), compared by data::compare: a <= x <=
+        // b, or x equal to one. An array or an enumeration stays with the
+        // interpreter.
+        BinOp::In => {
+            let Expr::Bif(b, args) = &**r else {
+                return None;
+            };
+            let range = match b.as_str() {
+                "RANGE" if args.len() == 2 => true,
+                "LIST" if !args.is_empty() => false,
+                _ => return None,
+            };
+            let x = side(cx, l, used, child(0))?;
+            let mut items = Vec::with_capacity(args.len());
+            for (k, a) in args.iter().enumerate() {
+                let mut p = path.clone();
+                p.push(1);
+                p.push(u8::try_from(k).ok()?);
+                let v = side(cx, a, used, p)?;
+                // One class for all, as CmpExpr's sides.
+                if matches!(x, ir::CmpSide::Num(_)) != matches!(v, ir::CmpSide::Num(_)) {
+                    return None;
+                }
+                items.push(v);
+            }
+            return Some(ir::Cond::In {
+                x: Box::new(x),
+                range,
+                items,
+            });
+        }
         BinOp::Eq => ir::CmpOp::Eq,
         BinOp::Ne => ir::CmpOp::Ne,
         BinOp::Lt => ir::CmpOp::Lt,
