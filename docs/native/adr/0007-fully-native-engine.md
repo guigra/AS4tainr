@@ -1229,3 +1229,9 @@ Indicator fields (`dcl-s x ind`, subfields of that type) get a type of their own
 Comparing an indicator field, %CHAR of one, or an indicator field in a concatenation or as an argument still stays with the interpreter.
 
 **Verified by** the native unit NINDFLD, under both engines, as captured on PUB400 (tools/golden/native101.txt n101_indfld). It uses a standalone field, a qualified subfield and a procedure's own, given *ON, *OFF, a comparison and another indicator field, in IF, NOT, DOW and DOU.
+
+## S2.101: indicator parameters passed by value
+
+An indicator parameter passed by value takes a condition as its argument (`ir::CallArg::Ind`): args_for's eval of the argument, a Value::Ind, which call_frame stores into the parameter as call_proc assigns it. This holds for an indicator field, *INxx, a comparison, NOT and the like. By reference and CONST indicator parameters still stay with the interpreter.
+
+**Verified by** S2.100's native unit NINDFLD, as captured on PUB400 (tools/golden/native101 n101_indfld). Its YN procedure takes an indicator field by value five times, and those calls were the unit's last interpreted statements.

@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.100");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.101");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -1055,6 +1055,9 @@ pub mod ir {
         Char(CharExpr),
         /// A pointer value for a pointer parameter (S2.51).
         Ptr(PtrVal),
+        /// A condition's truth for an indicator parameter passed by value
+        /// (S2.101): eval's Value::Ind.
+        Ind(Box<Cond>),
     }
 
     /// The instruction kinds of `code::Ins`, with the targets the
@@ -3545,6 +3548,17 @@ fn call_fn(pc: usize, c: &ir::Call, helpers: &mut String) -> String {
             ir::CallArg::Char(e) => {
                 let x = char_expr(pc, e, helpers);
                 let _ = writeln!(body, "    let {an} = rpgrt::native::CallArg::Val({x});");
+            }
+            ir::CallArg::Ind(cnd) => {
+                // `a{k}` after the path: no double underscore when the
+                // path is empty (snake case).
+                let f = format!("cb{pc}_{}a{k}", path_id(&c.path));
+                let mut n = 0;
+                cond_fns(pc, cnd, &f, helpers, &mut n);
+                let _ = writeln!(
+                    body,
+                    "    let {an} = rpgrt::native::CallArg::Val(rpgrt::rpg::data::Value::Ind({f}(rt)?));"
+                );
             }
             ir::CallArg::Ptr(pv) => match ptr_val(pc, pv, helpers) {
                 Some(x) => {

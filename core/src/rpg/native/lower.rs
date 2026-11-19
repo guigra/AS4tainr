@@ -2937,6 +2937,23 @@ fn call_of(
         {
             return None;
         }
+        // An indicator parameter passed by value (S2.101): args_for's
+        // eval of the argument, a condition's Value::Ind. By reference and
+        // CONST (same_type_variable may pass it by reference) stay with
+        // the interpreter.
+        if p.dtype == DType::Ind {
+            let mut ap = path.clone();
+            ap.push(u8::try_from(k).ok()?);
+            let _ = std::fmt::Write::write_fmt(
+                &mut layout,
+                format_args!(" {}=Ind/{}/{}", p.name, p.by_value, p.konst),
+            );
+            if !p.by_value {
+                return None;
+            }
+            out.push(ir::CallArg::Ind(Box::new(cond_at(cx, a, used, ap)?)));
+            continue;
+        }
         let ty = call_param_ty(p.dtype)?;
         let _ = std::fmt::Write::write_fmt(
             &mut layout,
