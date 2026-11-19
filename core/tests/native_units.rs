@@ -2837,3 +2837,16 @@ async fn native_unit_lowered_move_dates() {
         "NMOVDAT"
     );
 }
+
+// Stage 2, S2.116: OPTIONS(*TRIM).
+// Source: golden capture tools/golden/native116 n116_trim (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_options_trim() {
+    let _ = require_db!();
+    expect(
+        "NOPTTRM",
+        include_str!("native/NOPTTRM.rpgle"),
+        &["[ab]2 [xy z    ] [xy z]4"],
+    )
+    .await;
+}

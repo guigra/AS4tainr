@@ -3164,10 +3164,13 @@ fn call_of(
         // copy args_for makes).
         let string_ok =
             c_extra && p.dtype == DType::Pointer && (p.by_value || p.konst) && !p.varsize;
+        // OPTIONS(*TRIM) (S2.116): args_for's value path with the
+        // character value's leading and trailing blanks removed; not for a
+        // figurative constant, which args_for leaves as it is.
         if p.file
             || p.omit
             || (p.string && !string_ok)
-            || p.trim
+            || (p.trim && matches!(a, Expr::Fig(_)))
             || p.convert
             || (p.varsize && local.is_some())
         {
@@ -3252,8 +3255,12 @@ fn call_of(
             }
         }
         let by_ref = !p.by_value && !p.konst;
-        let const_ref =
-            p.konst && !p.by_value && matches!(a, Expr::Name { args: None, .. }) && field(a);
+        // args_for passes a CONST field by reference only without *TRIM.
+        let const_ref = p.konst
+            && !p.by_value
+            && !p.trim
+            && matches!(a, Expr::Name { args: None, .. })
+            && field(a);
         if by_ref || const_ref {
             if !field(a) {
                 return None;
@@ -3277,7 +3284,22 @@ fn call_of(
             }
             out.push(ir::CallArg::Ref(v));
         } else {
-            out.push(value_arg(cx, &ty, a, used, ap)?);
+            let v = value_arg(cx, &ty, a, used, ap.clone())?;
+            out.push(match v {
+                // Its own path (TRIM_PATH after the argument's), so its
+                // helper is not named as an argument's own %TRIM.
+                ir::CallArg::Char(c) if p.trim => ir::CallArg::Char(ir::CharExpr::Trim {
+                    inner: Box::new(c),
+                    left: true,
+                    right: true,
+                    path: {
+                        let mut t = ap;
+                        t.push(TRIM_PATH);
+                        t
+                    },
+                }),
+                other => other,
+            });
         }
     }
     for (k, a) in args.iter().enumerate().skip(params.len()) {
@@ -3892,6 +3914,9 @@ fn ind_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operan
         based: None,
     })
 }
+
+/// The path of OPTIONS(*TRIM)'s trim of an argument (S2.116).
+const TRIM_PATH: u8 = 202;
 
 /// The path of a call returning a pointer (S2.99), apart from the steps
 /// and %ALLOC's size.
