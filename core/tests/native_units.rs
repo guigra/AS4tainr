@@ -3050,3 +3050,11 @@ async fn native_unit_lowered_based_on_based() {
     )
     .await;
 }
+
+// Stage 2, S2.131: IN %RANGE and IN %LIST.
+// Source: golden capture tools/golden/native131 n131_inlist (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_in_range_and_list() {
+    let _ = require_db!();
+    expect("NINLIST", include_str!("native/NINLIST.rpgle"), &["acdefg"]).await;
+}
