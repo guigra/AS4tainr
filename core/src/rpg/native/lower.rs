@@ -3308,6 +3308,10 @@ fn is_pointer_name(cx: &Cx<'_>, e: &Expr) -> bool {
 /// helpers' names differ.
 const ALLOC_PATH: u8 = 200;
 
+/// The path of a call returning a pointer (S2.99), apart from the steps
+/// and %ALLOC's size.
+const CALL_PATH: u8 = 201;
+
 /// A pointer value (S2.47, S2.49): a pointer field, %ADDR of a global
 /// field (ptr_to of its place; *DATA skips a varying field's length), or
 /// either moved by numbers (`p + n`, `p - n`, left to right: ptrs.rs
@@ -3395,6 +3399,15 @@ fn ptr_val(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
             },
             _ => return None,
         },
+        // A call returning a pointer (S2.99): a procedure of this module,
+        // a bound procedure or a C function, as `call_of` lowers the
+        // calls returning numbers; eval's value of it, a pointer or *NULL.
+        Expr::Name {
+            parts,
+            args: Some(args),
+        } if is_call(cx, parts) && call_returns(cx, &parts.join(".")) == Some(DType::Pointer) => {
+            ir::PtrVal::Call(call_of(cx, parts, args, used, at_path(CALL_PATH))?)
+        }
         _ => return None,
     };
     if steps.is_empty() {
