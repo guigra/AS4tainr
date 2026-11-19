@@ -1241,3 +1241,9 @@ An indicator parameter passed by value takes a condition as its argument (`ir::C
 `%LEN(v) = n` of a varying field with no index that is not based is lowered (`ir::Lowered::SetVarLen`). The value comes first. Then `rpgrt::native::set_var_len` writes again assign_value's "LEN" arm: the range check from 0 to the maximum (RNQ0100), then two big-endian bytes for the length, `n as u16`.
 
 **Verified by** the native unit NLENSET, under both engines, as captured on PUB400 (tools/golden/native102.txt n102_lenset). The capture showed two interpreter defects (fidelity.md), which the unit leaves out: the characters a longer length shows, and the error's status.
+
+## S2.103: *NEXT
+
+`arr(*NEXT) = value` of a global varying-dimension array is lowered (`ir::Index::next`). As interp.rs assign_value does, the index is the element after those in use, and the array grows to it, whatever its kind (`elem_grow` with growth allowed; RNQ0121 past its dimension). *NEXT is written only, and only as an EVAL's target (`target_var`). A codex review of 2026-11-19 found that the first version, in `variable`, also took `a(*NEXT)` read or passed by reference. The interpreter fails those as an undefined name, so they stay with it.
+
+**Verified by** the existing native unit NVARDIM (S2.45), whose `au(*next) = 9` line ("NEXT 3 9") was its last interpreted statement.
