@@ -1324,3 +1324,12 @@ A comparison with a float operand on either side, by is_float, is lowered (`ir::
 - %FLOAT of '12.5', of '1.5E3' and of a varying '2,5';
 - %FLOAT of 'abc' caught by MONITOR (status 105);
 - %ADDR of a float read back through a based float.
+
+## S2.111: the review of the float code
+
+A read-only codex review of S2.106-S2.110 found three differences from the interpreter. All three now follow it:
+- **Unary + and -.** A decimal part under + or - of a float expression had no precision, because the runtime's `precision` could not step into `Expr::Unary`. It now can, and eval's rule applies.
+- **The return type of a call.** `is_float_static` now asks for a call's return type as is_float does: the prototype's first, then the procedure's.
+- **Calls in float expressions.** A float expression with a call in it stays with the interpreter (`has_call`). eval picks %FLOAT's path and the kind of + by the value the call returns, and a bound procedure may return its own type.
+
+**Verified by** the native unit NFLTUNA, under both engines, as captured on PUB400 (tools/golden/native111.txt n111_floatunary). The capture shows the interpreter's 30-digit intermediate precision differing from IBM i (fidelity.md), and the unit leaves that value out.

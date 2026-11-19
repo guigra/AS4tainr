@@ -189,3 +189,15 @@ Source: tools/golden/native107 n107_floateval (PUB400, IBM i 7.5, 2026-11-19).
 | -2.5 | -2.5000000E+00 | -2.500000E+000 |
 
 IBM i writes a float(4) with 8 significant digits (7 after the point) and a two-digit exponent; the interpreter writes 7 significant digits and three exponent digits. float(8) agrees with IBM i (+3.675000000000000E+001). Both engines go through the interpreter's text, so this is an upstream interpreter defect, held for Kyle with the capture. The unit NFLTEVL leaves the float(4) values out.
+
+## Intermediate precision of 30 digits (found 2026-11-19)
+
+Source: tools/golden/native111 n111_floatunary (PUB400, IBM i 7.5, 2026-11-19).
+
+With f float(8) = 0, p packed(30:0) = 0 and q packed(2:2) = .99, `res = -(f + (p + q))` gives -9.900000000000000E-001 on IBM i: p + q keeps its two decimal places.
+
+The interpreter's precision rules (interp.rs num_precision) give the result at most 30 digits when no operand has more than 30. p + q then needs 31 integer digits, keeps no decimals, and comes out as 0. The interpreter stores +0.000000000000000E+000.
+
+This is the rule codex's audit pointed at for multiplication and division (its F4 and F5). It can change decimal expressions too, not only float ones. Native code follows the interpreter: a review of 2026-11-19 made the float path give decimal parts under + and - their precision, as eval does.
+
+This is an upstream interpreter defect, held for Kyle with the capture. The unit NFLTUNA leaves that value out.

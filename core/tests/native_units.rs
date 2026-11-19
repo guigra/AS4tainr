@@ -2747,3 +2747,26 @@ async fn native_unit_lowered_float_of_characters() {
     )
     .await;
 }
+
+// The review of 2026-11-19 (ADR 0008): decimal parts under unary
+// operators in float expressions.
+// Source: golden capture tools/golden/native111 n111_floatunary (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_float_unary_precision() {
+    let _ = require_db!();
+    // The capture's line is "-9.900000000000000E-001
+    // +3.980000000000000E+000". Its first value is left out: the
+    // interpreter caps p + q (packed(30:0) + packed(2:2)) at 30 digits
+    // with no decimals and gives +0, where IBM i keeps the .99, an
+    // interpreter defect recorded in docs/native/fidelity.md
+    // ("Intermediate precision of 30 digits").
+    let got = shown("NFLTUNA", include_str!("native/NFLTUNA.rpgle")).await;
+    let line = got.first().cloned().unwrap_or_default();
+    let parts: Vec<&str> = line.split(' ').collect();
+    assert_eq!(parts.len(), 2, "NFLTUNA {got:?}");
+    assert_eq!(
+        parts.get(1).copied(),
+        Some("+3.980000000000000E+000"),
+        "NFLTUNA {got:?}"
+    );
+}

@@ -1,0 +1,4 @@
+# Captures for the review of 2026-11-19 (ADR 0008): decimal precision under unary operators in float expressions (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native111.txt -f tools/golden/native111
+n111_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN111FUN) SRCSTMF('@HOME@/gld/gn111fun.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n111_floatunary|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN111FUN)"; cat gn1.out; rm -f gn1.out
