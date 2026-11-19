@@ -1,8 +1,44 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-18 01:40 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
+Last update: 2026-11-19 00:10 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
 
-## Now (2026-11-18, 16:00 UTC)
+## Now (2026-11-19, 00:10 UTC)
+
+**Committed up to S2.92** (93c39cc; 93.9% native, level 2 rust 694 of 716 as under the interpreter):
+- S2.82-S2.86: temporal file fields and the fixed-form string, bit, array, SORTA and MOVEA operations;
+- S2.87: procedure pointers. Its first run found a native bug: call_frame checked the argument count for calls through a prototype, which call_proc allows (OSSILE's OSSPARMS). It was fixed before the commit;
+- S2.88-S2.89: %STR, %LEN of expressions, FOR-EACH;
+- S2.90: ON-EXIT;
+- S2.91: imported and exported fields;
+- S2.92: printer parity found by the codex review.
+
+**Snapshots chained one on the other, validating** (`as4tainr-up-logs/s7-<tag>.commit`):
+
+| Snapshot | What | Where |
+| --- | --- | --- |
+| S2.93 | a procedure's own data structures as a whole | jsr-test-2 `s7f-s293` |
+| S2.94 | CLEAR | ARM `s7f-s294` |
+| S2.95 | RESET of globals | jsr-test-2 after S2.93 |
+
+Commit them in order as each passes, checking each time that the snapshot's parent tree is HEAD's.
+
+**Codex.** The user offered codex, which is on this host and on ARM. It is used read-only: `codex exec -s read-only -C <repo> - < prompt`.
+- Lists of about 6 functions work; longer lists end unfinished.
+- Each finding is checked against the code and settled with a PUB400 capture.
+- Reviewed so far: str_op_n and str_at (out-of-range numbers only, in fidelity.md), and every printer and data area function (S2.92).
+- Not reviewed yet: bit_op_n, array_op_n, sorta_n, movea_n, paddr_n, procptr_target_n, each_array/each_take, call_frame's ON-EXIT and `checked`, and the SQL functions (S2.69-S2.75).
+- When the engine is finished, the user wants a full codex audit of the fork: security, performance and IBM i fidelity.
+
+**Known flake, not the backend's.** native_unit_lowered_static_sql (NSQL1) fails now and then with PostgreSQL's "tuple concurrently updated", under either engine. It holds the units' DDL mutex, so the race is with catalog::init run by the other units in parallel.
+- In production, catalog::init runs once when a server starts. Each CLI command (system, batch, put, get, db) runs it again, and could meet a DDL of another job.
+- A retry or a no-change init is a possible upstream proposal. The user may want it after 2026-11-24.
+
+**What is still interpreted**, from S2.91's native-diff coverage: DSPLY 57, EVAL 52, IF 37, CALLP 20, WRITE 13, RETURN 12, READ 11 and smaller groups.
+- The WHY pass over the whole suite needs AS4TAINR_NATIVE_EMIT as well as AS4TAINR_NATIVE_WHY: lowering runs only when code is generated.
+- `jsr-test-2:~/data/as4tainr-native/why-s291/why.txt` has 140 lines.
+- The main causes: floats (10 or so; they need an ADR first), DS parameters to local procedures, procedures returning pointers, pointer arithmetic, UCS-2, %NULLIND, local varying fields, and local DS arrays.
+
+## Before (2026-11-18, 16:00 UTC)
 
 **Committed up to S2.81** (e1a0c4e; 91.9% native, level 2 rust 682 of 704 as under the interpreter):
 - embedded SQL in full: S2.69-S2.75, the visibility commits 104e992 and 558eff2, QTEMP units 8714d95;

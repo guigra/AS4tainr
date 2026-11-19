@@ -1,0 +1,4 @@
+# Captures for the review of 2026-11-19: whole-array operations on based arrays (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native96.txt -f tools/golden/native96
+n96_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN96BAS) SRCSTMF('@HOME@/gld/gn96bas.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n96_based|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN96BAS)"; cat gn1.out; rm -f gn1.out

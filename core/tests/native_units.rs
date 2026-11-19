@@ -2563,3 +2563,17 @@ async fn native_unit_lowered_reset() {
     )
     .await;
 }
+
+// The review of 2026-11-19: whole-array operations (XFOOT, LOOKUP,
+// SORTA, FOR-EACH, MOVEA) on arrays based on a pointer to other arrays.
+// Source: golden capture tools/golden/native96 n96_based (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_based_whole_arrays() {
+    let _ = require_db!();
+    expect(
+        "NBASARR",
+        include_str!("native/NBASARR.rpgle"),
+        &["22 1 1579 44 abcdef"],
+    )
+    .await;
+}
