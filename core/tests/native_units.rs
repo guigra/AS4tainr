@@ -2894,3 +2894,42 @@ async fn native_unit_lowered_local_files() {
     )
     .await;
 }
+
+// Stage 2, S2.120: WRITE and UPDATE from a result data structure.
+// Source: golden capture tools/golden/native120 n120_dsiou (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_ds_io() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    // As the capture's GN120F: empty.
+    let _ = job.run("DLTF FILE(QGPL/GN120F)").await;
+    job.run_sql_script(
+        "CREATE TABLE QGPL.GN120F (N INT, S CHAR(5));",
+        "native unit NDSIO",
+        10,
+        None,
+        true,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    expect("NDSIO", include_str!("native/NDSIO.rpgle"), &["50:zz 6:de"]).await;
+}

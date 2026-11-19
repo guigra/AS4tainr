@@ -1,0 +1,7 @@
+# Captures for stage 2, S2.120: WRITE and UPDATE from a result data structure (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native120.txt -f tools/golden/native120
+n120_mkf|!system "RUNSQL SQL('create or replace table @LIB@/GN120F (n int, s char(5))') COMMIT(*NONE)"; system "RUNSQL SQL('delete from @LIB@/GN120F') COMMIT(*NONE)"
+n120_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN120DS) SRCSTMF('@HOME@/gld/gn120ds.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n120_dsio|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN120DS)"; cat gn1.out; rm -f gn1.out
+n120_crtu|!system "RUNSQL SQL('delete from @LIB@/GN120F') COMMIT(*NONE)"; system "CRTSQLRPGI OBJ(@LIB@/GN120DU) SRCSTMF('@HOME@/gld/gn120du.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n120_dsiou|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN120DU)"; cat gn1.out; rm -f gn1.out

@@ -1451,3 +1451,22 @@ CHAIN, READ, READE, READP and READPE of a database file into a result data struc
 A procedure's own file is implicitly qualified, so every I/O on one takes a result data structure (RNF7274 on PUB400 otherwise). With S2.118, a procedure's own files are now native.
 
 **Verified by** S2.117's native unit NLOCFIL (tools/golden/native117 n117_localfile). Its READs into LIKEREC data structures, of COUNT's file and of NEXT's STATIC file, are now native.
+
+## S2.120: WRITE and UPDATE from a result data structure
+
+WRITE and UPDATE of a database file from a result data structure are lowered (`FileChange::ds`, `Runtime::file_change_ds`), as bifs.rs ds_to_record makes the record:
+- each field comes from the subfield named like its program field or its file field;
+- a field with no such subfield is left out of the record;
+- numbers are rescaled to the field's decimal places and characters are taken as they are (`field_text`);
+- the record carries no null values, since ds_to_record does not add record_of's ALWNULL(*USRCTL) ones.
+
+**Stays with the interpreter:**
+- DELETE;
+- %FIELDS;
+- hexadecimal, date, time and timestamp subfields;
+- a subfield whose type is not the field's kind;
+- program-described files.
+
+A qualified file's format named as `file.format` is not found by the interpreter (fidelity.md), so lowering leaves it to the interpreter too.
+
+**Verified by** the native unit NDSIO, under both engines (tools/golden/native120.txt): two WRITEs from a LIKEREC(*OUTPUT) data structure, a READ and an UPDATE from a LIKEREC(*INPUT) one, then the reads. IBM i gives `50:zz 6:de` with the file qualified (n120_dsio) and not qualified (n120_dsiou).

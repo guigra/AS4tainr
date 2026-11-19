@@ -231,3 +231,11 @@ This needs a procedure's LIKEDS parameter that has a display field's name and is
 - **Native code:** it reads the storage there is, with blanks or "off" for the rest.
 
 The interpreter's panic is an upstream defect; the case is very contrived, and it is left as it is.
+
+## WRITE and UPDATE of a qualified file's format (found 2026-11-19)
+
+On a qualified file, `WRITE gn120f.gn120f o` and `UPDATE gn120f.gn120f r` name the file's record format the way it must be named.
+- **IBM i:** the program compiles and runs (tools/golden/native120 n120_dsio: `50:zz 6:de`).
+- **The interpreter:** it fails at run time with "GN120F.GN120F is not a file of this program". errors.rs file_idx compares the whole qualified name with the files' names and formats.
+
+Native code follows the interpreter: lowering finds no file either, and leaves the statement to it. This is an upstream interpreter defect, held for Kyle with the capture. The unit NDSIO takes the program with the file not qualified and its format renamed (n120_dsiou), which IBM i runs with the same result.

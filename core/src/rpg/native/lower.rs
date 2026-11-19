@@ -4382,9 +4382,9 @@ fn file_read(
     used: &mut Vec<String>,
 ) -> Option<ir::Lowered> {
     let change = matches!(op, FileOp::Write | FileOp::Update | FileOp::Delete);
-    // A result data structure (S2.119) only for reads: record_to_ds; a
-    // change's ds_to_record stays with the interpreter.
-    if ds.is_some() && (change || matches!(op, FileOp::SetLL | FileOp::SetGT)) {
+    // A result data structure: a read's record_to_ds (S2.119), WRITE's
+    // and UPDATE's ds_to_record (S2.120); no SETLL, SETGT or DELETE.
+    if ds.is_some() && matches!(op, FileOp::SetLL | FileOp::SetGT | FileOp::Delete) {
         return None;
     }
     if !change
@@ -4521,6 +4521,20 @@ fn file_read(
                 return None;
             }
             let target = variable(cx, &Expr::name(&tname), used)?;
+            // record_to_ds and ds_to_record convert a date, time or
+            // timestamp subfield as Value::str and chars; left to the
+            // interpreter (S2.119, S2.120).
+            if members.is_some()
+                && matches!(
+                    &target,
+                    ir::Operand::Var {
+                        ty: ir::Ty::Date(..) | ir::Ty::Time(..) | ir::Ty::Timestamp(_),
+                        ..
+                    }
+                )
+            {
+                return None;
+            }
             let ir::Operand::Var { ty, index, .. } = &target else {
                 return None;
             };
@@ -4575,11 +4589,12 @@ fn file_read(
         }
     }
     if change {
-        used.push(format!("file change {op:?} {file} {i}"));
+        used.push(format!("file change {op:?} {file} {i} ds {ds:?}"));
         return Some(ir::Lowered::FileChange {
             keys,
             fields: moves,
             width: fref.file.fields.len(),
+            ds: ds.is_some(),
         });
     }
     used.push(format!("file read {op:?} {file} {i} ds {ds:?}"));
