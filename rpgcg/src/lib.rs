@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.120");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.123");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -773,7 +773,7 @@ pub mod ir {
         IndVar(Operand),
         /// %CHAR of an indicator-valued built-in function (S2.112:
         /// %ERROR): '1' or '0'.
-        CondChar(Box<Cond>),
+        CondChar(Box<Cond>, Vec<u8>),
         /// %CHAR of a float field of this many bytes (S2.107, ADR 0008):
         /// its external display form.
         FloatChar(Operand, u32),
@@ -798,12 +798,12 @@ pub mod ir {
             path: Vec<u8>,
         },
         /// %SUBST (S2.10): a character expression, its start and, when
-        /// given, its length (literals or fields), and its place in the
-        /// statement's expression.
+        /// given, its length (numeric expressions since S2.122), and its
+        /// place in the statement's expression.
         Subst {
             inner: Box<CharExpr>,
-            start: Operand,
-            len: Option<Operand>,
+            start: Box<NumExpr>,
+            len: Option<Box<NumExpr>>,
             path: Vec<u8>,
         },
         /// %CHAR of a date, time or timestamp field (S2.53), in the format
@@ -1918,6 +1918,13 @@ fn side(pc: usize, s: &ir::CmpSide, helpers: &mut String) -> String {
 /// Helper functions of a lowered condition: `c<pc>` for the whole, then
 /// `c<pc>_<k>` for its parts.
 fn cond_fns(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usize) {
+    cond_fns_in(pc, c, id, out, n, &format!("c{pc}"));
+}
+
+/// cond_fns with the prefix of the sub-conditions' helpers (`{pre}_{n}`):
+/// `c{pc}` for a statement's condition, the helper's own name for a
+/// condition inside an expression (S2.123, %CHAR of a condition).
+fn cond_fns_in(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usize, pre: &str) {
     let _ = writeln!(out, "\nfn {id}(rt: &mut dyn Runtime) -> NResult<bool> {{");
     match c {
         ir::Cond::Cmp(op, a, b) => {
@@ -1995,9 +2002,9 @@ fn cond_fns(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usize) 
         }
         ir::Cond::Not(x) => {
             *n = n.saturating_add(1);
-            let xi = format!("c{pc}_{n}");
+            let xi = format!("{pre}_{n}");
             let _ = writeln!(out, "    Ok(!{xi}(rt)?)\n}}");
-            cond_fns(pc, x, &xi, out, n);
+            cond_fns_in(pc, x, &xi, out, n, pre);
         }
         ir::Cond::Chain(and, conds) => {
             // In order, stopping as the interpreter's AND/OR do: AND at the
@@ -2005,7 +2012,7 @@ fn cond_fns(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usize) 
             let mut names = Vec::with_capacity(conds.len());
             for _ in conds {
                 *n = n.saturating_add(1);
-                names.push(format!("c{pc}_{n}"));
+                names.push(format!("{pre}_{n}"));
             }
             let stop = if *and { "!" } else { "" };
             for nm in &names {
@@ -2017,7 +2024,7 @@ fn cond_fns(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usize) 
             }
             let _ = writeln!(out, "    Ok({and})\n}}");
             for (nm, c) in names.iter().zip(conds) {
-                cond_fns(pc, c, nm, out, n);
+                cond_fns_in(pc, c, nm, out, n, pre);
             }
         }
         ir::Cond::And(l, r) | ir::Cond::Or(l, r) => {
@@ -2027,12 +2034,12 @@ fn cond_fns(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usize) 
                 "||"
             };
             *n = n.saturating_add(1);
-            let li = format!("c{pc}_{n}");
+            let li = format!("{pre}_{n}");
             *n = n.saturating_add(1);
-            let ri = format!("c{pc}_{n}");
+            let ri = format!("{pre}_{n}");
             let _ = writeln!(out, "    Ok({li}(rt)? {both} {ri}(rt)?)\n}}");
-            cond_fns(pc, l, &li, out, n);
-            cond_fns(pc, r, &ri, out, n);
+            cond_fns_in(pc, l, &li, out, n, pre);
+            cond_fns_in(pc, r, &ri, out, n, pre);
         }
     }
 }
@@ -3965,10 +3972,12 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
         ir::CharExpr::FloatChar(o, n) => {
             format!("rpgrt::native::float_char(&{}, {n})?", value(o))
         }
-        ir::CharExpr::CondChar(c) => {
-            let name = format!("cc{pc}_{}", helpers.len());
+        ir::CharExpr::CondChar(c, path) => {
+            // Named by its place in the statement; its sub-conditions'
+            // helpers after its own name (S2.123).
+            let name = format!("cc{pc}_{}", path_id(path));
             let mut n = 0;
-            cond_fns(pc, c, &name, helpers, &mut n);
+            cond_fns_in(pc, c, &name, helpers, &mut n, &format!("{name}s"));
             format!(
                 "rpgrt::rpg::data::Value::Char(vec![if {name}(rt)? {{ 0xF1 }} else {{ 0xF0 }}])"
             )
@@ -4017,15 +4026,15 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
             // then the length.
             let take = match len {
                 Some(l) => format!(
-                    "    let n = {};\n    rpgrt::native::subst_take(&s, from, Some(&n))",
-                    value(l)
+                    "    let n = rpgrt::rpg::data::Value::Num({});\n    rpgrt::native::subst_take(&s, from, Some(&n))",
+                    num_expr(pc, l, helpers)
                 ),
                 None => "    rpgrt::native::subst_take(&s, from, None)".to_string(),
             };
+            let st = num_expr(pc, start, helpers);
             let _ = writeln!(
                 helpers,
-                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let s = {x}.chars()?;\n    let st = {};\n    let from = rpgrt::native::subst_start(&s, &st)?;\n{take}\n}}",
-                value(start)
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let s = {x}.chars()?;\n    let st = rpgrt::rpg::data::Value::Num({st});\n    let from = rpgrt::native::subst_start(&s, &st)?;\n{take}\n}}"
             );
             format!("{name}(rt)?")
         }

@@ -1489,3 +1489,24 @@ The first validation with it (jsr-test-2, s7f-s2121) failed in ways that came fr
 - **A broken premise.** native_engine.rs's NATSW1 must have no generated code: its text carried the process number, which is now always 1. It now carries the number and the time the process first asked (`run_tag`), so its premise holds as before.
 
 Upstream's tests are still not touched.
+
+## S2.122: %SUBST with expressions as its start and length
+
+%SUBST's start and length are now numeric expressions (`NumExpr`), not only fields and literals, as interp.rs's "SUBST" arm evaluates them:
+- the string first, then the start, checked against it (RNQ0100), then the length.
+
+Programs that call APIs take fields out of a receiver variable this way (`%subst(j: 81 + (j.nsys + j.nprd) * 11: 11)`, rla_test.rs CHGLL, RTVJOBD, MSGQL, NETA), and many of the programs S2.121 makes generatable did.
+
+**Verified by** the native unit NSUBSTX, under both engines, as captured on PUB400 (tools/golden/native122.txt n122_subst: `ghij qr 567890 err100`):
+- expressions of a field for the start and the length;
+- a %LEN expression;
+- %SUBST of a whole data structure;
+- a start of 0 under MONITOR (status 00100).
+
+## S2.123: %CHAR of a condition
+
+%CHAR of a comparison, of AND or OR, or of NOT is lowered (`CharExpr::CondChar` of the condition, as IF takes it). eval gives the condition's Value::Ind, and interp.rs bif's CHAR arm makes it '1' or '0'. API programs show a flag this way (`%char(apierr.avail > 0)`, rla_test.rs MSGAPI; MIWAIT, FTOKT).
+
+**Verified by** the native unit NCHARCND, under both engines, as captured on PUB400 (tools/golden/native123.txt n123_charcond: `100110 1`). It covers numeric and character comparisons, OR, AND, NOT, and an arithmetic comparison.
+
+A condition inside an expression is named by its place in the statement (`cc{pc}_{path}`), and its sub-conditions' helpers after that name (rpgcg `cond_fns_in`). A statement's own condition keeps `c{pc}_{n}`. The unit's first generated code had several %CHAR conditions in one statement, which defined `c0_1` twice and did not compile; generated-code clippy caught it.

@@ -2933,3 +2933,29 @@ async fn native_unit_lowered_ds_io() {
     .unwrap_or_else(|e| panic!("{e:#}"));
     expect("NDSIO", include_str!("native/NDSIO.rpgle"), &["50:zz 6:de"]).await;
 }
+
+// Stage 2, S2.122: %SUBST with expressions as its start and length.
+// Source: golden capture tools/golden/native122 n122_subst (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_subst_expressions() {
+    let _ = require_db!();
+    expect(
+        "NSUBSTX",
+        include_str!("native/NSUBSTX.rpgle"),
+        &["ghij qr 567890 err100"],
+    )
+    .await;
+}
+
+// Stage 2, S2.123: %CHAR of conditions.
+// Source: golden capture tools/golden/native123 n123_charcond (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_char_of_conditions() {
+    let _ = require_db!();
+    expect(
+        "NCHARCND",
+        include_str!("native/NCHARCND.rpgle"),
+        &["100110 1"],
+    )
+    .await;
+}
