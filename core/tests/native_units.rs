@@ -2993,3 +2993,47 @@ async fn native_unit_lowered_indicators_and_figuratives() {
     let _ = require_db!();
     expect("NINDFIG", include_str!("native/NINDFIG.rpgle"), &["acde3"]).await;
 }
+
+// Stage 2, S2.128: OPEN and CLOSE of a database file.
+// Source: golden capture tools/golden/native128 n128_openclose (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_disk_open_close() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    // As the capture's GN120F after native120: 50 zz, 6 de.
+    let _ = job.run("DLTF FILE(QGPL/GN120F)").await;
+    job.run_sql_script(
+        "CREATE TABLE QGPL.GN120F (N INT, S CHAR(5));\nINSERT INTO QGPL.GN120F VALUES (50, 'zz'), (6, 'de');",
+        "native unit NOPNCLS",
+        10,
+        None,
+        true,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    expect(
+        "NOPNCLS",
+        include_str!("native/NOPNCLS.rpgle"),
+        &["50 1215 closed 50"],
+    )
+    .await;
+}

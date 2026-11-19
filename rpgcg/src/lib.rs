@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.127");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.128");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -627,6 +627,8 @@ pub mod ir {
         },
         /// OPEN, CLOSE or FEOD of a printer file (S2.79).
         PrinterOp,
+        /// OPEN or CLOSE of a database file (S2.128).
+        DiskOpenClose,
         /// WRITE of a printer file's record format (S2.79): the program
         /// fields it prints and the INDDS data structure, with places.
         PrinterWrite {
@@ -3201,6 +3203,10 @@ fn lowered_step(
                 format!("da{pc}(rt).map(|()| {next})"),
             )
         }
+        (ir::Kind::Stmt, ir::Lowered::DiskOpenClose) => guarded(
+            format!("rt.stmt({pc}).map(|()| {next})"),
+            format!("rt.disk_open_close({pc}).map(|()| {next})"),
+        ),
         (ir::Kind::Stmt, ir::Lowered::PrinterOp) => guarded(
             format!("rt.stmt({pc}).map(|()| {next})"),
             format!("rt.printer_op({pc}).map(|()| {next})"),

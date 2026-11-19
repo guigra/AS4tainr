@@ -1552,3 +1552,23 @@ A comparison of two names took the operand path. A call is a name with arguments
 - NCFUNC: C functions compared, captured on PUB400 (tools/golden/native57.txt n57_c).
 
 The WHY pass gave these as `cond=bin:Eq,call:...`.
+
+## S2.128: OPEN and CLOSE of a database file
+
+OPEN and CLOSE of a database file are lowered (`Lowered::DiskOpenClose`, `Runtime::disk_open_close`) as errors.rs file_op runs them:
+- the error flag off and the savepoint under commitment control, as file_read_n starts;
+- then file_op_inner's arms: OPEN of an open file is CPF4161 (status 01215), else `open_file`; CLOSE closes the open file if there is one (`close_open_file`), and a closed file is no error;
+- then file_op's end (file_end_n).
+
+**Stays with the interpreter:**
+- a file with an INFDS, which open_file writes and file_end_n does not write again;
+- the E extender and resulting indicators;
+- printer files, which keep S2.79's path.
+
+**Verified by** the native unit NOPNCLS, under both engines, as captured on PUB400 (tools/golden/native128.txt n128_openclose: `50 1215 closed 50`):
+- a USROPN file opened and read;
+- opened again while open under MONITOR (01215);
+- closed twice (no error);
+- opened and read again from the start.
+
+NDSIO's OPEN and CLOSE (S2.120) are native now too.
