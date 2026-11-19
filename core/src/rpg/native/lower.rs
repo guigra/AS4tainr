@@ -423,6 +423,27 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 right: *right,
             }
         }
+        // EVAL of a float field (S2.106, ADR 0008) to a decimal value:
+        // eval's value (no float operand: `variable` leaves float fields
+        // out, so the interpreter's float arithmetic never applies), then
+        // assign's data::store of DType::Float, which converts it.
+        Ins::Stmt(Stmt::Eval {
+            target,
+            value,
+            ext,
+            right,
+        }) if !ext.error
+            && !ext.no_lock
+            && ext.other.chars().all(|c| c == 'H')
+            && float_target_ok(cx, target) =>
+        {
+            ir::Lowered::Eval {
+                target: float_target(cx, target, &mut used)?,
+                value: num_expr(cx, value, &mut used, Vec::new())?,
+                half_adjust: ext.half_adjust,
+                right: *right,
+            }
+        }
         // EVAL with %LEN as its target (S2.102): assign_value's "LEN"
         // arm, of a varying field with no index that is not based.
         Ins::Stmt(Stmt::Eval {
@@ -2985,10 +3006,15 @@ fn call_of(
         // structure: args_for's Arg::Ref(loc_of), its bytes, which
         // call_frame aliases as call_proc does. The sizes must match (the
         // operand's type check below); CONST and VALUE stay out.
+        // The procedure interface's parameter must be the prototype's own
+        // type: call_frame makes the descriptor (CEEDOD's length) from the
+        // interface's, call_proc from the argument's (the review of
+        // 2026-11-19: an EXTPROC prototype of another size).
         let ds_ref = local.is_some_and(|pi| {
             !p.by_value
                 && !p.konst
                 && whole_ds
+                && pi.params.get(k).is_some_and(|q| q.dtype == p.dtype)
                 && matches!(pi.syms.get(&p.name), Some(Sym::Ds(d)) if d.dim == 0)
         });
         if (local.is_some_and(|pi| !matches!(pi.syms.get(&p.name), Some(Sym::Var(_)))) && !ds_ref)
@@ -3447,6 +3473,57 @@ fn target_var(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Opera
             outer: None,
             next: true,
         })),
+        based: None,
+    })
+}
+
+/// A float field as an EVAL's target (S2.106, ADR 0008): a standalone or
+/// subfield, not an array, not based, not in a multiple-occurrence data
+/// structure; a procedure's own only in that procedure.
+fn float_target_ok(cx: &Cx<'_>, e: &Expr) -> bool {
+    let Expr::Name { parts, args: None } = e else {
+        return false;
+    };
+    let Some(Sym::Var(v)) = sym(cx, &parts.join(".")) else {
+        return false;
+    };
+    if !matches!(v.dtype, DType::Float(_)) || v.dim != 0 {
+        return false;
+    }
+    if v.local {
+        cx.based.is_some_and(|b| !b.contains_key(&v.buf))
+    } else {
+        !cx.prog.based.contains_key(&v.buf) && !cx.prog.occurs.iter().any(|o| o.buf == v.buf)
+    }
+}
+
+fn float_target(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    if !float_target_ok(cx, e) {
+        return None;
+    }
+    let Expr::Name { parts, .. } = e else {
+        return None;
+    };
+    let name = parts.join(".");
+    let Some(Sym::Var(v)) = sym(cx, &name) else {
+        return None;
+    };
+    let DType::Float(n) = v.dtype else {
+        return None;
+    };
+    used.push(format!(
+        "layout {name} {} {} Float({n}) {}",
+        v.buf,
+        v.off,
+        if v.local { "local" } else { "global" }
+    ));
+    Some(ir::Operand::Var {
+        name,
+        buf: v.buf,
+        off: v.off,
+        ty: ir::Ty::Float(n),
+        local: v.local,
+        index: None,
         based: None,
     })
 }

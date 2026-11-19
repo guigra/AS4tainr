@@ -1,8 +1,50 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-19 00:10 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
+Last update: 2026-11-19 03:55 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
 
-## Now (2026-11-19, 00:10 UTC)
+## Now (2026-11-19, 03:55 UTC)
+
+**Committed up to S2.99** (8ed9ae3; 94.3% native, level 2 rust 701 of 723 as under the interpreter):
+- S2.93: a procedure's data structures as a whole;
+- S2.94: CLEAR;
+- S2.95: RESET of globals;
+- S2.96: based arrays found by codex;
+- 6dea5c4: the units' catalog::init once per process, which ends the NSQL1 race;
+- S2.97: LIKEDS parameters by reference;
+- S2.98: pointer differences;
+- S2.99: calls returning pointers.
+
+**Snapshots chained one on the other, validating** (`as4tainr-up-logs/s7-<tag>.commit`):
+
+| Snapshot | What | Where |
+| --- | --- | --- |
+| s2100 | indicator fields: EVAL targets and conditions | ARM |
+| s2101 | indicator parameters passed by value | jsr-test-2 |
+| s2102 | %LEN as a target | ARM |
+| s2103b | *NEXT, EVAL targets only (codex found the first version too wide) | jsr-test-2 |
+| s2104b | indicator fields as characters | ARM |
+| s2105b | indicator fields compared | jsr-test-2 |
+
+Commit them in order as each passes, checking each time that the snapshot's parent tree is HEAD's.
+
+**In the working tree, not in any snapshot yet.** The S2.97 review fix: `ds_ref` requires the interface's parameter type to be the prototype's. It goes in the next block, S2.106.
+
+**Waiting for the user:**
+- **ADR 0008** (floats, Proposed), `docs/native/adr/0008-float-fields.md`. It is kept out of the snapshots until it is accepted.
+- **The codex audit of the whole fork**, 2026-11-19: /home/ctl/data/codex-audit-2026-11-19/RESUMEN.md.
+  - Security findings in upstream code, two of them confirmed: the SSH sessions' AS4TAINR_DATABASE_URL, and the quoted "set_config" past the SQL filter.
+  - The proposal is to send them to Kyle as a private security advisory, after 2026-11-24.
+- **Codex on ARM** is not logged in. jsr-test-2 has no codex.
+
+**Interpreter defects found by captures today** (fidelity.md, held for Kyle):
+- the EXECUTE USING order (SQL0518 before the values; IBM reads the values first, 907);
+- pointers to different fields cannot be subtracted (IBM i allows it);
+- %LEN set longer shows the old characters (IBM: blanks), and its out-of-range status is 100 (IBM: 115);
+- the five printer and EXCEPT defects of S2.92.
+
+**What is still interpreted:** floats (ADR 0008); CONST and DIM data structure parameters; local arrays of data structures; UCS-2; %NULLIND; XML-INTO; record formats in CLEAR; local names in RESET.
+
+## Before (2026-11-19, 00:10 UTC)
 
 **Committed up to S2.92** (93c39cc; 93.9% native, level 2 rust 694 of 716 as under the interpreter):
 - S2.82-S2.86: temporal file fields and the fixed-form string, bit, array, SORTA and MOVEA operations;

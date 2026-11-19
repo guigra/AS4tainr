@@ -170,3 +170,22 @@ The program cuts a varying field holding 'abcdef' to length 3, and then sets its
 | A length past the field's maximum | status 115 | status 100 (RNQ0100) |
 
 Native code follows the interpreter (rpgrt::native::set_var_len). Both are upstream interpreter defects, held for Kyle with the capture, and the unit NLENSET leaves them out.
+
+## LIKEDS by reference through a prototype of another size (found 2026-11-19)
+
+A codex review found that S2.97 lowered a call through a prototype whose LIKEDS parameter differs in size from the procedure interface's. One way is an EXTPROC naming a procedure of this module.
+
+With OPDESC, the descriptor would differ: call_frame makes it from the interface's parameter, call_proc from the argument (CEEDOD's length 8 against 4). Lowering now requires the interface's parameter to be the prototype's own type. Such a call stays with the interpreter, so both engines do the same.
+
+A PUB400 capture of the review's program failed in the bind step (RNS9301), so IBM i's value is not known. No unit checks it, and the change only gives the case back to the interpreter.
+
+## %CHAR of float(4) (found 2026-11-19)
+
+Source: tools/golden/native107 n107_floateval (PUB400, IBM i 7.5, 2026-11-19).
+
+| Value | IBM i | Interpreter (data::float_text for 4 bytes) |
+|---|---|---|
+| 7 | +7.0000000E+00 | +7.000000E+000 |
+| -2.5 | -2.5000000E+00 | -2.500000E+000 |
+
+IBM i writes a float(4) with 8 significant digits (7 after the point) and a two-digit exponent; the interpreter writes 7 significant digits and three exponent digits. float(8) agrees with IBM i (+3.675000000000000E+001). Both engines go through the interpreter's text, so this is an upstream interpreter defect, held for Kyle with the capture. The unit NFLTEVL leaves the float(4) values out.

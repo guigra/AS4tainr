@@ -1261,3 +1261,17 @@ An indicator field is character data, '1' or '0' (`ir::CharExpr::IndVar`), in th
 A comparison with an indicator field on one side, and another indicator field, *ON or *OFF on the other, is lowered as a `Cond::Cmp`. The comparison is eval's: the field's Value::Ind against the other side's value, by data::compare (`rpgrt::native::cmp`). `ir::FigOp` gets On and Off, which only this comparison builds; `fig_op` still leaves *ON and *OFF out of every other form.
 
 **Verified by** the native unit NINDCMP, under both engines, as captured on PUB400 (tools/golden/native105.txt n105_indcmp). It compares with *ON and *OFF on either side and with another indicator field (= and <>), in IF and DOW, and a procedure's own field.
+
+## S2.106: float fields as EVAL targets (ADR 0008, part 1)
+
+**Floats.** EVAL of a float field (4 or 8 bytes; standalone, subfield or a procedure's own; not an array, not based) to a decimal value is lowered. This is ADR 0008's first part, accepted by the user on 2026-11-19. The value is eval's, and assign's data::store of DType::Float converts it (`ir::Ty::Float`).
+
+`variable` still leaves float fields out, so no float is an operand of a decimal expression; the interpreter would have done that arithmetic in float. Float operands, %FLOAT and float text come in later parts.
+
+**Also in this block: the review fix to S2.97.** A codex review found a gap in the LIKEDS by reference call. The procedure interface's parameter must now be the prototype's own type: call_frame makes the descriptor from the interface's parameter, call_proc from the argument's. fidelity.md has the details.
+
+**Verified by** the native unit NFLTEVL, under both engines, as captured on PUB400 (tools/golden/native107.txt n107_floateval):
+- a product, a division, an integer field and a negative literal, into float(8) and float(4);
+- a procedure's own float(8).
+
+The float(4) values' %CHAR text is an interpreter defect (fidelity.md), and the unit leaves it out.
