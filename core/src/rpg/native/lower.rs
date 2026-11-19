@@ -2887,8 +2887,19 @@ fn call_of(
         // reference when the sizes match (same_type_variable) and as its
         // value otherwise.
         let whole_ds = matches!(a, Expr::Name { parts, .. } if matches!(sym(cx, &parts.join(".")), Some(Sym::Ds(_))));
-        if local.is_some_and(|pi| !matches!(pi.syms.get(&p.name), Some(Sym::Var(_))))
-            || (whole_ds && local.is_some())
+        // S2.97: a data structure parameter (LIKEDS, not DIM) of this
+        // module's procedure passed by reference, given a whole data
+        // structure: args_for's Arg::Ref(loc_of), its bytes, which
+        // call_frame aliases as call_proc does. The sizes must match (the
+        // operand's type check below); CONST and VALUE stay out.
+        let ds_ref = local.is_some_and(|pi| {
+            !p.by_value
+                && !p.konst
+                && whole_ds
+                && matches!(pi.syms.get(&p.name), Some(Sym::Ds(d)) if d.dim == 0)
+        });
+        if (local.is_some_and(|pi| !matches!(pi.syms.get(&p.name), Some(Sym::Var(_)))) && !ds_ref)
+            || (whole_ds && local.is_some() && !ds_ref)
         {
             return None;
         }
@@ -2906,8 +2917,9 @@ fn call_of(
             Expr::Name { parts, .. } => match sym(cx, &parts.join(".")) {
                 Some(Sym::Var(_)) => true,
                 // A whole data structure (S2.60), for a call that is not
-                // local; `variable` takes only those it can place.
-                Some(Sym::Ds(_)) => local.is_none(),
+                // local, or by reference to a local one's LIKEDS parameter
+                // (S2.97); `variable` takes only those it can place.
+                Some(Sym::Ds(_)) => local.is_none() || ds_ref,
                 _ => false,
             },
             _ => false,

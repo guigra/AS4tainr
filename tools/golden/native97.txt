@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.97: EXECUTE of a statement not prepared (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native97.txt -f tools/golden/native97
+n97_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN97EXE) SRCSTMF('@HOME@/gld/gn97exe.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n97_execute|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN97EXE)"; cat gn1.out; rm -f gn1.out

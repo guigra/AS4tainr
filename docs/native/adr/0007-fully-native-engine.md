@@ -1186,3 +1186,13 @@ A read-only review (codex) of bit_op_n, array_op_n, sorta_n, movea_n and paddr_n
 They placed it by its declared buffer, but the interpreter reaches based storage through its pointer, and gives MCH3601 when the pointer is null. Lowering now leaves based globals and multiple-occurrence subfields to the interpreter in those forms (lower.rs `global_moved`), as `variable` already did.
 
 **Verified by** the native unit NBASARR, under both engines, as captured on PUB400 (tools/golden/native96.txt n96_based). Arrays based on a pointer to other arrays get XFOOT, LOOKUP, SORTA, FOR-EACH and MOVEA.
+
+## S2.97: LIKEDS parameters by reference to this module's procedures
+
+A call of this module's procedure with a data structure parameter (LIKEDS, not DIM) passed by reference, neither CONST nor VALUE, given a whole data structure of the same size, is lowered. The data structure can be global, qualified or a procedure's own.
+
+The argument is args_for's `Arg::Ref(loc_of(a))`: the data structure's bytes as Char(size), which is S2.93's operand. call_frame aliases the parameter's buffer to the argument's place, as call_proc does, and the callee reaches its subfields through the runtime's `local`.
+
+CONST and VALUE data structure parameters still stay with the interpreter, which may build a value or pass by reference (same_type_variable), as do LIKEDS DIM parameters.
+
+**Verified by** the native unit NDSPARM, under both engines, as captured on PUB400 (tools/golden/native98.txt n98_dsparm). BUMP changes its parameter's subfields, and the caller sees them. It is given a global data structure (twice), a qualified one, and another procedure's local one.

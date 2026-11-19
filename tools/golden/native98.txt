@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.97: LIKEDS parameters by reference to local procedures (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native98.txt -f tools/golden/native98
+n98_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN98DSP) SRCSTMF('@HOME@/gld/gn98dsp.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n98_dsparm|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN98DSP)"; cat gn1.out; rm -f gn1.out

@@ -2573,3 +2573,16 @@ async fn native_unit_based_whole_arrays() {
     )
     .await;
 }
+
+// Stage 2, S2.97: LIKEDS parameters by reference to local procedures.
+// Source: golden capture tools/golden/native98 n98_dsparm (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_ds_parameters() {
+    let _ = require_db!();
+    expect(
+        "NDSPARM",
+        include_str!("native/NDSPARM.rpgle"),
+        &["g1211 hh315 LL2105"],
+    )
+    .await;
+}
