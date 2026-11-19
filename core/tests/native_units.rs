@@ -2676,3 +2676,34 @@ async fn native_unit_lowered_indicator_comparisons() {
     )
     .await;
 }
+
+// Stage 2, S2.106 (ADR 0008): EVAL of float fields to decimal values.
+// Source: golden capture tools/golden/native107 n107_floateval (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_float_eval() {
+    let _ = require_db!();
+    // The capture's line is "+3.675000000000000E+001 +2.500000000000000E+000
+    // +7.0000000E+00 -2.5000000E+00 +3.333333333333333E-001". Checked: the
+    // three float(8) values (parts 1, 2 and 5). Left out: the float(4)
+    // ones, whose %CHAR the interpreter writes with 7 decimals and a
+    // 3-digit exponent (+7.000000E+000) where IBM i writes 7 and 2
+    // (+7.0000000E+00), an interpreter defect recorded in
+    // docs/native/fidelity.md ("%CHAR of float(4)").
+    let got = shown("NFLTEVL", include_str!("native/NFLTEVL.rpgle")).await;
+    let line = got.first().cloned().unwrap_or_default();
+    let parts: Vec<&str> = line.split(' ').collect();
+    let pick: Vec<&str> = [0usize, 1, 4]
+        .iter()
+        .map(|i| parts.get(*i).copied().unwrap_or("?"))
+        .collect();
+    assert_eq!(
+        pick,
+        [
+            "+3.675000000000000E+001",
+            "+2.500000000000000E+000",
+            "+3.333333333333333E-001"
+        ],
+        "NFLTEVL {got:?}"
+    );
+    assert_eq!(parts.len(), 5, "NFLTEVL {got:?}");
+}

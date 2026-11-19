@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.105");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.106");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -83,6 +83,9 @@ pub mod ir {
         /// An indicator field (S2.100): one byte, '1' or '0'; its value is
         /// `Value::Ind`.
         Ind,
+        /// A float field of 4 or 8 bytes (S2.106, ADR 0008): only as an
+        /// EVAL's target of a decimal value, which data::store converts.
+        Float(u32),
         /// A date, time or timestamp field (S2.52): its format's name and
         /// separator (rpgrt::rpg::dates::DateFmt, TimeFmt), or a
         /// timestamp's fractional digits. Its value is its *ISO text.
@@ -1323,6 +1326,7 @@ fn ty(t: &ir::Ty) -> String {
         Varchar(n) => format!("{p}::Varchar({n})"),
         Pointer => format!("{p}::Pointer"),
         Ind => format!("{p}::Ind"),
+        Float(n) => format!("{p}::Float({n})"),
         Date(n, sep) => {
             format!("{p}::Date(rpgrt::rpg::dates::DateFmt {{ name: {n:?}, sep: {sep:?} }})")
         }
