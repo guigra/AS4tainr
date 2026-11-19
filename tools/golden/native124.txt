@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.124: a based data structure as a whole (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native124.txt -f tools/golden/native124
+n124_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN124BD) SRCSTMF('@HOME@/gld/gn124bd.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n124_basedds|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN124BD)"; cat gn1.out; rm -f gn1.out

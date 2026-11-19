@@ -2959,3 +2959,16 @@ async fn native_unit_lowered_char_of_conditions() {
     )
     .await;
 }
+
+// Stage 2, S2.124: a based data structure as a whole.
+// Source: golden capture tools/golden/native124 n124_basedds (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_based_ds_whole() {
+    let _ = require_db!();
+    expect(
+        "NBASEDDS",
+        include_str!("native/NBASEDDS.rpgle"),
+        &["7abcd wxyz EFGH"],
+    )
+    .await;
+}

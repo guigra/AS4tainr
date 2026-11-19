@@ -2617,7 +2617,8 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
     }
     let v = match sym(cx, name) {
         Some(Sym::Var(v)) => v,
-        // A whole data structure (S2.24), not an array, global, not based
+        // A whole data structure (S2.24), not an array, global (based ones
+        // since S2.124)
         // or of multiple occurrences: the interpreter reads its bytes and
         // assigns it as a character field of its size (`eval`, `assign`).
         Some(Sym::Ds(d)) if args.is_none() => {
@@ -2626,16 +2627,48 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
             // Machine::sym places it (the frame's buffer, or the caller's
             // for a parameter by reference: the runtime's `local`); not
             // based, not an array.
-            let excluded = if d.local {
-                d.dim != 0 || cx.based.is_none_or(|b| b.contains_key(&d.buf))
+            // A based data structure (S2.124): where its pointer points
+            // now, as a based field's (S2.48) place is found; the pointer
+            // not based itself.
+            let based_on = if d.local {
+                cx.based.and_then(|b| b.get(&d.buf))
             } else {
-                d.dim != 0
-                    || prog.based.contains_key(&d.buf)
-                    || prog.occurs.iter().any(|o| o.buf == d.buf)
+                prog.based.get(&d.buf)
+            };
+            let excluded = if d.local {
+                d.dim != 0 || cx.based.is_none()
+            } else {
+                d.dim != 0 || prog.occurs.iter().any(|o| o.buf == d.buf)
             };
             if excluded {
                 return None;
             }
+            let based = match based_on {
+                Some(p) => {
+                    let ptr = variable(
+                        cx,
+                        &Expr::Name {
+                            parts: vec![p.clone()],
+                            args: None,
+                        },
+                        used,
+                    )?;
+                    if !matches!(
+                        &ptr,
+                        ir::Operand::Var {
+                            ty: ir::Ty::Pointer,
+                            index: None,
+                            based: None,
+                            ..
+                        }
+                    ) {
+                        return None;
+                    }
+                    used.push(format!("based {name} on {p}"));
+                    Some(Box::new(ir::Based { ptr, size: d.size }))
+                }
+                None => None,
+            };
             let size = u32::try_from(d.size).ok()?;
             used.push(format!(
                 "layout {name} {} {} ds {size} {}",
@@ -2650,7 +2683,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
                 ty: ir::Ty::Char(size),
                 local: d.local,
                 index: None,
-                based: None,
+                based,
             });
         }
         _ => return None,

@@ -1510,3 +1510,15 @@ Programs that call APIs take fields out of a receiver variable this way (`%subst
 **Verified by** the native unit NCHARCND, under both engines, as captured on PUB400 (tools/golden/native123.txt n123_charcond: `100110 1`). It covers numeric and character comparisons, OR, AND, NOT, and an arithmetic comparison.
 
 A condition inside an expression is named by its place in the statement (`cc{pc}_{path}`), and its sub-conditions' helpers after that name (rpgcg `cond_fns_in`). A statement's own condition keeps `c{pc}_{n}`. The unit's first generated code had several %CHAR conditions in one statement, which defined `c0_1` twice and did not compile; generated-code clippy caught it.
+
+## S2.124: a based data structure as a whole
+
+A based data structure named as a whole is now a variable of lowered code, as its based subfields have been since S2.48. It is a character field of the structure's size at the place its pointer gives now (`ir::Based`, `Runtime::based_at`, the interpreter's based_place). This holds for a global structure and for a procedure's own, and the pointer must not be based itself.
+
+So it can be assigned, taken by %SUBST and passed by reference, the way API programs pass a receiver variable (rla_test.rs RCVKEY: `qmhrcvpm(hdr: 2048: ...)` with `hdr` based on an allocated pointer). An array or multiple-occurrence structure still stays with the interpreter.
+
+**Verified by** the native unit NBASEDDS, under both engines, as captured on PUB400 (tools/golden/native124.txt n124_basedds: `7abcd wxyz EFGH`):
+- subfields set through the pointer;
+- the whole structure passed to a CHAR(100) OPTIONS(*VARSIZE) parameter that a procedure changes;
+- %SUBST of the structure;
+- the whole structure assigned.
