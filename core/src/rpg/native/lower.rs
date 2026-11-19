@@ -1086,7 +1086,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             right,
         }) if !ext.error && !ext.no_lock && ext.other.chars().all(|c| c == 'H') => {
             ir::Lowered::EvalFig {
-                target: variable(cx, target, &mut used)?,
+                target: target_var(cx, target, &mut used)?,
                 fig: fig_op(f)?,
                 half_adjust: ext.half_adjust,
                 right: *right,
@@ -1099,7 +1099,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             ext,
             right,
         }) if !ext.error && !ext.no_lock && ext.other.chars().all(|c| c == 'H') => {
-            let target = variable(cx, target, &mut used)?;
+            let target = target_var(cx, target, &mut used)?;
             if is_pointer(&target) {
                 return None;
             }
@@ -2413,6 +2413,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
                 dim: v.dim,
                 vary,
                 outer: None,
+                next: false,
             }));
             Some(1)
         }
@@ -2438,6 +2439,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
             dim: o.count,
             vary: None,
             outer: None,
+            next: false,
         }));
     }
     let off = match elem {
@@ -2689,6 +2691,7 @@ fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::O
             dim: dk.dim,
             vary: None,
             outer: index,
+            next: false,
         }));
     }
     used.push(format!(
@@ -3373,6 +3376,54 @@ fn is_pointer_name(cx: &Cx<'_>, e: &Expr) -> bool {
 /// apart from the steps of pointer arithmetic (0, 1, ...), so their
 /// helpers' names differ.
 const ALLOC_PATH: u8 = 200;
+
+/// An EVAL's target (S2.103): `arr(*NEXT)` of a global varying-dimension
+/// array, which only assign_value takes (the element after those in
+/// use, the array grown to it, DIM(*VAR) too; elsewhere *NEXT is an
+/// undefined name, as the review of 2026-11-19 found), else `variable`.
+fn target_var(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    let Expr::Name {
+        parts,
+        args: Some(args),
+    } = e
+    else {
+        return variable(cx, e, used);
+    };
+    let next = matches!(args.as_slice(), [Expr::Name { parts: p, args: None }] if p.as_slice() == ["*NEXT"]);
+    if !next {
+        return variable(cx, e, used);
+    }
+    let name = parts.join(".");
+    let Some(Sym::Var(v)) = sym(cx, &name) else {
+        return None;
+    };
+    if v.dim == 0 || v.local || !cx.prog.varying.contains_key(&name) {
+        return None;
+    }
+    let ty = global_elem_ty(v.dtype, true)?;
+    let auto = cx.prog.varying.get(&name) == Some(&'A');
+    used.push(format!("vary {name} auto={auto} next"));
+    used.push(format!(
+        "layout {name}(*NEXT) {} {} {:?} global",
+        v.buf, v.off, v.dtype
+    ));
+    Some(ir::Operand::Var {
+        name: format!("{name}(*NEXT)"),
+        buf: v.buf,
+        off: v.off,
+        ty,
+        local: false,
+        index: Some(Box::new(ir::Index {
+            of: ir::Operand::Num { m: 0, s: 0 },
+            stride: v.stride,
+            dim: v.dim,
+            vary: Some((name, auto)),
+            outer: None,
+            next: true,
+        })),
+        based: None,
+    })
+}
 
 /// An indicator field by name (S2.100): a standalone or subfield of
 /// type indicator, not an array, not based, not in a multiple-occurrence

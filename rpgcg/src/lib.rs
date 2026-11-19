@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.102");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.103");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -188,6 +188,9 @@ pub mod ir {
         /// The index of a data structure further out on the path (S2.77:
         /// `gv(s).m(1).parmNo`): its element first, then this one's.
         pub outer: Option<Box<Index>>,
+        /// `*NEXT` (S2.103): a varying-dimension array's element after its
+        /// elements in use, written only (assign_value: it grows).
+        pub next: bool,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1329,6 +1332,11 @@ fn ty(t: &ir::Ty) -> String {
 fn elem_at(off: usize, ix: &ir::Index) -> String {
     match &ix.vary {
         // A varying-dimension array (S2.45): within its elements in use.
+        // *NEXT is written only (lowering makes no read of it); were one
+        // here, it is the interpreter's error for *NEXT in an expression.
+        Some(_) if ix.next => {
+            "{ return Err(anyhow::anyhow!(\"*NEXT is not a value\")); }".to_string()
+        }
         Some((name, _)) => format!(
             "{{ let i = {}; rpgrt::native::elem_in_use({off}, {}, {}, &i, rt.elems({}))? }}",
             value(&ix.of),
@@ -1397,6 +1405,14 @@ fn place_of(o: &ir::Operand) -> Option<(String, String, String)> {
             match &ix.vary {
                 // Written (S2.45): a DIM(*AUTO) array grows to the index,
                 // before the store, as the interpreter's assign does.
+                // *NEXT (S2.103): the element after those in use, which
+                // grows the array whatever its kind (assign_value's `next`).
+                Some((name, _)) if ix.next => format!(
+                    "    let n = rt.elems({name});\n    let i = rpgrt::rpg::data::Value::Num(rpgrt::rpg::dec::Dec::from_i64(i64::from(n).saturating_add(1)));\n    let (so, grow) = rpgrt::native::elem_grow({off}, {}, {}, &i, n, true)?;\n    if let Some(k) = grow {{\n        rt.set_elem_count({name}, k);\n    }}\n",
+                    ix.stride,
+                    ix.dim,
+                    name = json_str(name)
+                ),
                 Some((name, auto)) => format!(
                     "    let i = {};\n    let n = rt.elems({name});\n    let (so, grow) = rpgrt::native::elem_grow({off}, {}, {}, &i, n, {auto})?;\n    if let Some(k) = grow {{\n        rt.set_elem_count({name}, k);\n    }}\n",
                     value(&ix.of),
