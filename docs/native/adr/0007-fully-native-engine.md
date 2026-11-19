@@ -1606,3 +1606,11 @@ A RETURN of a figurative constant is lowered (`*ON`, `*OFF`, `*BLANKS`, `*ZEROS`
 **Verified by** the native unit NRETFIG, under both engines, as captured on PUB400 (tools/golden/native132.txt n132_retfig: `10[   ].00 999 abab`):
 - *ON and *OFF from an indicator procedure;
 - *BLANKS into CHAR(3), *ZEROS into PACKED(5:2) (whose %CHAR is `.00`), *HIVAL into PACKED(3:0), and *ALL'ab' into CHAR(4).
+
+## S2.133: a call returning an indicator as a condition
+
+A call of a procedure that returns an indicator is a condition now (`Cond::Call`): eval's call, then its value's truth, as IF takes it. So `if isbig(x)`, `not isbig(x)`, AND and OR of such calls, and DOW and DOU on one are lowered. %CHAR of such a call is the indicator's '1' or '0' (`CondChar` of the call).
+
+**Verified by** the native unit NINDCALL, under both engines, as captured on PUB400 (tools/golden/native133.txt n133_indcall: `ab61`). It covers IF, NOT, AND, a DOW loop until the call is true, and %CHAR. NRETFIG's `%char(isbig(7)) + %char(isbig(2))` (S2.132) is native now too.
+
+A RETURN of a comparison, AND, OR or NOT is lowered too (`Lowered::ReturnInd`, NINDCALL's `return x > 5`). It gives eval's Value::Ind of the condition, the value the interpreter's RETURN passes back, not a character.

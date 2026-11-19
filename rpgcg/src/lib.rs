@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.132");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.133");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -217,6 +217,9 @@ pub mod ir {
         /// A comparison with an expression on either side (S2.13):
         /// %SCAN, %SUBST, %TRIM, %XLATE, concatenation.
         CmpExpr(CmpOp, Box<CmpSide>, Box<CmpSide>),
+        /// A call of a procedure returning an indicator (S2.133): the
+        /// truth of its value.
+        Call(Call),
         /// x IN %RANGE(a:b) or x IN %LIST(...) (S2.131): the range's low
         /// and high values, or the list's values.
         In {
@@ -515,6 +518,8 @@ pub mod ir {
         },
         /// RETURN (S2.38): the value, if any.
         Return(Option<ValExpr>),
+        /// RETURN of a condition (S2.133): its Value::Ind.
+        ReturnInd(Box<Cond>),
         /// EVAL of a pointer field (S2.47): another pointer field, or the
         /// address of a field (%ADDR), `skip` bytes in (%ADDR(v:*DATA)).
         EvalPtr { target: Operand, value: PtrVal },
@@ -1955,6 +1960,13 @@ fn cond_fns_in(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usiz
                 out,
                 "    rpgrt::native::cmp(rpgrt::native::CmpOp::{op}, &x, &y)\n}}"
             );
+        }
+        ir::Cond::Call(c) => {
+            // The call's helpers go after this function.
+            let mut extra = String::new();
+            let call = returned(call_fn(pc, c, &mut extra), &c.proc);
+            let _ = writeln!(out, "    {call}.truth()\n}}");
+            out.push_str(&extra);
         }
         ir::Cond::In { x, range, items } => {
             // bifs.rs eval_in: x, then every value, then the comparisons
@@ -3638,6 +3650,19 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("ep{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Return, ir::Lowered::ReturnInd(c)) => {
+            // As Return: the condition's truth as eval's Value::Ind, then
+            // the routine ends with it.
+            let mut n = 0;
+            cond_fns(pc, c, &format!("c{pc}"), helpers, &mut n);
+            let _ = writeln!(
+                helpers,
+                "\nfn rv{pc}(rt: &mut dyn Runtime) -> NResult<Option<rpgrt::rpg::data::Value>> {{\n    Ok(Some(rpgrt::rpg::data::Value::Ind(c{pc}(rt)?)))\n}}"
+            );
+            format!(
+                "match rv{pc}(rt) {{\n                    Ok(v) => return Ok(Flow::Return(v)),\n                    Err(e) => Err(e),\n                }}"
             )
         }
         (ir::Kind::Return, ir::Lowered::Return(v)) => {

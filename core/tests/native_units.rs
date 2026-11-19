@@ -3071,3 +3071,11 @@ async fn native_unit_lowered_return_figuratives() {
     )
     .await;
 }
+
+// Stage 2, S2.133: calls returning indicators as conditions.
+// Source: golden capture tools/golden/native133 n133_indcall (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_indicator_calls() {
+    let _ = require_db!();
+    expect("NINDCALL", include_str!("native/NINDCALL.rpgle"), &["ab61"]).await;
+}
