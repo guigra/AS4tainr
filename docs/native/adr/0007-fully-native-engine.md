@@ -1533,3 +1533,11 @@ A whole data structure passed to a character parameter of this module's procedur
 call_frame then takes these arguments as call_proc does. A LIKEDS parameter still takes only S2.97's by-reference form. A data structure array (LIKEDS DIM CONST) stays with the interpreter.
 
 **Verified by** the native unit NDSCHRP, under both engines, as captured on PUB400 (tools/golden/native125.txt n125_dsparm: `XYZ999 QYZ QYZ999 6 QYZ`). The procedures change the caller's subfields by reference and through OPTIONS(*VARSIZE), return a CONST copy of the same length and one of another length padded with blanks, and change a VALUE copy without touching the caller's.
+
+## S2.126: indicators compared with *ON and *OFF
+
+An indicator (`*INnn`, `*INLR` and the like) compared with `*ON` or `*OFF` by `=` or `<>` is lowered, on either side. data::compare orders an indicator against the other side's truth (`a.cmp(&b.truth())`), so the comparison is the indicator itself or its negation. This is fixed form's `*IN99 DOUEQ *ON` and `*IN50 IFEQ *ON` (samples/apps/contacts CONTCNT, CONTLST), and free form's `if *in50 = *on`. Other comparisons, and two indicators compared, stay with the interpreter.
+
+AS4TAINR_NATIVE_WHY now also notes each IF, DOW, DOU or WHEN condition that is not lowered (`cond=` and its nodes).
+
+**Verified by** the native unit NINDFIG, under both engines, as captured on PUB400 (tools/golden/native126.txt n126_indfig: `acde3`). It covers = and <> with *ON and *OFF on either side, and a DOU until an indicator is on.

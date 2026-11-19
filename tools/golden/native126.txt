@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.126: indicators compared with *ON and *OFF (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native126.txt -f tools/golden/native126
+n126_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN126IF) SRCSTMF('@HOME@/gld/gn126if.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n126_indfig|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN126IF)"; cat gn1.out; rm -f gn1.out

@@ -2985,3 +2985,11 @@ async fn native_unit_lowered_ds_to_char_parameters() {
     )
     .await;
 }
+
+// Stage 2, S2.126: indicators compared with *ON and *OFF.
+// Source: golden capture tools/golden/native126 n126_indfig (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_indicators_and_figuratives() {
+    let _ = require_db!();
+    expect("NINDFIG", include_str!("native/NINDFIG.rpgle"), &["acde3"]).await;
+}
