@@ -1129,3 +1129,13 @@ An independent read-only review (codex) compared the printer functions of native
 - **A named edit word constant.** It is lowered only when the procedure's name is the module's own constant (`std::ptr::eq` of the two lookups).
 
 **Verified by** the native units NEXCPT2 and NPRTINF, under both engines, as captured on PUB400 (tools/golden/native92). The captures also showed five interpreter defects, recorded in fidelity.md and held for upstream. The units leave those parts out.
+
+## S2.93: a procedure's own data structures as a whole
+
+A procedure's local data structure, not based and not an array, is an operand as a whole: its bytes as Char(size), where Machine::sym places it. That is the frame's buffer, or the caller's storage for a parameter by reference; the runtime's `local` places it the same way. Before, only global data structures were operands. This lowers:
+- EVAL with such a data structure as its target (interp.rs assign_value's Sym::Ds arm: data::store as Char(size));
+- the data structure read as a value.
+
+**Verified by** the native unit NLOCDS, under both engines, as captured on PUB400 (tools/golden/native93.txt n93_localds):
+- a local qualified data structure given %SUBST of a buffer, with its subfields read and its whole read back into a character field;
+- a LIKEDS parameter given a value whole, which the caller sees.
