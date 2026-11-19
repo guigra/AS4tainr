@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.122: %SUBST with expressions as its start and length (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native122.txt -f tools/golden/native122
+n122_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN122SB) SRCSTMF('@HOME@/gld/gn122sb.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n122_subst|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN122SB)"; cat gn1.out; rm -f gn1.out

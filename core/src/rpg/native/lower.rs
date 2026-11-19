@@ -1496,11 +1496,18 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
             };
             let mut ip = path.clone();
             ip.push(0);
+            // The start and the length as numeric expressions (S2.122:
+            // `%subst(j: 81 + (n1 + n2) * 11: 11)`), evaluated as eval's
+            // arg does, after the string.
+            let mut sp = path.clone();
+            sp.push(1);
+            let mut lp = path.clone();
+            lp.push(2);
             Some(ir::CharExpr::Subst {
                 inner: Box::new(char_expr(cx, inner, used, ip)?),
-                start: operand(cx, start, used)?,
+                start: Box::new(num_expr(cx, start, used, sp)?),
                 len: match len {
-                    Some(l) => Some(operand(cx, l, used)?),
+                    Some(l) => Some(Box::new(num_expr(cx, l, used, lp)?)),
                     None => None,
                 },
                 path,
@@ -1542,10 +1549,38 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                 && matches!(args.as_slice(), [Expr::Bif(e, x)] if e == "ERROR" && x.is_empty()) =>
         {
             used.push("file status ERROR".to_string());
-            Some(ir::CharExpr::CondChar(Box::new(ir::Cond::FileStatus(
-                ir::FileBit::Error,
-                None,
-            ))))
+            Some(ir::CharExpr::CondChar(
+                Box::new(ir::Cond::FileStatus(ir::FileBit::Error, None)),
+                path,
+            ))
+        }
+        // %CHAR of a comparison, AND, OR or NOT (S2.123): eval gives its
+        // Value::Ind, which bif's CHAR arm makes '1' or '0'; the condition
+        // as IF takes it.
+        Expr::Bif(b, args)
+            if b == "CHAR"
+                && matches!(
+                    args.as_slice(),
+                    [Expr::Bin(
+                        super::super::ast::BinOp::Eq
+                            | super::super::ast::BinOp::Ne
+                            | super::super::ast::BinOp::Lt
+                            | super::super::ast::BinOp::Le
+                            | super::super::ast::BinOp::Gt
+                            | super::super::ast::BinOp::Ge
+                            | super::super::ast::BinOp::And
+                            | super::super::ast::BinOp::Or,
+                        _,
+                        _
+                    )] | [Expr::Unary(super::super::ast::UnOp::Not, _)]
+                ) =>
+        {
+            let mut cp = path.clone();
+            cp.push(0);
+            Some(ir::CharExpr::CondChar(
+                Box::new(cond_at(cx, args.first()?, used, cp)?),
+                path,
+            ))
         }
         // %CHAR of a float field (S2.107, ADR 0008): bif's CHAR arm for
         // a float, float_text of its float_value with the field's bytes.

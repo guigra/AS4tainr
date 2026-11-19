@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.123: %CHAR of conditions (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native123.txt -f tools/golden/native123
+n123_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN123CC) SRCSTMF('@HOME@/gld/gn123cc.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n123_charcond|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN123CC)"; cat gn1.out; rm -f gn1.out
