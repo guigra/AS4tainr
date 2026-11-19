@@ -2694,15 +2694,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
                         },
                         used,
                     )?;
-                    if !matches!(
-                        &ptr,
-                        ir::Operand::Var {
-                            ty: ir::Ty::Pointer,
-                            index: None,
-                            based: None,
-                            ..
-                        }
-                    ) {
+                    if !base_pointer_ok(&ptr) {
                         return None;
                     }
                     used.push(format!("based {name} on {p}"));
@@ -2844,15 +2836,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
                 },
                 used,
             )?;
-            if !matches!(
-                &ptr,
-                ir::Operand::Var {
-                    ty: ir::Ty::Pointer,
-                    index: None,
-                    based: None,
-                    ..
-                }
-            ) {
+            if !base_pointer_ok(&ptr) {
                 return None;
             }
             used.push(format!("based {name} on {p}"));
@@ -6177,6 +6161,38 @@ fn file_of(cx: &Cx<'_>, file: &str) -> Option<usize> {
                 .position(|f| f.decl.proc.is_none() && (f.decl.name == file || f.format == file))
         })
         .or_else(|| prog.file_index(file))
+}
+
+/// The pointer a based field or data structure is based on: a pointer
+/// field, not an array element; based itself at most once (S2.130: a
+/// subfield of a based data structure, `based(h.p)` with `h` based on
+/// a parameter), its own pointer then not based. The generated code
+/// reads it as `value` reads a based field, which is where the
+/// interpreter's based_place finds it through `sym`.
+fn base_pointer_ok(ptr: &ir::Operand) -> bool {
+    match ptr {
+        ir::Operand::Var {
+            ty: ir::Ty::Pointer,
+            index: None,
+            based: None,
+            ..
+        } => true,
+        ir::Operand::Var {
+            ty: ir::Ty::Pointer,
+            index: None,
+            based: Some(b),
+            ..
+        } => matches!(
+            &b.ptr,
+            ir::Operand::Var {
+                ty: ir::Ty::Pointer,
+                index: None,
+                based: None,
+                ..
+            }
+        ),
+        _ => false,
+    }
 }
 
 /// A database file (S2.128) as file_idx finds it, with no INFDS.

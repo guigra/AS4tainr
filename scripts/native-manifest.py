@@ -14,6 +14,9 @@ interpreted: statuses are the runs' own exit codes and status.tsv rows.
 What a commit says about a failure (a known upstream flake run again,
 say) is quoted from its message, which is where that judgement was made.
 
+A manifest already committed is never written again (section 8: a
+recorded result is not overwritten).
+
 Usage: scripts/native-manifest.py [--evidence target/evidence/vm]
                                   [--out docs/native/evidence] REV_RANGE
 Example: scripts/native-manifest.py 5b6f0c1..HEAD
@@ -224,30 +227,31 @@ def main():
         # snapshot (by finish time) that contains it.
         same = [r for r in all_runs if r["tree"] == tree]
         records = [run_record(r, "same tree as the commit") for r in same]
-        # A complete validation has a native-diff result; a run stopped
-        # or split leaves it to a later snapshot, which is looked for.
-        complete = any(
-            r["status"].get("native-diff", "").isdigit() and r["finished"] for r in same
-        )
-        if not complete:
-            later = [
-                r
-                for r in all_runs
-                if r not in same
-                and r["finished"]
-                and r["status"].get("native-diff", "").isdigit()
-                and tree in snapshot_trees(r["snapshot"], cache)
-            ]
-            later.sort(key=lambda r: os.path.getmtime(os.path.join(r["dir"], "status")))
-            # The first later snapshot per machine.
-            seen = set()
-            for r in later:
-                if r["machine"] in seen:
-                    continue
-                seen.add(r["machine"])
-                records.append(
-                    run_record(r, "a later snapshot, whose history contains this commit's tree")
-                )
+        # A complete validation has a native-diff result. On a machine
+        # with no complete run of this tree (a run stopped or split, or
+        # a machine that validated a later snapshot only), the first later
+        # snapshot that contains it is taken.
+        def complete(r):
+            return r["finished"] and r["status"].get("native-diff", "").isdigit()
+
+        covered = {r["machine"] for r in same if complete(r)}
+        later = [
+            r
+            for r in all_runs
+            if r not in same
+            and r["machine"] not in covered
+            and complete(r)
+            and tree in snapshot_trees(r["snapshot"], cache)
+        ]
+        later.sort(key=lambda r: os.path.getmtime(os.path.join(r["dir"], "status")))
+        seen = set()
+        for r in later:
+            if r["machine"] in seen:
+                continue
+            seen.add(r["machine"])
+            records.append(
+                run_record(r, "a later snapshot, whose history contains this commit's tree")
+            )
         not_run = []
         for rec in records:
             for row in rec.get("native_diff", []):
@@ -276,6 +280,12 @@ def main():
             unvalidated.append(c[:7] + " " + subject)
         os.makedirs(a.out, exist_ok=True)
         path = os.path.join(a.out, f"{date}-{c[:7]}.json")
+        # A manifest already committed is a recorded result: never
+        # written again (CLAUDE.native.md section 8); a new run gets a
+        # manifest of its own.
+        if git("ls-files", "--", path).strip():
+            print(f"{path}: committed, left as it is")
+            continue
         with open(path, "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=1, ensure_ascii=False)
             f.write("\n")
