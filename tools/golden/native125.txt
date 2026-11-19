@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.125: a whole data structure for character parameters of local procedures (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native125.txt -f tools/golden/native125
+n125_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN125DP) SRCSTMF('@HOME@/gld/gn125dp.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n125_dsparm|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN125DP)"; cat gn1.out; rm -f gn1.out

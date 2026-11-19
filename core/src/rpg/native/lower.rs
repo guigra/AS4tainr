@@ -3283,8 +3283,18 @@ fn call_of(
                 && pi.params.get(k).is_some_and(|q| q.dtype == p.dtype)
                 && matches!(pi.syms.get(&p.name), Some(Sym::Ds(d)) if d.dim == 0)
         });
+        // S2.125: a whole data structure for a character parameter (a
+        // field, not LIKEDS) of this module's procedure: args_for as for
+        // any call (S2.60), its bytes as loc_of gives them, by reference,
+        // by reference for CONST when the types match or with
+        // OPTIONS(*VARSIZE), and as its value otherwise.
+        let ds_to_field = local.is_some_and(|pi| {
+            whole_ds
+                && matches!(pi.syms.get(&p.name), Some(Sym::Var(_)))
+                && matches!(p.dtype, DType::Char(_))
+        });
         if (local.is_some_and(|pi| !matches!(pi.syms.get(&p.name), Some(Sym::Var(_)))) && !ds_ref)
-            || (whole_ds && local.is_some() && !ds_ref)
+            || (whole_ds && local.is_some() && !ds_ref && !ds_to_field)
         {
             return None;
         }
@@ -3321,7 +3331,7 @@ fn call_of(
                 // A whole data structure (S2.60), for a call that is not
                 // local, or by reference to a local one's LIKEDS parameter
                 // (S2.97); `variable` takes only those it can place.
-                Some(Sym::Ds(_)) => local.is_none() || ds_ref,
+                Some(Sym::Ds(_)) => local.is_none() || ds_ref || ds_to_field,
                 _ => false,
             },
             _ => false,

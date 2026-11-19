@@ -1522,3 +1522,14 @@ So it can be assigned, taken by %SUBST and passed by reference, the way API prog
 - the whole structure passed to a CHAR(100) OPTIONS(*VARSIZE) parameter that a procedure changes;
 - %SUBST of the structure;
 - the whole structure assigned.
+
+## S2.125: a whole data structure for a local procedure's character parameter
+
+A whole data structure passed to a character parameter of this module's procedure is lowered, when that parameter is a field and not LIKEDS. args_for treats it as it does for any call (S2.60), with its bytes as loc_of gives them:
+- by reference when the types match, or with OPTIONS(*VARSIZE);
+- for CONST, by reference when the types match or with OPTIONS(*VARSIZE), and as its value otherwise;
+- for VALUE, as its value.
+
+call_frame then takes these arguments as call_proc does. A LIKEDS parameter still takes only S2.97's by-reference form. A data structure array (LIKEDS DIM CONST) stays with the interpreter.
+
+**Verified by** the native unit NDSCHRP, under both engines, as captured on PUB400 (tools/golden/native125.txt n125_dsparm: `XYZ999 QYZ QYZ999 6 QYZ`). The procedures change the caller's subfields by reference and through OPTIONS(*VARSIZE), return a CONST copy of the same length and one of another length padded with blanks, and change a VALUE copy without touching the caller's.

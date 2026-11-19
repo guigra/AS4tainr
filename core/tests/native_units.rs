@@ -2972,3 +2972,16 @@ async fn native_unit_lowered_based_ds_whole() {
     )
     .await;
 }
+
+// Stage 2, S2.125: a whole data structure for character parameters of local procedures.
+// Source: golden capture tools/golden/native125 n125_dsparm (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_ds_to_char_parameters() {
+    let _ = require_db!();
+    expect(
+        "NDSCHRP",
+        include_str!("native/NDSCHRP.rpgle"),
+        &["XYZ999 QYZ QYZ999 6 QYZ"],
+    )
+    .await;
+}
