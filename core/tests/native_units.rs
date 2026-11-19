@@ -2707,3 +2707,17 @@ async fn native_unit_lowered_float_eval() {
     );
     assert_eq!(parts.len(), 5, "NFLTEVL {got:?}");
 }
+
+// Stage 2, S2.108 (ADR 0008): arithmetic with float operands.
+// Source: golden capture tools/golden/native108 n108_floatarith (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_float_arithmetic() {
+    let _ = require_db!();
+    let got = shown("NFLTARI", include_str!("native/NFLTARI.rpgle")).await;
+    eprintln!("NFLTARI {got:?}");
+    assert_eq!(
+        got,
+        ["+3.000000000000000E+000 +3.500000000000000E+000 -3.500000000000000E+000 -35.000 3 +1.500000000000000E+000 E 102"],
+        "NFLTARI"
+    );
+}
