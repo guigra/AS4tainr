@@ -2770,3 +2770,26 @@ async fn native_unit_float_unary_precision() {
         "NFLTUNA {got:?}"
     );
 }
+
+// Stage 2, S2.112: %INT and %DEC of character data, %ERROR, %STATUS of a
+// file.
+// Source: golden capture tools/golden/native112 n112_charconv (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_char_conversions() {
+    let _ = require_db!();
+    // The capture's line is "123 13 -3.25 42 E105 err 1 1 1215". Its last
+    // two values are left out: a second OPEN(E) of an open printer file is
+    // an error on IBM i (%ERROR on, status 1215), and none in as4tainr's
+    // interpreter (0 0), an interpreter defect recorded in
+    // docs/native/fidelity.md ("OPEN of an open file").
+    let got = shown("NCHRCNV", include_str!("native/NCHRCNV.rpgle")).await;
+    let line = got.first().cloned().unwrap_or_default();
+    let parts: Vec<&str> = line.split(' ').collect();
+    let first: Vec<&str> = parts.iter().take(7).copied().collect();
+    assert_eq!(
+        first,
+        ["123", "13", "-3.25", "42", "E105", "err", "1"],
+        "NCHRCNV {got:?}"
+    );
+    assert_eq!(parts.len(), 9, "NCHRCNV {got:?}");
+}

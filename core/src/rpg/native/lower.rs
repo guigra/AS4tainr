@@ -1435,6 +1435,17 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
         // %CHAR of an indicator (S2.85): its character, '1' or '0', as
         // interp.rs bif's CHAR arm gives a Value::Ind (an indicator in a
         // concatenation, S2.62, is the same value).
+        // %CHAR of %ERROR (S2.112): bif's CHAR of its Value::Ind.
+        Expr::Bif(b, args)
+            if b == "CHAR"
+                && matches!(args.as_slice(), [Expr::Bif(e, x)] if e == "ERROR" && x.is_empty()) =>
+        {
+            used.push("file status ERROR".to_string());
+            Some(ir::CharExpr::CondChar(Box::new(ir::Cond::FileStatus(
+                ir::FileBit::Error,
+                None,
+            ))))
+        }
         // %CHAR of a float field (S2.107, ADR 0008): bif's CHAR arm for
         // a float, float_text of its float_value with the field's bytes.
         Expr::Bif(b, args)
@@ -1812,6 +1823,15 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
         // %STATUS with no file (S2.31): the code the interpreter's
         // bifs.rs "STATUS" arm gives, `Dec::new(code, 0)`.
         Expr::Bif(b, args) if b == "STATUS" && args.is_empty() => Some(ir::NumExpr::Status),
+        // %STATUS of a file (S2.112): that file's code (file_status).
+        Expr::Bif(b, args) if b == "STATUS" && args.len() == 1 => match args.as_slice() {
+            [Expr::Name { parts, args: None }] => {
+                let f = parts.join(".");
+                used.push(format!("file code {f}"));
+                Some(ir::NumExpr::FileCode(f))
+            }
+            _ => None,
+        },
         // %OCCUR(ds) (S2.64): the current occurrence, as bifs.rs's
         // `num(self.occurrence(&args[0])? as i128)`.
         Expr::Bif(b, args) if b == "OCCUR" && args.len() == 1 => {
@@ -1948,7 +1968,7 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
             let mut ip = path.clone();
             ip.push(0);
             Some(ir::NumExpr::Int {
-                inner: Box::new(num_expr(cx, inner, used, ip)?),
+                inner: Box::new(dec_arg(cx, inner, used, ip)?),
                 half: b == "INTH",
                 path,
             })
@@ -1969,7 +1989,7 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
             let mut ip = path.clone();
             ip.push(0);
             Some(ir::NumExpr::Dec {
-                inner: Box::new(num_expr(cx, inner, used, ip)?),
+                inner: Box::new(dec_arg(cx, inner, used, ip)?),
                 to,
                 half: b == "DECH",
                 path,
@@ -2108,6 +2128,11 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
         }
         // %EOF, %FOUND, %EQUAL (S2.58): interp.rs bif's file_status, of
         // the file named or of the last file operation.
+        // %ERROR (S2.112): bif's "ERROR" arm, the last status's error.
+        Expr::Bif(b, args) if b == "ERROR" && args.is_empty() => {
+            used.push("file status ERROR".to_string());
+            return Some(ir::Cond::FileStatus(ir::FileBit::Error, None));
+        }
         Expr::Bif(b, args) if matches!(b.as_str(), "EOF" | "FOUND" | "EQUAL") => {
             let bit = match b.as_str() {
                 "EOF" => ir::FileBit::Eof,
@@ -3661,6 +3686,16 @@ fn float_expr(
         }
         _ => return None,
     })
+}
+
+/// The argument of %INT, %INTH, %DEC or %DECH (S2.112): a character
+/// expression is read by char_number, as those bif arms take a
+/// Value::Char; anything else is a numeric expression.
+fn dec_arg(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::NumExpr> {
+    match char_expr(cx, e, used, path.clone()) {
+        Some(c) => Some(ir::NumExpr::CharDec(Box::new(c))),
+        None => num_expr(cx, e, used, path),
+    }
 }
 
 /// A float field as an EVAL's target (S2.106, ADR 0008): a standalone or

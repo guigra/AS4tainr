@@ -1333,3 +1333,17 @@ A read-only codex review of S2.106-S2.110 found three differences from the inter
 - **Calls in float expressions.** A float expression with a call in it stays with the interpreter (`has_call`). eval picks %FLOAT's path and the kind of + by the value the call returns, and a bound procedure may return its own type.
 
 **Verified by** the native unit NFLTUNA, under both engines, as captured on PUB400 (tools/golden/native111.txt n111_floatunary). The capture shows the interpreter's 30-digit intermediate precision differing from IBM i (fidelity.md), and the unit leaves that value out.
+
+## S2.112: %INT and %DEC of characters, %ERROR, %STATUS of a file
+
+Three built-in functions are lowered:
+- **%INT, %INTH, %DEC and %DECH of a character expression** (`ir::NumExpr::CharDec`). `rpgrt::native::char_dec` is those bif arms for a Value::Char: char_number of its text, then the usual rescale.
+- **%ERROR** (`FileBit::Error`). It is the last status's error flag, as a condition and as %CHAR of it (`ir::CharExpr::CondChar`).
+- **%STATUS of a file** (`ir::NumExpr::FileCode`, `Runtime::file_code`). It is that file's status code, found as interp.rs file_status finds it.
+
+**Verified by** the native unit NCHRCNV, under both engines, as captured on PUB400 (tools/golden/native112.txt n112_charconv):
+- %INT('123'), %INTH('12.5'), %DEC('-3.25':5:2) and %INT of a character field;
+- %INT('abc') caught by MONITOR (105);
+- %ERROR after TEST(DE) of a bad date.
+
+The capture's second OPEN(E) of an open printer is an interpreter defect (fidelity.md), and the unit leaves it out.

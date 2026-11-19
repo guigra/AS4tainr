@@ -1420,7 +1420,22 @@ impl Runtime for Rt<'_, '_> {
             FileBit::Eof => st.eof,
             FileBit::Found => st.found,
             FileBit::Equal => st.equal,
+            FileBit::Error => st.error,
         })
+    }
+
+    fn file_code(&mut self, file: &str) -> NResult<u32> {
+        // bifs.rs "STATUS" with a file: file_status of it, its code.
+        let i = self
+            .file_idx_n(file)
+            .ok_or_else(|| anyhow!("{file} is not a file"))?;
+        Ok(self
+            .m
+            .files
+            .get(i)
+            .ok_or_else(|| anyhow!("native: no file {i}"))?
+            .status
+            .code)
     }
 
     fn dsply(&mut self, text: String) {
