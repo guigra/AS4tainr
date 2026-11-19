@@ -1174,3 +1174,15 @@ RESET of a global field (every element, for an array) or data structure is lower
 - character and packed fields with INZ, and a field without INZ;
 - an array with INZ, a data structure with INZ subfields, and a qualified one;
 - from a procedure, a global field and the procedure's own local.
+
+## S2.96: based arrays in whole-array operations (review)
+
+A read-only review (codex) of bit_op_n, array_op_n, sorta_n, movea_n and paddr_n against ops.rs and interp.rs found a native bug. The whole-array forms let a based global array through:
+- FOR-EACH (S2.89);
+- SORTA (S2.86);
+- fixed-form LOOKUP and XFOOT (S2.85);
+- MOVEA (S2.86).
+
+They placed it by its declared buffer, but the interpreter reaches based storage through its pointer, and gives MCH3601 when the pointer is null. Lowering now leaves based globals and multiple-occurrence subfields to the interpreter in those forms (lower.rs `global_moved`), as `variable` already did.
+
+**Verified by** the native unit NBASARR, under both engines, as captured on PUB400 (tools/golden/native96.txt n96_based). Arrays based on a pointer to other arrays get XFOOT, LOOKUP, SORTA, FOR-EACH and MOVEA.

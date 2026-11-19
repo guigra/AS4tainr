@@ -252,7 +252,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             let Some(Sym::Var(v)) = sym(cx, &name) else {
                 return None;
             };
-            if v.dim == 0 || v.local || cx.prog.varying.contains_key(&name) {
+            if v.dim == 0 || v.local || cx.prog.varying.contains_key(&name) || global_moved(cx, v) {
                 return None;
             }
             let ty = global_elem_ty(v.dtype, true)?;
@@ -534,7 +534,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             let Some(Sym::Var(v)) = sym(cx, &name) else {
                 return None;
             };
-            if v.dim == 0 || v.local || cx.prog.varying.contains_key(&name) {
+            if v.dim == 0 || v.local || cx.prog.varying.contains_key(&name) || global_moved(cx, v) {
                 return None;
             }
             let ty = global_elem_ty(v.dtype, true)?;
@@ -593,7 +593,8 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             let Some(Sym::Var(v)) = sym(cx, &aname) else {
                 return None;
             };
-            if v.dim == 0 || v.local || cx.prog.varying.contains_key(&aname) {
+            if v.dim == 0 || v.local || cx.prog.varying.contains_key(&aname) || global_moved(cx, v)
+            {
                 return None;
             }
             let ety = match v.dtype {
@@ -5460,6 +5461,16 @@ fn str_op(
 
 /// An array element's type for lowered array operations (S2.86):
 /// character (and varying when `varying`) or numeric.
+/// A global whose storage is not its declared buffer (the review of
+/// 2026-11-19): based (the interpreter reaches it through its pointer,
+/// MCH3601 when the pointer is null) or a multiple-occurrence data
+/// structure's subfield (its current occurrence). The whole-array forms
+/// (FOR-EACH, SORTA, LOOKUP, XFOOT, MOVEA) place it by its buffer, so
+/// they leave it to the interpreter, as `variable` does.
+fn global_moved(cx: &Cx<'_>, v: &super::super::program::VarInfo) -> bool {
+    cx.prog.based.contains_key(&v.buf) || cx.prog.occurs.iter().any(|o| o.buf == v.buf)
+}
+
 fn global_elem_ty(t: DType, varying: bool) -> Option<ir::Ty> {
     Some(match t {
         DType::Packed(d, s) => ir::Ty::Packed(d, s),
@@ -5484,7 +5495,7 @@ fn movea_side(cx: &Cx<'_>, e: &Expr, source: bool, used: &mut Vec<String>) -> Op
             let name = parts.join(".");
             match sym(cx, &name) {
                 Some(Sym::Var(v)) if v.dim > 0 => {
-                    if v.local || cx.prog.varying.contains_key(&name) {
+                    if v.local || cx.prog.varying.contains_key(&name) || global_moved(cx, v) {
                         return None;
                     }
                     let DType::Char(n) = v.dtype else {
