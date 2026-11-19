@@ -3552,8 +3552,14 @@ fn is_float_static(cx: &Cx<'_>, e: &Expr, depth: usize) -> bool {
         Expr::Name { parts, args } => match sym(cx, &parts.join(".")) {
             Some(Sym::Var(v)) => matches!(v.dtype, DType::Float(_)),
             Some(_) => false,
+            // is_float's order: the prototype's return type, then the
+            // procedure's (the review of 2026-11-19).
             None if args.is_some() || parts.len() == 1 => {
-                matches!(call_returns(cx, &parts.join(".")), Some(DType::Float(_)))
+                let n = parts.join(".").to_ascii_uppercase();
+                let ret = proto(cx, &n)
+                    .and_then(|p| p.returns)
+                    .or_else(|| cx.prog.procs.get(&n).and_then(|p| p.returns));
+                matches!(ret, Some(DType::Float(_)))
             }
             None => false,
         },
@@ -3572,6 +3578,26 @@ fn is_float_static(cx: &Cx<'_>, e: &Expr, depth: usize) -> bool {
     }
 }
 
+/// Whether an expression calls a procedure anywhere in it (S2.108's
+/// float expressions leave those to the interpreter). Past the depth
+/// bound it answers yes.
+fn has_call(cx: &Cx<'_>, e: &Expr, depth: usize) -> bool {
+    if depth > MAX_NESTING {
+        return true;
+    }
+    let d = depth.saturating_add(1);
+    match e {
+        Expr::Name {
+            parts,
+            args: Some(args),
+        } => is_call(cx, parts) || args.iter().any(|a| has_call(cx, a, d)),
+        Expr::Bif(_, args) => args.iter().any(|a| has_call(cx, a, d)),
+        Expr::Unary(_, x) => has_call(cx, x, d),
+        Expr::Bin(_, l, r) => has_call(cx, l, d) || has_call(cx, r, d),
+        _ => false,
+    }
+}
+
 /// A float expression (S2.108, ADR 0008), as eval takes it: a part that
 /// is not float is a decimal expression (its own precision rules); a
 /// float field; %FLOAT of a numeric value; + or - of a float; +, -, *
@@ -3585,6 +3611,12 @@ fn float_expr(
     depth: usize,
 ) -> Option<ir::FloatExpr> {
     if depth > MAX_NESTING {
+        return None;
+    }
+    // A call in a float expression stays with the interpreter: eval picks
+    // %FLOAT's path and a + by the value a call returns, which a bound
+    // procedure may give in its own type (the review of 2026-11-19).
+    if depth == 0 && has_call(cx, e, 0) {
         return None;
     }
     if !is_float_static(cx, e, 0) {

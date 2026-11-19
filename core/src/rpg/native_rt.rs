@@ -1478,6 +1478,9 @@ impl Runtime for Rt<'_, '_> {
                 Expr::Name {
                     args: Some(args), ..
                 } => args.get(usize::from(*step))?,
+                // + or - of a float expression (S2.108's float_expr steps
+                // into it; the review of 2026-11-19).
+                Expr::Unary(_, x) if *step == 0 => x,
                 _ => return None,
             };
         }
