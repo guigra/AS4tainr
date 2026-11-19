@@ -456,6 +456,11 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             }
             _ => return None,
         },
+        // RESET (S2.95) of a global field or data structure:
+        // reset_to_initial, its initial storage copied back (one area).
+        Ins::Stmt(Stmt::Reset(Expr::Name { parts, args: None })) => {
+            ir::Lowered::Clear(vec![reset_area(cx, &parts.join("."), &mut used)?])
+        }
         // SETON / SETOFF (S2.39): Stmt::SetInd's `set_ind(i, on)` for each.
         Ins::Stmt(Stmt::SetInd { on, inds }) => ir::Lowered::SetInd {
             on: *on,
@@ -1141,6 +1146,55 @@ fn clear_areas(cx: &Cx<'_>, name: &str, used: &mut Vec<String>) -> Option<Vec<ir
         }
         _ => None,
     }
+}
+
+/// What RESET of `name` writes (S2.95), as interp.rs reset_to_initial
+/// does: a global field's (every element, for an array) or data
+/// structure's bytes from the program's initial storage, made at
+/// lowering. A procedure's own names (their initial storage is the
+/// frame's, not seen here), based storage, multiple-occurrence data
+/// structures, varying-dimension arrays and images over 4096 bytes stay
+/// with the interpreter.
+fn reset_area(cx: &Cx<'_>, name: &str, used: &mut Vec<String>) -> Option<ir::ClearArea> {
+    let prog = cx.prog;
+    if cx.based.is_some() && cx.syms.contains_key(name) {
+        return None;
+    }
+    let (buf, off, len) = match prog.syms.get(name)? {
+        Sym::Var(v) => {
+            if prog.varying.contains_key(name) {
+                return None;
+            }
+            let last = usize::try_from(v.dim.max(1)).ok()?.checked_sub(1)?;
+            let len = v.stride.checked_mul(last)?.checked_add(v.dtype.size())?;
+            (v.buf, v.off, len)
+        }
+        Sym::Ds(d) => {
+            let n = usize::try_from(d.dim.max(1)).ok()?;
+            (d.buf, d.off, d.size.checked_mul(n)?)
+        }
+        _ => return None,
+    };
+    if prog.based.contains_key(&buf) || prog.occurs.iter().any(|o| o.buf == buf) || len > 4096 {
+        return None;
+    }
+    let image = prog
+        .globals
+        .get(buf)?
+        .get(off..off.checked_add(len)?)?
+        .to_vec();
+    // The image is part of the layout (ADR 0002's key): a changed INZ
+    // value is new code.
+    let hex: String = image.iter().map(|b| format!("{b:02X}")).collect();
+    used.push(format!("reset {name} {buf} {off} {len} {hex}"));
+    Some(ir::ClearArea {
+        buf,
+        off,
+        local: false,
+        image,
+        count: 1,
+        stride: len,
+    })
 }
 
 /// A part of a concatenation (S2.62): a character expression, or an
