@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.93");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.94");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -157,6 +157,19 @@ pub mod ir {
     pub struct Based {
         pub ptr: Operand,
         pub size: usize,
+    }
+
+    /// One area CLEAR writes (S2.94): a field's place (a procedure
+    /// local's through the runtime's `local`), its type's initial bytes,
+    /// and how many elements of it, how far apart.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct ClearArea {
+        pub buf: usize,
+        pub off: usize,
+        pub local: bool,
+        pub image: Vec<u8>,
+        pub count: u32,
+        pub stride: usize,
     }
 
     /// The index of an array element (S2.21): the operand it is, and the
@@ -645,6 +658,9 @@ pub mod ir {
         EvalInd { name: String, value: IndValue },
         /// SETON / SETOFF of indicators (S2.39).
         SetInd { on: bool, inds: Vec<String> },
+        /// CLEAR of a field, an array or a data structure's subfields
+        /// (S2.94), in the order interp.rs clear_ds writes them.
+        Clear(Vec<ClearArea>),
         /// EVAL of a figurative constant into a field (S2.22): stored as
         /// the interpreter stores `Value::Fig`.
         EvalFig {
@@ -1384,6 +1400,19 @@ fn elem_place(buf: usize, local: bool) -> String {
         format!("let (b, o) = rt.local({buf}, o)?;")
     } else {
         format!("let b = {buf};")
+    }
+}
+
+/// Bytes as a Rust array expression (S2.94): `[b; n]` when they are all
+/// the same (a blank field's image), else each byte.
+fn byte_array(bytes: &[u8]) -> String {
+    match bytes.first() {
+        Some(b) if bytes.iter().all(|x| x == b) => format!("[{b}u8; {}]", bytes.len()),
+        Some(_) => {
+            let v: Vec<String> = bytes.iter().map(|b| format!("{b}u8")).collect();
+            format!("[{}]", v.join(", "))
+        }
+        None => "[0u8; 0]".to_string(),
     }
 }
 
@@ -2202,6 +2231,31 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("ei{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::Clear(areas)) => {
+            let mut body = String::new();
+            for a in areas {
+                let at = if a.local {
+                    format!("rt.local({}, {})?", a.buf, a.off)
+                } else {
+                    format!("({}usize, {}usize)", a.buf, a.off)
+                };
+                let _ = writeln!(
+                    body,
+                    "    {{\n        let (b, o) = {at};\n        rpgrt::native::fill(rt.mem(), b, o, &{}, {}, {})?;\n    }}",
+                    byte_array(&a.image),
+                    a.count,
+                    a.stride
+                );
+            }
+            let _ = writeln!(
+                helpers,
+                "\nfn cl{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("cl{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::SetInd { on, inds }) => {

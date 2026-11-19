@@ -2537,3 +2537,16 @@ async fn native_unit_lowered_local_ds() {
     )
     .await;
 }
+
+// Stage 2, S2.94: CLEAR lowered to Rust.
+// Source: golden capture tools/golden/native94 n94_clear (PUB400, IBM i 7.5, 2026-11-18)
+#[tokio::test]
+async fn native_unit_lowered_clear() {
+    let _ = require_db!();
+    expect(
+        "NCLEAR",
+        include_str!("native/NCLEAR.rpgle"),
+        &["[    ] .00 0 0 [   ] 0 0 [  ] 0 01", "0 [   ] .0 [  ] 0"],
+    )
+    .await;
+}

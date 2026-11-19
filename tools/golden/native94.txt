@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.94: CLEAR (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native94.txt -f tools/golden/native94
+n94_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN94CLR) SRCSTMF('@HOME@/gld/gn94clr.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n94_clear|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN94CLR)"; cat gn1.out; rm -f gn1.out
