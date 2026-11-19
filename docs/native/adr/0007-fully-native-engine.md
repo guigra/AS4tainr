@@ -1409,3 +1409,17 @@ A parameter with OPTIONS(*TRIM) is lowered as args_for takes it:
 - a literal with blanks on both sides to a VALUE varying parameter;
 - a field with blanks to a CONST character parameter;
 - a %TRIMR argument.
+
+## S2.117: calls of procedures with files of their own
+
+A call of a procedure that declares files of its own is lowered. As call_proc does, the runtime's call_frame:
+- opens them before the parameters are stored (errors.rs open_local_files; its error is the call's, and ON-EXIT still runs);
+- closes them, except STATIC ones, after ON-EXIT (close_local_files).
+
+These are the same Machine functions that open and close a program's files when it is activated, and that native code already relies on.
+
+The file operations of such a program still stay with the interpreter. Lowering would first have to resolve a file name as file_idx does, the procedure's files before the program's.
+
+**Verified by** the native unit NLOCFIL, under both engines, as captured on PUB400 (tools/golden/native117.txt n117_localfile):
+- COUNT's file opens at each call and is read from the start (6, 6);
+- NEXT's STATIC file stays open, so each call reads the next record (7, 8, 9).

@@ -271,7 +271,13 @@ impl<'a> Rt<'_, 'a> {
         let stack_id = crate::pgmmsg::stack_push(&job, (&lib, &pgm), &module, &ext, &actgrp);
         let saved_routine = std::mem::replace(&mut self.m.routine, pi.name.clone());
         let saved_line = self.m.line;
-        let mut r = self.call_body(pi, values);
+        // The procedure's own files open first (S2.117), as call_proc:
+        // its error is the call's, after which ON-EXIT still runs.
+        let opened = self.m.open_local_files(pi);
+        let mut r = match opened {
+            Ok(()) => self.call_body(pi, values),
+            Err(e) => Err(e),
+        };
         // ON-EXIT (S2.90), as interp.rs call_proc: it runs however the
         // procedure ends, its indicator on when it ended abnormally; a
         // RETURN there replaces the value of a normal end; an error there
@@ -308,6 +314,8 @@ impl<'a> Rt<'_, 'a> {
                 Err(e) => r = Err(e),
             }
         }
+        // Its files close when it returns, except STATIC ones (S2.117).
+        self.m.close_local_files(pi);
         crate::pgmmsg::stack_pop(&job, stack_id);
         self.m.frames.pop();
         self.m.bufs.truncate(base);
