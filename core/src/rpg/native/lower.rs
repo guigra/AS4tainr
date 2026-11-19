@@ -438,6 +438,24 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 v => ir::IndValue::Cond(Box::new(cond_at(cx, v, &mut used, Vec::new())?)),
             },
         },
+        // CLEAR (S2.94): interp.rs stmt's CLEAR arm for a field (each
+        // element of an array), a data structure (clear_ds: each
+        // subfield), an indicator or *IN. Not an element of a data
+        // structure array, a record format or another target.
+        Ins::Stmt(Stmt::Clear(t)) => match t {
+            Expr::Ind(n) => ir::Lowered::SetInd {
+                on: false,
+                inds: vec![n.clone()],
+            },
+            Expr::IndArray(None) => ir::Lowered::SetInd {
+                on: false,
+                inds: (1..=99).map(|n| format!("{n:02}")).collect(),
+            },
+            Expr::Name { parts, args: None } => {
+                ir::Lowered::Clear(clear_areas(cx, &parts.join("."), &mut used)?)
+            }
+            _ => return None,
+        },
         // SETON / SETOFF (S2.39): Stmt::SetInd's `set_ind(i, on)` for each.
         Ins::Stmt(Stmt::SetInd { on, inds }) => ir::Lowered::SetInd {
             on: *on,
@@ -1054,6 +1072,75 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
     };
     layout.extend(used);
     Some(l)
+}
+
+/// The areas CLEAR of `name` writes (S2.94), as interp.rs stmt's CLEAR
+/// arm finds them through `sym`: a field (every element of an array), or
+/// a data structure's subfields in order (clear_ds). A data structure
+/// with a data structure subfield (clear_ds copies a LIKEDS DIM's first
+/// element to the others), a based or multiple-occurrence one, or a
+/// based, multiple-occurrence or varying-dimension field stays with the
+/// interpreter.
+fn clear_areas(cx: &Cx<'_>, name: &str, used: &mut Vec<String>) -> Option<Vec<ir::ClearArea>> {
+    let prog = cx.prog;
+    let var_area = |n: &str, v: &super::super::program::VarInfo, used: &mut Vec<String>| {
+        let excluded = if v.local {
+            cx.based.is_none_or(|b| b.contains_key(&v.buf))
+        } else {
+            prog.based.contains_key(&v.buf)
+                || prog.occurs.iter().any(|o| o.buf == v.buf)
+                || prog.varying.contains_key(n)
+        };
+        if excluded {
+            return None;
+        }
+        used.push(format!(
+            "clear {n} {} {} {:?} {} {} {}",
+            v.buf,
+            v.off,
+            v.dtype,
+            v.dim,
+            v.stride,
+            if v.local { "local" } else { "global" }
+        ));
+        Some(ir::ClearArea {
+            buf: v.buf,
+            off: v.off,
+            local: v.local,
+            image: v.dtype.initial(),
+            count: v.dim.max(1),
+            stride: v.stride,
+        })
+    };
+    match sym(cx, name)? {
+        Sym::Var(v) => Some(vec![var_area(name, v, used)?]),
+        Sym::Ds(d) => {
+            let excluded = if d.local {
+                cx.based.is_none_or(|b| b.contains_key(&d.buf))
+            } else {
+                prog.based.contains_key(&d.buf) || prog.occurs.iter().any(|o| o.buf == d.buf)
+            };
+            if excluded {
+                return None;
+            }
+            let prefix = if d.qualified {
+                format!("{name}.")
+            } else {
+                String::new()
+            };
+            let mut out = Vec::new();
+            for sf in d.subfields.iter() {
+                let full = format!("{prefix}{sf}");
+                match sym(cx, &full) {
+                    Some(Sym::Var(v)) => out.push(var_area(&full, v, used)?),
+                    Some(Sym::Ds(_)) if d.qualified && full != name => return None,
+                    _ => {}
+                }
+            }
+            Some(out)
+        }
+        _ => None,
+    }
 }
 
 /// A part of a concatenation (S2.62): a character expression, or an

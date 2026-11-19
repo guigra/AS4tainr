@@ -581,6 +581,36 @@ pub struct SqlSlot {
     pub ind: Option<(usize, usize, DType)>,
 }
 
+/// CLEAR of a field or data structure (S2.94): `image`, its type's
+/// initial bytes, written `count` times `stride` bytes apart from
+/// `(buf, off)`, as interp.rs stmt's CLEAR and clear_ds write each
+/// element. Storage too short for it is an error, not a partial write.
+pub fn fill(
+    mem: &mut Mem,
+    buf: usize,
+    off: usize,
+    image: &[u8],
+    count: u32,
+    stride: usize,
+) -> NResult<()> {
+    for k in 0..count {
+        let at = usize::try_from(k)
+            .ok()
+            .and_then(|k| k.checked_mul(stride))
+            .and_then(|d| off.checked_add(d))
+            .ok_or_else(|| anyhow::anyhow!("native: CLEAR past the end of storage"))?;
+        let end = at
+            .checked_add(image.len())
+            .ok_or_else(|| anyhow::anyhow!("native: CLEAR past the end of storage"))?;
+        let dst = mem
+            .get_mut(buf)
+            .and_then(|b| b.get_mut(at..end))
+            .ok_or_else(|| anyhow::anyhow!("native: CLEAR past the end of its storage"))?;
+        dst.copy_from_slice(image);
+    }
+    Ok(())
+}
+
 /// An input host variable's value as an SQL literal (S2.70), as
 /// exec_sql.rs host_literal and literal make it: a number as its text, an
 /// indicator as '1' or '0', a figurative constant as '', characters

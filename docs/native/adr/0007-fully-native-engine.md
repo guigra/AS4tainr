@@ -1139,3 +1139,24 @@ A procedure's local data structure, not based and not an array, is an operand as
 **Verified by** the native unit NLOCDS, under both engines, as captured on PUB400 (tools/golden/native93.txt n93_localds):
 - a local qualified data structure given %SUBST of a buffer, with its subfields read and its whole read back into a character field;
 - a LIKEDS parameter given a value whole, which the caller sees.
+
+## S2.94: CLEAR
+
+CLEAR is lowered in the forms interp.rs stmt's CLEAR arm takes through `sym`:
+- **A field.** Every element, for an array, gets its type's initial image (`DType::initial`, made at lowering).
+- **A data structure.** clear_ds writes each subfield in turn.
+- **An indicator or *IN.** They are set off (`SetInd`).
+
+Each area is a place, its image, its number of elements and their distance apart (`ir::ClearArea`). `rpgrt::native::fill` writes the areas, and a procedure local's place comes through the runtime's `local`.
+
+**Stays with the interpreter:**
+- a data structure with a data structure subfield, because clear_ds copies a LIKEDS DIM's first element to the others;
+- an element of a data structure array;
+- a record format;
+- a based, multiple-occurrence or varying-dimension field;
+- RESET.
+
+**Verified by** the native unit NCLEAR, under both engines, as captured on PUB400 (tools/golden/native94.txt n94_clear). It clears:
+- character, packed and varying fields, an int array, and a data structure with character, zoned and int subfields;
+- a qualified data structure, an indicator and *IN;
+- in a procedure, a local field and a local data structure.
