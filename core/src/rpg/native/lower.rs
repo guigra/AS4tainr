@@ -3604,7 +3604,11 @@ fn float_expr(
             let [x] = args.as_slice() else {
                 return None;
             };
-            ir::FloatExpr::FloatOf(Box::new(float_expr(cx, x, used, child(0), d)?))
+            // Character data (S2.110): bif's FLOAT arm for Value::Char.
+            match char_expr(cx, x, used, child(0)) {
+                Some(c) => ir::FloatExpr::FloatOfChars(Box::new(c)),
+                None => ir::FloatExpr::FloatOf(Box::new(float_expr(cx, x, used, child(0), d)?)),
+            }
         }
         Expr::Unary(super::super::ast::UnOp::Neg, x) => {
             ir::FloatExpr::Neg(Box::new(float_expr(cx, x, used, child(0), d)?))
@@ -3768,8 +3772,13 @@ fn ptr_val(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
             // A global field, or (S2.65) a procedure's local one: ptr_to of
             // the place Machine::sym gives it, the frame's buffer (or the
             // caller's storage for a parameter passed by reference), which
-            // generated code asks `rt.local` for. Not a based field.
-            let of = variable(cx, of, used)?;
+            // generated code asks `rt.local` for. Not a based field. A
+            // float field's place too (S2.110): only its place is taken.
+            let of = if float_target_ok(cx, of) {
+                float_target(cx, of, used)?
+            } else {
+                variable(cx, of, used)?
+            };
             let ir::Operand::Var {
                 based: None, ty, ..
             } = &of

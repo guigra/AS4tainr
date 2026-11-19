@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.109");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.110");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -1062,6 +1062,8 @@ pub mod ir {
         Dec(NumExpr),
         /// %FLOAT of a numeric value.
         FloatOf(Box<FloatExpr>),
+        /// %FLOAT of character data (S2.110).
+        FloatOfChars(Box<CharExpr>),
         Neg(Box<FloatExpr>),
         Bin(FloatOp, Box<FloatExpr>, Box<FloatExpr>),
     }
@@ -1495,6 +1497,12 @@ fn float_expr(pc: usize, e: &ir::FloatExpr, helpers: &mut String) -> String {
         ir::FloatExpr::Field(o) => value(o),
         ir::FloatExpr::Dec(n) => {
             format!("rpgrt::rpg::data::Value::Num({})", num_expr(pc, n, helpers))
+        }
+        ir::FloatExpr::FloatOfChars(c) => {
+            format!(
+                "rpgrt::native::float_of_chars(&{})?",
+                char_expr(pc, c, helpers)
+            )
         }
         ir::FloatExpr::FloatOf(x) => {
             format!("rpgrt::native::float_of(&{})?", float_expr(pc, x, helpers))

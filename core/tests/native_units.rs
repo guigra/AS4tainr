@@ -2734,3 +2734,16 @@ async fn native_unit_lowered_float_comparisons() {
     )
     .await;
 }
+
+// Stage 2, S2.110 (ADR 0008): %FLOAT of character data, %ADDR of a float.
+// Source: golden capture tools/golden/native110 n110_floatchar (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_float_of_characters() {
+    let _ = require_db!();
+    expect(
+        "NFLTCHR",
+        include_str!("native/NFLTCHR.rpgle"),
+        &["+1.250000000000000E+001 +1.500000000000000E+003 +2.500000000000000E+000 E 105 +2.500000000000000E+000"],
+    )
+    .await;
+}

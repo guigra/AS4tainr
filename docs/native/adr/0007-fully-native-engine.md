@@ -1311,3 +1311,16 @@ A comparison with a float operand on either side, by is_float, is lowered (`ir::
 - a float with a literal and with a packed field;
 - %FLOAT(1) / 3 with a float;
 - in a compound condition, a DOW, and a procedure's own float.
+
+## S2.110: %FLOAT of character data and %ADDR of a float (ADR 0008, part 5)
+
+**%FLOAT of a character expression** (`ir::FloatExpr::FloatOfChars`). `rpgrt::native::float_of_chars` writes again bif's FLOAT arm for Value::Char: a number as %DEC reads it (char_number, also written again), else the text read in float form with a comma as the point, else char_number's RNQ0105. The result is a decimal when it fits.
+
+**%ADDR of a float field.** It takes the field's place, as for any field.
+
+**Not here: DSPLY of a float field.** A PUB400 capture of it through PASE system ended in RNX9998, so IBM i's value is unknown, and it stays with the interpreter.
+
+**Verified by** the native unit NFLTCHR, under both engines, as captured on PUB400 (tools/golden/native110.txt n110_floatchar):
+- %FLOAT of '12.5', of '1.5E3' and of a varying '2,5';
+- %FLOAT of 'abc' caught by MONITOR (status 105);
+- %ADDR of a float read back through a based float.

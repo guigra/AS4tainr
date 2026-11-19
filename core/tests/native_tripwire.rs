@@ -200,6 +200,8 @@ fn native_runtime_matches_the_interpreter_it_copies() {
         ),
         function(INTERP, "    fn clear_ds(&mut self, name: &str, d: &DsInfo) {", "    "),
         function(INTERP, "fn float_value(v: &Value) -> Result<f64> {", ""),
+        // S2.110: char_number (rpgrt::native::float_of_chars).
+        function(INTERP, "fn char_number(t: &str) -> Result<Dec> {", ""),
         // S2.40: EXSR runs a routine as run_code does.
         function(
             INTERP,
@@ -728,9 +730,9 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // interp.rs set_result_inds, S2.85 ops.rs array_op and lookup and
     // interp.rs num_inds, S2.86 ops.rs sorta, movea_parts and movea, S2.88
     // ptrs.rs str_at, S2.89 bifs.rs list_of, S2.94-S2.95 clear_ds and
-    // reset_to_initial, S2.102 assign_value, S2.107 float_value;
+    // reset_to_initial, S2.102 assign_value, S2.107 float_value, S2.110 char_number;
     // upstream still dd47e28.
-    let reviewed = "59c4f0ee37773eed66192499aefbdac3d3dc165a942cd65dd6f7f7eb2600d360";
+    let reviewed = "3ab8cf3f1ccc5675ec073f03b97b50849b5121720021bbd74135d43ab884f087";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"
