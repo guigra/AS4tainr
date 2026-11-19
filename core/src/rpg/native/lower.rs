@@ -326,6 +326,41 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 inds: !ind.is_empty(),
             }
         }
+        // MOVE and MOVEL with a date, time or timestamp field on either
+        // side (S2.115): interp.rs move_temporal (the result indicators
+        // and P do not take part), factor 2 a field or a literal, the
+        // result a field with no index.
+        Ins::Stmt(Stmt::Move {
+            left,
+            fmt,
+            from,
+            to,
+            ..
+        }) if (is_temporal_name(cx, from) || is_temporal_name(cx, to))
+            && !matches!(from, Expr::Fig(_))
+            && !is_pointer_name(cx, to)
+            && !is_pointer_name(cx, from) =>
+        {
+            let from = any_operand(cx, from, &mut used)?;
+            let to = variable(cx, to, &mut used)?;
+            if !matches!(
+                to,
+                ir::Operand::Var {
+                    index: None,
+                    based: None,
+                    ..
+                }
+            ) || is_pointer(&from)
+            {
+                return None;
+            }
+            ir::Lowered::MoveTemporal {
+                left: *left,
+                fmt: fmt.clone(),
+                from,
+                to,
+            }
+        }
         // MOVE and MOVEL with no date format and no result indicators
         // (S2.11), and no date, time or timestamp field (S2.52), so
         // `move_temporal` does nothing for them.

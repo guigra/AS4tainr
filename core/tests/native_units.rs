@@ -2823,3 +2823,17 @@ async fn native_unit_lowered_sqrt() {
         "NSQRT {got:?}"
     );
 }
+
+// Stage 2, S2.115: MOVE with dates, times and timestamps.
+// Source: golden capture tools/golden/native115 n115_movedate (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_move_dates() {
+    let _ = require_db!();
+    let got = shown("NMOVDAT", include_str!("native/NMOVDAT.rpgle")).await;
+    eprintln!("NMOVDAT {got:?}");
+    assert_eq!(
+        got,
+        ["2026-11-19 11/19/26 20261119 2025-02-28 2024-03-15 13.45.10 2026-01-02 2026-11-19-03.04.05.000006"],
+        "NMOVDAT"
+    );
+}

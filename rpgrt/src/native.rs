@@ -373,6 +373,16 @@ pub trait Runtime {
         fields: Vec<OutSlot>,
         indds: Option<OutSlot>,
     ) -> NResult<()>;
+    /// Stage 2 (S2.115): MOVE or MOVEL with a date, time or timestamp on
+    /// either side (interp.rs move_temporal), into the result's place.
+    fn move_temporal(
+        &mut self,
+        left: bool,
+        fmt: Option<&str>,
+        from: Value,
+        from_ty: Option<DType>,
+        to: OutSlot,
+    ) -> NResult<()>;
     /// Stage 2 (S2.114): WRITE, UPDATE, EXFMT, READ, READC or CHAIN of a
     /// display file (errors.rs file_op around interp.rs workstn_op), the
     /// program fields of its formats placed, its INDDS, a subfile
@@ -1909,6 +1919,185 @@ fn char_number(t: &str) -> NResult<Dec> {
             t.trim()
         )
     })
+}
+
+/// Stage 2 (S2.115): MOVE and MOVEL with a date, time or timestamp on
+/// either side, as interp.rs move_temporal: the value it assigns to the
+/// result (with Fit::Truncate), from factor 2's value and type, the
+/// result's current value and type, factor 1's format, and the
+/// program's DATFMT and TIMFMT.
+#[allow(clippy::too_many_arguments)] // move_temporal's own inputs
+pub fn move_temporal(
+    left: bool,
+    fmt: Option<&str>,
+    from: &Value,
+    from_ty: Option<DType>,
+    to_cur: &Value,
+    to_ty: DType,
+    dft_d: crate::rpg::dates::DateFmt,
+    dft_t: crate::rpg::dates::TimeFmt,
+) -> NResult<Value> {
+    use crate::rpg::dates::{self, DateFmt, TimeFmt};
+    enum K {
+        D(DateFmt),
+        T(TimeFmt),
+        Z,
+    }
+    let kind = |t: Option<DType>| match t {
+        Some(DType::Date(f)) => Some(K::D(f)),
+        Some(DType::Time(f)) => Some(K::T(f)),
+        Some(DType::Timestamp(_)) => Some(K::Z),
+        _ => None,
+    };
+    let part = |s: &str, a: usize, b: Option<usize>| -> NResult<String> {
+        let r = match b {
+            Some(b) => s.get(a..b),
+            None => s.get(a..),
+        };
+        r.map(str::to_string)
+            .ok_or_else(|| anyhow::anyhow!("native: a date or time value is too short"))
+    };
+    match (kind(from_ty), kind(Some(to_ty))) {
+        (Some(sk), Some(tk)) => {
+            if fmt.is_some() {
+                anyhow::bail!("MOVE between date, time or timestamp fields takes no factor 1");
+            }
+            let iso = data::a(&from.chars()?);
+            let now = data::a(&to_cur.chars()?);
+            let out = match (sk, tk) {
+                (K::D(_), K::D(_)) | (K::T(_), K::T(_)) | (K::Z, K::Z) => iso,
+                (K::D(_), K::Z) => format!("{}{}", iso, part(&now, 10, None)?),
+                (K::T(_), K::Z) => format!("{}-{}.000000", part(&now, 0, Some(10))?, iso),
+                (K::Z, K::D(_)) => part(&iso, 0, Some(10))?,
+                (K::Z, K::T(_)) => part(&iso, 11, Some(19))?,
+                _ => anyhow::bail!("MOVE between a date and a time is not valid"),
+            };
+            Ok(Value::str(&out))
+        }
+        (Some(sk), None) => {
+            let iso = data::a(&from.chars()?);
+            let text = match sk {
+                K::D(f) => {
+                    let f = match fmt {
+                        Some(x) => DateFmt::parse(x)?,
+                        None => f.or(dft_d),
+                    };
+                    dates::format_date(dates::parse_date(&iso, &DateFmt::iso())?, &f)
+                }
+                K::T(f) => {
+                    let f = match fmt {
+                        Some(x) => TimeFmt::parse(x)?,
+                        None => f.or(dft_t),
+                    };
+                    dates::format_time(dates::parse_time(&iso, &TimeFmt::iso())?, &f)
+                }
+                K::Z => iso,
+            };
+            if to_ty.is_numeric() {
+                let digits: String = text.chars().filter(|c| c.is_ascii_digit()).collect();
+                let (n, _) = to_ty.precision();
+                let n = usize::try_from(n)?;
+                let take = if digits.len() > n {
+                    if left {
+                        part(&digits, 0, Some(n))?
+                    } else {
+                        part(&digits, digits.len().saturating_sub(n), None)?
+                    }
+                } else {
+                    digits
+                };
+                let mut cur = move_image(to_cur, Some(to_ty))?;
+                let bytes = data::e(&take);
+                let k = bytes.len();
+                let l = cur.len();
+                let dst = if left {
+                    cur.get_mut(..k)
+                } else {
+                    l.checked_sub(k).and_then(|at| cur.get_mut(at..))
+                }
+                .ok_or_else(|| anyhow::anyhow!("native: MOVE past the result"))?;
+                dst.copy_from_slice(&bytes);
+                let (_, decs) = to_ty.precision();
+                let d = data::decode_num(&DType::Zoned(u32::try_from(cur.len())?, decs), &cur)?;
+                Ok(Value::Num(d))
+            } else {
+                let mut cur = to_cur.chars()?;
+                let src = data::e(&text);
+                let n = cur.len();
+                let k = src.len().min(n);
+                let (dst, from_bytes) = if left {
+                    (cur.get_mut(..k), src.get(..k))
+                } else {
+                    (
+                        n.checked_sub(k).and_then(|at| cur.get_mut(at..)),
+                        src.len().checked_sub(k).and_then(|at| src.get(at..)),
+                    )
+                };
+                match (dst, from_bytes) {
+                    (Some(d), Some(f)) => d.copy_from_slice(f),
+                    _ => anyhow::bail!("native: MOVE past the result"),
+                }
+                Ok(Value::Char(cur))
+            }
+        }
+        (None, Some(tk)) => {
+            let numeric = from_ty.is_some_and(|t| t.is_numeric()) || matches!(from, Value::Num(_));
+            let src = if numeric {
+                let b = move_image(from, from_ty)?;
+                b.iter()
+                    .map(|x| char::from(b'0'.saturating_add((x & 0x0F).min(9))))
+                    .collect::<String>()
+            } else {
+                data::a(&from.chars()?)
+            };
+            let pick = |n: usize| -> String {
+                let c: Vec<char> = src.chars().collect();
+                if c.len() <= n {
+                    src.clone()
+                } else if left {
+                    c.iter().take(n).collect()
+                } else {
+                    c.iter().skip(c.len().saturating_sub(n)).collect()
+                }
+            };
+            let out = match tk {
+                K::D(f) => {
+                    let mut f = match fmt {
+                        Some(x) => DateFmt::parse(x)?,
+                        None => f.or(dft_d),
+                    };
+                    if numeric {
+                        f.sep = None;
+                    }
+                    let d = dates::parse_date(&pick(f.len()), &f)?;
+                    dates::format_date(d, &DateFmt::iso())
+                }
+                K::T(f) => {
+                    let mut f = match fmt {
+                        Some(x) => TimeFmt::parse(x)?,
+                        None => f.or(dft_t),
+                    };
+                    if numeric {
+                        if f.name == "*USA" {
+                            anyhow::bail!(
+                                "MOVE between a time and a numeric field cannot use *USA"
+                            );
+                        }
+                        f.sep = None;
+                    }
+                    let n = if f.sep.is_some() { 8 } else { 6 };
+                    let h = dates::parse_time(&pick(n), &f)?;
+                    dates::format_time(h, &TimeFmt::iso())
+                }
+                K::Z => {
+                    let n = if numeric { 20 } else { 26 };
+                    dates::format_ts(&dates::parse_ts(&pick(n))?, false)
+                }
+            };
+            Ok(Value::str(&out))
+        }
+        (None, None) => anyhow::bail!("native: MOVE with no date, time or timestamp"),
+    }
 }
 
 /// ops.rs dec_sqrt (S2.113), written again with checked arithmetic: the

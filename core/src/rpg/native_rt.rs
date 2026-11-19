@@ -1224,6 +1224,31 @@ impl Runtime for Rt<'_, '_> {
         self.printer_write_n(pc, &fields, indds.as_ref())
     }
 
+    fn move_temporal(
+        &mut self,
+        left: bool,
+        fmt: Option<&str>,
+        from: Value,
+        from_ty: Option<data::DType>,
+        to: rpgrt::native::OutSlot,
+    ) -> NResult<()> {
+        // Stmt::Move's move_temporal: the result's current value, the
+        // program's DATFMT and TIMFMT, then assign with Fit::Truncate.
+        let cur = rpgrt::native::load(&self.m.bufs, to.buf, to.off, to.ty)?;
+        let dft_d = self.m.prog.datfmt()?;
+        let dft_t = self.m.prog.timfmt()?;
+        let v = rpgrt::native::move_temporal(left, fmt, &from, from_ty, &cur, to.ty, dft_d, dft_t)?;
+        rpgrt::native::store(
+            &mut self.m.bufs,
+            to.buf,
+            to.off,
+            to.ty,
+            &v,
+            Fit::Truncate { half_adjust: false },
+            false,
+        )
+    }
+
     fn workstn(
         &mut self,
         pc: usize,

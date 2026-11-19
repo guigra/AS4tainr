@@ -200,6 +200,9 @@ fn native_runtime_matches_the_interpreter_it_copies() {
         ),
         function(INTERP, "    fn clear_ds(&mut self, name: &str, d: &DsInfo) {", "    "),
         function(INTERP, "fn float_value(v: &Value) -> Result<f64> {", ""),
+        // S2.115: MOVE with dates, times and timestamps
+        // (rpgrt::native::move_temporal).
+        function(INTERP, "    fn move_temporal(\n", "    "),
         // S2.114: display files (native_rt.rs workstn_n and its ws_* functions).
         function(INTERP, "    fn workstn_op(\n", "    "),
         function(INTERP, "    fn ws_inds(&self, d: &Display) -> [bool; 100] {", "    "),
@@ -745,9 +748,10 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // interp.rs num_inds, S2.86 ops.rs sorta, movea_parts and movea, S2.88
     // ptrs.rs str_at, S2.89 bifs.rs list_of, S2.94-S2.95 clear_ds and
     // reset_to_initial, S2.102 assign_value, S2.107 float_value, S2.110 char_number, S2.113 ops.rs dec_sqrt, S2.114 workstn_op, ws_inds, ws_interact,
-    // ws_set_ind, message_subfile, ws_values and ws_fill;
+    // ws_set_ind, message_subfile, ws_values and ws_fill, S2.115
+    // move_temporal;
     // upstream still dd47e28.
-    let reviewed = "f1edd58cfc511d372e428541cd56616ad623559b824f04a7935ab6f6e8484c80";
+    let reviewed = "928f663bab871ff41b3d88125369452cf6f0e7cc429b51d27b3650f05422e107";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"
