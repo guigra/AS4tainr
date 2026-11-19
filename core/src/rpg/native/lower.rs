@@ -1823,6 +1823,17 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
         // %STATUS with no file (S2.31): the code the interpreter's
         // bifs.rs "STATUS" arm gives, `Dec::new(code, 0)`.
         Expr::Bif(b, args) if b == "STATUS" && args.is_empty() => Some(ir::NumExpr::Status),
+        // %SQRT (S2.113): bifs.rs's "SQRT" arm, of a numeric expression.
+        Expr::Bif(b, args) if b == "SQRT" && args.len() == 1 => {
+            let mut ip = path.clone();
+            ip.push(0);
+            Some(ir::NumExpr::Sqrt(Box::new(num_expr(
+                cx,
+                args.first()?,
+                used,
+                ip,
+            )?)))
+        }
         // %STATUS of a file (S2.112): that file's code (file_status).
         Expr::Bif(b, args) if b == "STATUS" && args.len() == 1 => match args.as_slice() {
             [Expr::Name { parts, args: None }] => {

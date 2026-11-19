@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.113: %SQRT (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native113.txt -f tools/golden/native113
+n113_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN113SQR) SRCSTMF('@HOME@/gld/gn113sqr.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n113_sqrt|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN113SQR)"; cat gn1.out; rm -f gn1.out

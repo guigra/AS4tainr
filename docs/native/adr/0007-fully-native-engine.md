@@ -1347,3 +1347,13 @@ Three built-in functions are lowered:
 - %ERROR after TEST(DE) of a bad date.
 
 The capture's second OPEN(E) of an open printer is an interpreter defect (fidelity.md), and the unit leaves it out.
+
+## S2.113: %SQRT
+
+%SQRT of a numeric expression is lowered (`ir::NumExpr::Sqrt`). `rpgrt::native::sqrt_bif` writes again bifs.rs's "SQRT" arm: RNQ0101 for a negative value, else ops.rs dec_sqrt with 15 decimal places, normalized. dec_sqrt is written again with checked arithmetic, and native_tripwire.rs now watches it.
+
+**Verified by** the native unit NSQRT, under both engines, as captured on PUB400 (tools/golden/native113.txt n113_sqrt):
+- %SQRT of 16, of 2 and of a packed field into packed(15:13);
+- %SQRT(-1) caught by MONITOR (101).
+
+%CHAR(%SQRT(10)) shows that the interpreter keeps 15 decimal places where IBM i keeps 29 (fidelity.md), and the unit leaves it out.
