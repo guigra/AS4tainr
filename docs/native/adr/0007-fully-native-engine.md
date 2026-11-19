@@ -1541,3 +1541,14 @@ An indicator (`*INnn`, `*INLR` and the like) compared with `*ON` or `*OFF` by `=
 AS4TAINR_NATIVE_WHY now also notes each IF, DOW, DOU or WHEN condition that is not lowered (`cond=` and its nodes).
 
 **Verified by** the native unit NINDFIG, under both engines, as captured on PUB400 (tools/golden/native126.txt n126_indfig: `acde3`). It covers = and <> with *ON and *OFF on either side, and a DOU until an indicator is on.
+
+## S2.127: a call compared in a condition
+
+A comparison of two names took the operand path. A call is a name with arguments, as in `if fact(6) = 720`, but it is not an operand, so lowering gave up on the condition. A side with a call now takes the expression path (S2.13), where calls in numeric and character expressions are already lowered. Both sides are evaluated in order, the left first, as eval does.
+
+**Verified by** native units that were already there. Their IF on a call's result now runs natively:
+- NPROC: the recursive `fact(6) = 720`, expected values from IBM Docs, "Passing by Reference" and "FOR";
+- NCALLS;
+- NCFUNC: C functions compared, captured on PUB400 (tools/golden/native57.txt n57_c).
+
+The WHY pass gave these as `cond=bin:Eq,call:...`.

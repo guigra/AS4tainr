@@ -2408,7 +2408,9 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
         let b = ind_side(r)?;
         return Some(ir::Cond::Cmp(cmp, a, b));
     }
-    if operand_only(l) && operand_only(r) {
+    // Two operands; a call (S2.127: `if fact(6) = 720`), which is a name
+    // with arguments but no operand, takes the expression sides below.
+    if operand_only(l) && operand_only(r) && !has_call(cx, l, 0) && !has_call(cx, r, 0) {
         let (a, b) = (any_operand(cx, l, used)?, any_operand(cx, r, used)?);
         // A figurative constant compares with either class (data::compare).
         let fig = |o: &ir::Operand| matches!(o, ir::Operand::Fig(_));
