@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.116: OPTIONS(*TRIM) (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native116.txt -f tools/golden/native116
+n116_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN116TRM) SRCSTMF('@HOME@/gld/gn116trm.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n116_trim|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN116TRM)"; cat gn1.out; rm -f gn1.out

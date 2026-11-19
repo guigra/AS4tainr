@@ -1397,3 +1397,15 @@ MOVE and MOVEL with a date, time or timestamp field on either side are lowered (
 - character and numeric (*YMD) to a date;
 - a time to character (MOVEL);
 - a timestamp to a date, and a date into a timestamp.
+
+## S2.116: OPTIONS(*TRIM)
+
+A parameter with OPTIONS(*TRIM) is lowered as args_for takes it:
+- the value path, so a CONST field goes by value, not by reference;
+- the character value with its leading and trailing blanks removed (`CharExpr::Trim` on its own path);
+- a figurative constant, which args_for leaves as it is, stays with the interpreter.
+
+**Verified by** the native unit NOPTTRM, under both engines, as captured on PUB400 (tools/golden/native116.txt n116_trim). It passes, to *TRIM parameters of local procedures:
+- a literal with blanks on both sides to a VALUE varying parameter;
+- a field with blanks to a CONST character parameter;
+- a %TRIMR argument.
