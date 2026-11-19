@@ -2550,3 +2550,16 @@ async fn native_unit_lowered_clear() {
     )
     .await;
 }
+
+// Stage 2, S2.95: RESET lowered to Rust.
+// Source: golden capture tools/golden/native95 n95_reset (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_reset() {
+    let _ = require_db!();
+    expect(
+        "NRESET",
+        include_str!("native/NRESET.rpgle"),
+        &["[abcd] 12.34 0 21 [QRS] 42 [mn] 5", "[zzz] 12.34"],
+    )
+    .await;
+}

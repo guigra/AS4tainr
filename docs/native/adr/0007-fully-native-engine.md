@@ -1160,3 +1160,17 @@ Each area is a place, its image, its number of elements and their distance apart
 - character, packed and varying fields, an int array, and a data structure with character, zoned and int subfields;
 - a qualified data structure, an indicator and *IN;
 - in a procedure, a local field and a local data structure.
+
+## S2.95: RESET of globals
+
+RESET of a global field (every element, for an array) or data structure is lowered as interp.rs reset_to_initial does it: its bytes are copied from the program's initial storage (`prog.globals`). The image is made at lowering and written as one CLEAR area (`ir::ClearArea`). Its bytes are part of the layout, so a changed INZ value changes the routine's key (ADR 0002).
+
+**Stays with the interpreter:**
+- a procedure's own names, whose initial storage is the frame's;
+- based storage, multiple-occurrence data structures and varying-dimension arrays;
+- images over 4096 bytes.
+
+**Verified by** the native unit NRESET, under both engines, as captured on PUB400 (tools/golden/native95.txt n95_reset). After the values change, it resets:
+- character and packed fields with INZ, and a field without INZ;
+- an array with INZ, a data structure with INZ subfields, and a qualified one;
+- from a procedure, a global field and the procedure's own local.
