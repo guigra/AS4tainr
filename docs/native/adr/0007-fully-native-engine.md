@@ -1219,3 +1219,13 @@ Like any other pointer value, it can be an EVAL's value, the base of pointer ari
 **Verified by** the native unit NRETPTR, under both engines, as captured on PUB400 (tools/golden/native100.txt n100_retptr):
 - a procedure returning `%ADDR(buf) + n`, read with %STR, and pointer arithmetic on the call's result;
 - the C function strstr on null-terminated buffers: a match, and *NULL when there is none.
+
+## S2.100: indicator fields as targets and conditions
+
+Indicator fields (`dcl-s x ind`, subfields of that type) get a type of their own, `ir::Ty::Ind`: one byte, '1' or '0', whose value is `Value::Ind`. They enter lowering only through a narrow door, `ind_field`: not an array, not based, not in a multiple-occurrence data structure. `variable` still leaves them out, so no other form treats them as a number or as characters. Two forms take them:
+- **EVAL of an indicator field** to *ON, *OFF or a condition (`ir::Lowered::EvalIndVar`): assign's data::store of DType::Ind, the value's truth;
+- **an indicator field as a condition** (`ir::Cond::IndVar`): eval's Value::Ind, its truth, in IF, DOW, DOU and under NOT.
+
+Comparing an indicator field, %CHAR of one, or an indicator field in a concatenation or as an argument still stays with the interpreter.
+
+**Verified by** the native unit NINDFLD, under both engines, as captured on PUB400 (tools/golden/native101.txt n101_indfld). It uses a standalone field, a qualified subfield and a procedure's own, given *ON, *OFF, a comparison and another indicator field, in IF, NOT, DOW and DOU.

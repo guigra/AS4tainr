@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.99");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.100");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -80,6 +80,9 @@ pub mod ir {
         Varchar(u32),
         /// A pointer (S2.47): 16 bytes, rpgrt::rpg::mem::Ptr's encoding.
         Pointer,
+        /// An indicator field (S2.100): one byte, '1' or '0'; its value is
+        /// `Value::Ind`.
+        Ind,
         /// A date, time or timestamp field (S2.52): its format's name and
         /// separator (rpgrt::rpg::dates::DateFmt, TimeFmt), or a
         /// timestamp's fractional digits. Its value is its *ISO text.
@@ -208,6 +211,8 @@ pub mod ir {
         Or(Box<Cond>, Box<Cond>),
         /// An indicator (`*IN50`, `*INLR`; S2.39).
         Ind(String),
+        /// An indicator field (S2.100): the truth of its value.
+        IndVar(Operand),
         /// A chain of ANDs (`true`) or ORs down the left operands (S2.41):
         /// the conditions in order, each evaluated only while needed.
         Chain(bool, Vec<Cond>),
@@ -656,6 +661,9 @@ pub mod ir {
         },
         /// EVAL of an indicator (S2.39): `*ON`, `*OFF` or a condition.
         EvalInd { name: String, value: IndValue },
+        /// EVAL of an indicator field (S2.100): `*ON`, `*OFF` or a
+        /// condition, stored as the interpreter's assign stores its truth.
+        EvalIndVar { target: Operand, value: IndValue },
         /// SETON / SETOFF of indicators (S2.39).
         SetInd { on: bool, inds: Vec<String> },
         /// CLEAR of a field, an array or a data structure's subfields
@@ -1296,6 +1304,7 @@ fn ty(t: &ir::Ty) -> String {
         Char(n) => format!("{p}::Char({n})"),
         Varchar(n) => format!("{p}::Varchar({n})"),
         Pointer => format!("{p}::Pointer"),
+        Ind => format!("{p}::Ind"),
         Date(n, sep) => {
             format!("{p}::Date(rpgrt::rpg::dates::DateFmt {{ name: {n:?}, sep: {sep:?} }})")
         }
@@ -1809,6 +1818,9 @@ fn cond_fns(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usize) 
         ir::Cond::Ind(name) => {
             let _ = writeln!(out, "    Ok(rt.ind({}))\n}}", json_str(name));
         }
+        ir::Cond::IndVar(o) => {
+            let _ = writeln!(out, "    {}.truth()\n}}", value(o));
+        }
         ir::Cond::FileStatus(bit, file) => {
             let f = match file {
                 Some(f) => format!("Some({})", json_str(f)),
@@ -2237,6 +2249,28 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("ei{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::EvalIndVar { target, value }) => {
+            // Stmt::Eval of an indicator field: the value's truth, then
+            // assign's data::store of DType::Ind ('1' or '0').
+            let v = match value {
+                ir::IndValue::On => "true".to_string(),
+                ir::IndValue::Off => "false".to_string(),
+                ir::IndValue::Cond(c) => {
+                    let mut n = 0;
+                    cond_fns(pc, c, &format!("cv{pc}"), helpers, &mut n);
+                    format!("cv{pc}(rt)?")
+                }
+            };
+            let (prelude, sb, so) = place_of(target).ok_or_else(bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn ev{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let v = {v};\n{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        rpgrt::rpg::data::DType::Ind,\n        &rpgrt::rpg::data::Value::Ind(v),\n        rpgrt::rpg::data::Fit::Strict {{ half_adjust: false }},\n        false,\n    )?;\n    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("ev{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::Clear(areas)) => {

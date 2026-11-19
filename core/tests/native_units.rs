@@ -2617,3 +2617,16 @@ async fn native_unit_lowered_pointer_returns() {
     )
     .await;
 }
+
+// Stage 2, S2.100: indicator fields.
+// Source: golden capture tools/golden/native101 n101_indfld (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_indicator_fields() {
+    let _ = require_db!();
+    expect(
+        "NINDFLD",
+        include_str!("native/NINDFLD.rpgle"),
+        &["YNYnY24 big"],
+    )
+    .await;
+}
