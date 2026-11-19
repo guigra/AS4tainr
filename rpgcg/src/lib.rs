@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.117");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.119");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -491,6 +491,9 @@ pub mod ir {
         FileRead {
             keys: Option<Vec<ValExpr>>,
             moves: Vec<FieldMove>,
+            /// Into a result data structure (S2.119): record_to_ds, with
+            /// no null checks.
+            ds: bool,
         },
         /// WRITE, UPDATE or DELETE of a database file (S2.59): a DELETE's
         /// key, the program fields that make the record (none for
@@ -2321,7 +2324,7 @@ fn lowered_step(
                 format!("fc{pc}(rt).map(|()| {next})"),
             )
         }
-        (ir::Kind::Stmt, ir::Lowered::FileRead { keys, moves }) => {
+        (ir::Kind::Stmt, ir::Lowered::FileRead { keys, moves, ds }) => {
             // The interpreter's file_op: the key's values (key_values),
             // the operation (rt.file_read), the record's fields into the
             // program (fill_fields), then the status, the indicators and
@@ -2347,7 +2350,13 @@ fn lowered_step(
                     body.push_str("    ]);\n");
                 }
             }
-            body.push_str("    let rec = rt.file_read(");
+            // A result data structure (S2.119): record_to_ds, with no null
+            // checks of fill_fields.
+            if *ds {
+                body.push_str("    let rec = rt.file_read_ds(");
+            } else {
+                body.push_str("    let rec = rt.file_read(");
+            }
             let _ = writeln!(body, "{pc}, keys)?;");
             if moves.is_empty() {
                 body.push_str("    let _ = rec;\n    let moved = Ok(());\n");
