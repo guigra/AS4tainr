@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.105: indicator fields compared (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native105.txt -f tools/golden/native105
+n105_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN105ICM) SRCSTMF('@HOME@/gld/gn105icm.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n105_indcmp|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN105ICM)"; cat gn1.out; rm -f gn1.out

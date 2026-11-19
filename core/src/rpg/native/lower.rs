@@ -2117,6 +2117,21 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
             ));
         }
     }
+    // An indicator field compared (S2.105) with another or with *ON or
+    // *OFF: eval's Value::Ind against the other side's value, by
+    // data::compare (rpgrt::native::cmp).
+    if ind_field_ok(cx, l) || ind_field_ok(cx, r) {
+        let mut ind_side = |e: &Expr| -> Option<ir::Operand> {
+            match e {
+                Expr::Fig(Fig::On) => Some(ir::Operand::Fig(ir::FigOp::On)),
+                Expr::Fig(Fig::Off) => Some(ir::Operand::Fig(ir::FigOp::Off)),
+                _ => ind_field(cx, e, used),
+            }
+        };
+        let a = ind_side(l)?;
+        let b = ind_side(r)?;
+        return Some(ir::Cond::Cmp(cmp, a, b));
+    }
     if operand_only(l) && operand_only(r) {
         let (a, b) = (any_operand(cx, l, used)?, any_operand(cx, r, used)?);
         // A figurative constant compares with either class (data::compare).

@@ -2663,3 +2663,16 @@ async fn native_unit_lowered_indicator_characters() {
     )
     .await;
 }
+
+// Stage 2, S2.105: indicator fields compared.
+// Source: golden capture tools/golden/native105 n105_indcmp (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_indicator_comparisons() {
+    let _ = require_db!();
+    expect(
+        "NINDCMP",
+        include_str!("native/NINDCMP.rpgle"),
+        &["abcd3 ok"],
+    )
+    .await;
+}
