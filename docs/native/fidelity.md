@@ -283,3 +283,25 @@ IBM i and the interpreter agree on the file name, the open and end-of-file flags
 | Relative record number (397-400) after the end of file | keeps the last record's, 2 | 0 |
 
 These are upstream interpreter defects, held for Kyle with the capture. Native code writes the INFDS with the interpreter's own infds_update (S2.139), so it follows the interpreter. The unit NINFDS leaves those fields out.
+
+## A quotient compared in a condition (found 2026-11-20)
+
+Source: tools/golden/native145 n145_cmparith (PUB400, IBM i 7.5, 2026-11-20).
+
+`if 10 / 3 = 3.3333333333333333333333333333` (28 decimal places) differs:
+- **IBM i:** false.
+- **The interpreter:** true. interp.rs divide gives the quotient 28 decimal places by the precision rules with M = 30, as it does for %CHAR(10 / 3), whose 28 places come from tools/golden/rpg-prec.txt.
+
+So in a comparison IBM i keeps a quotient to other decimal places than %CHAR shows. Which ones is not known yet; another capture would settle it. The other comparisons with arithmetic in the capture agree: a product, a quotient against fewer places, a sum, IN %LIST of a product, a product of a difference, and a DOW on a difference.
+
+This is an upstream interpreter defect, held for Kyle with the capture. Native code follows the interpreter, and the unit NCMPAR leaves the test out.
+
+## A FOR limit that is not whole (found 2026-11-20)
+
+Source: tools/golden/native146 n146_crt (PUB400, IBM i 7.5, 2026-11-20), first version of gn146fl.rpgle.
+
+`for i = 0 to 10 / 4` differs:
+- **IBM i:** RNF7569 (severity 20, "the limit value used in a FOR operation is not valid"), and the program does not compile.
+- **The interpreter:** it compiles, and compares the index with 2.5 at each turn.
+
+This is an upstream compiler-check defect, held for Kyle. Native code follows the interpreter. The unit NFORLIM uses whole limits.

@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.144");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.146");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -444,10 +444,11 @@ pub mod ir {
     pub enum Lowered {
         /// The condition of a jump-if-not.
         Cond(Cond),
-        /// FOR/DO: the index past its limit.
+        /// FOR/DO: the index past its limit (a numeric expression since
+        /// S2.146).
         LoopTest {
             var: Operand,
-            limit: Option<Operand>,
+            limit: Option<NumExpr>,
             down: bool,
         },
         /// FOR/DO: step the index.
@@ -2161,7 +2162,10 @@ fn lowered_step(
             let _ = writeln!(helpers, "    let v = {};", number(var));
             match limit {
                 Some(lim) => {
-                    let _ = writeln!(helpers, "    let l = {};", number(lim));
+                    // The limit evaluated after the index, each time, as
+                    // the interpreter's LoopTest arm does.
+                    let l = num_expr(pc, lim, helpers);
+                    let _ = writeln!(helpers, "    let l = {l};");
                     let _ = writeln!(helpers, "    Ok(v {} l)\n}}", if *down { "<" } else { ">" });
                 }
                 None => {
@@ -4934,7 +4938,7 @@ mod tests {
         let mut test = ins(Kind::LoopTest { end: 3 }, 1, false);
         test.lowered = Some(Lowered::LoopTest {
             var: var("I", 2),
-            limit: Some(Operand::Num { m: 10, s: 0 }),
+            limit: Some(super::ir::NumExpr::Leaf(Operand::Num { m: 10, s: 0 })),
             down: false,
         });
         let mut cond = ins(Kind::JumpIfNot(3), 2, false);

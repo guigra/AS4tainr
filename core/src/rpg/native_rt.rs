@@ -1670,6 +1670,8 @@ impl Runtime for Rt<'_, '_> {
             Some(Ins::Stmt(super::super::ast::Stmt::CallP(e))) => e,
             // A RETURN's value (S2.38).
             Some(Ins::Return(Some(v))) => v,
+            // A FOR limit (S2.146).
+            Some(Ins::LoopTest { limit: Some(l), .. }) => l,
             // A DSPLY's message (S2.36).
             Some(Ins::Stmt(super::super::ast::Stmt::Dsply {
                 message: Some(m), ..
