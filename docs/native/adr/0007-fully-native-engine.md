@@ -1963,3 +1963,9 @@ A whole data structure array, with DIM above 1, passed to a CONST parameter of t
 In the callee, the elements' subfields of such a parameter (`m(i).field`) are now native: ds_array_field_of no longer refuses a data structure array that is a parameter. rt.local places it where Machine::sym does, which for one passed by reference is the caller's storage. path_sym checks only the index's range for a data structure array, so there is no MCH0601 `reach` check to reproduce. elem_off makes that check for a scalar array, which stays refused.
 
 **Verified by** the native unit NDSAPRM, under both engines, as captured on PUB400 (tools/golden/native169.txt n169_dsaparm: `1 2two 3 |9x 0 0 4four`, then a blank). It passes a global array and a procedure's local one. The capture's first version had arrays with no INZ, whose varying subfields began with blanks: IBM i ended in RNX9998, and the interpreter read the blanks as lengths. The arrays now have INZ. rla_test.rs IMQDSARR's call and DSPLY are native now.
+
+## S2.170: named constants as string operations' factors
+
+A character factor of a fixed-form string operation (SCAN, CHECK, CHECKR, XLATE, CAT) may be a named constant of character data. It takes eval's value of it, as of the literal it stands for, through any_operand, which puts the value in the layout lines. RPG3TEST's and RPG3FREE's `MSG CAT TABN:1 OUT`, with MSG a constant, is native now.
+
+**Verified by** the native unit NSTRCON, under both engines, as captured on PUB400 (tools/golden/native170.txt n170_strconst: `MONTH IS MAY|X-|2|CABBAge`). It covers CAT's factor 1 and factor 2, CAT(P), SCAN's argument, and XLATE's from and to strings.

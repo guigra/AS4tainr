@@ -3712,3 +3712,16 @@ async fn native_unit_lowered_ds_array_parameter() {
     )
     .await;
 }
+
+// Stage 2, S2.170: named constants in string operations.
+// Source: golden capture tools/golden/native170 n170_strconst (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_string_op_constants() {
+    let _ = require_db!();
+    expect(
+        "NSTRCON",
+        include_str!("native/NSTRCON.rpgle"),
+        &["MONTH IS MAY|X-|2|CABBAge"],
+    )
+    .await;
+}

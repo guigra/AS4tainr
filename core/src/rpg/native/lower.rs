@@ -7285,6 +7285,14 @@ fn str_split(e: &Option<Expr>) -> (Option<Expr>, Option<Expr>) {
 fn str_chars(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
     match e {
         Expr::Str(b) | Expr::Hex(b) => Some(ir::Operand::Str(b.clone())),
+        // A named constant of character data (S2.170): eval's value of it,
+        // as of the literal it stands for (any_operand, which puts it in
+        // the layout lines).
+        Expr::Name { parts, args: None }
+            if matches!(sym(cx, &parts.join(".")), Some(Sym::Const(Value::Char(_)))) =>
+        {
+            any_operand(cx, e, used)
+        }
         Expr::Name { .. } => {
             let o = sql_field(cx, e, used)?;
             // A table named with no index (S2.163): its current element,
