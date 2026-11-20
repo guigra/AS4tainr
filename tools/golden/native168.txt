@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.168: %DEC of a date field that holds blanks (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native168.txt -f tools/golden/native168
+n168_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN168DD) SRCSTMF('@HOME@/gld/gn168dd.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n168_decbad|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN168DD)"; cat gn1.out; rm -f gn1.out

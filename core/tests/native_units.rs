@@ -3679,3 +3679,22 @@ async fn native_unit_lowered_set_result_sets() {
         "NRSLTST"
     );
 }
+
+// Stage 2, S2.168: %DEC of a date field that holds blanks. The capture is
+// "112 20260131": IBM i gives the date that is not valid status 00112,
+// where the interpreter (and so the native engine) gives 00105, its
+// generic %DEC of the blanks (fidelity.md, "%DEC of a date field that
+// holds blanks"). The test checks the field where both agree, %DEC of the
+// valid date.
+// Source: golden capture tools/golden/native168 n168_decbad (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_dec_of_bad_date() {
+    let _ = require_db!();
+    let got = shown("NDECBAD", include_str!("native/NDECBAD.rpgle")).await;
+    let [line] = got.as_slice() else {
+        panic!("NDECBAD: {got:?}");
+    };
+    let f: Vec<&str> = line.split_whitespace().collect();
+    assert_eq!(f.len(), 2, "NDECBAD: {line}");
+    assert_eq!(f.get(1), Some(&"20260131"), "NDECBAD: {line}");
+}

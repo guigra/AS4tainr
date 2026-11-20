@@ -3921,7 +3921,9 @@ fn call_of(
         // argument for such a parameter goes as it would with no *OMIT.
         if matches!(a, Expr::Omit) {
             let extpgm = proto(cx, &name).is_some_and(|pr| pr.extpgm.is_some());
-            if !p.omit || local.is_some() || extpgm || prog.procs.contains_key(&name) {
+            // A file parameter: args_for checks LIKEFILE first, and *OMIT
+            // for it is an error (the review of 2026-11-20).
+            if !p.omit || p.file || local.is_some() || extpgm || prog.procs.contains_key(&name) {
                 return None;
             }
             let _ = std::fmt::Write::write_fmt(&mut layout, format_args!(" {}=omit", p.name));
