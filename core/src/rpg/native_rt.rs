@@ -1519,6 +1519,23 @@ impl Runtime for Rt<'_, '_> {
         self.m.last.code
     }
 
+    fn nullind(&mut self, field: &str) -> NResult<bool> {
+        // bif's "NULLIND": nullind_field, then the set.
+        let name = self.m.nullind_field(&[Expr::name(field)])?;
+        Ok(self.m.nullind.contains(&name))
+    }
+
+    fn set_nullind(&mut self, field: &str, on: bool) -> NResult<()> {
+        // assign's "NULLIND" arm.
+        let name = self.m.nullind_field(&[Expr::name(field)])?;
+        if on {
+            self.m.nullind.insert(name);
+        } else {
+            self.m.nullind.remove(&name);
+        }
+        Ok(())
+    }
+
     fn parms(&self) -> NResult<i64> {
         // interp.rs bif's "PARMS": the last frame's `passed`, or the
         // program's parms_passed.

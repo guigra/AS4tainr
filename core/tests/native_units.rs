@@ -3111,3 +3111,47 @@ async fn native_unit_lowered_subst_figuratives() {
     )
     .await;
 }
+
+// Stage 2, S2.137: %NULLIND.
+// Source: golden capture tools/golden/native137 n137_nullind (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_nullind() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    // As the capture's GN137N: (1, NULL), (2, 2026-01-31).
+    let _ = job.run("DLTF FILE(QGPL/GN137N)").await;
+    job.run_sql_script(
+        "CREATE TABLE QGPL.GN137N (ID INT, D DATE);\nINSERT INTO QGPL.GN137N VALUES (1, NULL), (2, '2026-01-31');",
+        "native unit NNULLIND",
+        10,
+        None,
+        true,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    expect(
+        "NNULLIND",
+        include_str!("native/NNULLIND.rpgle"),
+        &["11n0 20 2026-01-31"],
+    )
+    .await;
+}
