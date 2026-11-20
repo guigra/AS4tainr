@@ -1789,3 +1789,15 @@ S2.138 lowered TEST only when the operation's other extenders held nothing but D
 The condition now allows E, and the five TESTs of NTESTDT are native: the generated code's map has `"what":"TEST","via":"native"`. The expected value is still the PUB400 capture's (tools/golden/native138.txt n138_test: `10100`).
 
 The WHY pass did not show it, because it noted no `Stmt::Op`. AS4TAINR_NATIVE_WHY now notes every operation that is not lowered: its code, extenders, resulting indicators and factors. A block is verified only when the map shows its statements as native.
+
+## S2.148: the SQRT operation
+
+The fixed-form SQRT operation is lowered (`Lowered::SqrtOp`, `rpgrt::native::sqrt_op`), as ops.rs string_op's SQRT arm runs it:
+- factor 2's value;
+- for a negative value, RNQ0101;
+- else dec_sqrt to one decimal place more than the result field has;
+- assigned with Truncate, or rounded with (H).
+
+The result is a packed, zoned, binary or integer field. The tripwire already watches string_op and dec_sqrt.
+
+**Verified by** the native unit NSQRTOP, under both engines, as captured on PUB400 (tools/golden/native148.txt n148_sqrtop: `3.16 1.4142 4 4`). It covers (H) into packed(5:2), no (H) into packed(7:4), and (H) and not into an integer. The four SQRTs are native in the generated map.

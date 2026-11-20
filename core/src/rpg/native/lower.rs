@@ -901,6 +901,43 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
         }
         // Fixed-form TESTN, TESTZ, TESTB, BITON and BITOFF (S2.84): ops.rs
         // bit_op on a character field.
+        // SQRT (S2.148): ops.rs string_op's SQRT arm, factor 2's value,
+        // its root to one place more than the result field has (RNQ0101
+        // for a negative value), assigned with Truncate and (H) half
+        // adjust. A numeric result field.
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1: None,
+            f2: Some(v),
+            result: Some(r),
+            ext,
+            ind,
+        }) if code == "SQRT"
+            && !ext.error
+            && !ext.no_lock
+            && ext.other.chars().all(|c| c == 'H')
+            && ind.is_empty() =>
+        {
+            let value = num_expr(cx, v, &mut used, Vec::new())?;
+            let target = variable(cx, r, &mut used)?;
+            let ir::Operand::Var { ty, .. } = &target else {
+                return None;
+            };
+            let decs = match ty {
+                ir::Ty::Packed(_, s) | ir::Ty::Zoned(_, s) | ir::Ty::Binary(_, s) => {
+                    u8::try_from(*s).ok()?
+                }
+                ir::Ty::Int(_) | ir::Ty::Uns(_) => 0,
+                _ => return None,
+            };
+            used.push(format!("sqrt op {decs}"));
+            ir::Lowered::SqrtOp {
+                value,
+                target,
+                decs,
+                half: ext.half_adjust,
+            }
+        }
         // TEST(D), TEST(T), TEST(Z) (S2.138): ops.rs string_op's TEST arm,
         // the field's value against factor 1's format (*ISO with none),
         // then %ERROR with E, the indicator in positions 73-74, or

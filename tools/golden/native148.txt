@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.148: the SQRT operation (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native148.txt -f tools/golden/native148
+n148_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN148SQ) SRCSTMF('@HOME@/gld/gn148sq.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n148_sqrtop|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN148SQ)"; cat gn1.out; rm -f gn1.out

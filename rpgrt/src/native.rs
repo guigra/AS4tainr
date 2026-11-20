@@ -2184,6 +2184,19 @@ fn dec_sqrt(x: &Dec, scale: u8) -> NResult<Dec> {
 /// Stage 2 (S2.113): %SQRT of a numeric value, as bifs.rs's "SQRT" arm:
 /// RNQ0101 for a negative one, else dec_sqrt with 15 decimal places,
 /// normalized.
+/// The SQRT operation's root (S2.148), as ops.rs string_op's SQRT arm
+/// takes it: a negative value is RNQ0101, else dec_sqrt to one place more
+/// than the result field has.
+pub fn sqrt_op(x: &Dec, decs: u8) -> NResult<Dec> {
+    if x.is_negative() {
+        anyhow::bail!("RNQ0101: SQRT of a negative number.");
+    }
+    let places = decs
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("native: SQRT's decimal places"))?;
+    dec_sqrt(x, places)
+}
+
 pub fn sqrt_bif(x: &Dec) -> NResult<Dec> {
     if x.is_negative() {
         anyhow::bail!("RNQ0101: %SQRT of a negative number.");
