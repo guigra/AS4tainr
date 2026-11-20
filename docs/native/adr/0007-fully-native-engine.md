@@ -2009,3 +2009,15 @@ CALLP(E), or CALLP with an error indicator in positions 73-74, of a call native 
 UPDATE with %FIELDS is lowered as file_read's change, and the runtime keeps only the fields named, as file_op_inner's io_fields does. The record is made, then the fields are kept whose program or database name is in the list. That also drops the null values' entry, as `retain` drops it. Then record_change runs.
 
 **Verified by** the native unit NUPDFLD, under both engines, as captured on PUB400 (tools/golden/native174.txt n174_updfld: `1 aa yy`). A record is read, two fields are changed, and only one is named in %FIELDS. rla_test.rs DSIO's `update custrec %fields(cusbal)` is native now.
+
+## S2.175: SND-MSG
+
+SND-MSG is lowered (`Lowered::SndMsg`, `Runtime::snd_msg`), as the op arm does it:
+- The message type is factor 1, *INFO when there is none.
+- The message is a character expression, or %MSG(id : msgf [: data]) with each argument a character expression, evaluated in order.
+- `id: text` is built from the trimmed id and the data with blanks off the end, or the text alone.
+- *ESCAPE raises it as an error, CPF9898 with no id; the other types go to the job log.
+
+**Verified by** the native unit NSNDMSG, under both engines, as captured on PUB400 (tools/golden/native175.txt n175_sndmsg: `start info`). *INFO goes to the job log, and the program goes on.
+
+The capture's first version also sent *ESCAPE inside MONITOR groups. IBM i sends it to the caller by default, so the program ended with CPF9898 unmonitored. The interpreter catches it in the procedure's own group (fidelity.md), and native code does the same.

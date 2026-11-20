@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.175: SND-MSG (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native175.txt -f tools/golden/native175
+n175_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN175SM) SRCSTMF('@HOME@/gld/gn175sm.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n175_sndmsg|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN175SM)"; cat gn1.out; rm -f gn1.out
