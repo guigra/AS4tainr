@@ -1955,3 +1955,11 @@ A read-only codex review of S2.140 to S2.166 (2026-11-20) found one difference, 
 - **S2.159 and S2.160, not differences.** The review said the interpreter defers the fault of a *NULL basing pointer in %ADDR to the end of the statement. It does not: loc_of calls check_buf, which raises the fault of the BAD_BUF place at once, as based_at does.
 
 **Verified by** the native unit NDECBAD, under both engines, against the PUB400 capture (tools/golden/native168.txt n168_decbad: `112 20260131`), on the field where IBM i and the interpreter agree.
+
+## S2.169: data structure arrays as CONST parameters
+
+A whole data structure array, with DIM above 1, passed to a CONST parameter of this module's procedure is lowered as args_for's Arg::Ref: all its elements, at the array's place. For a LIKEDS DIM(n) parameter, that is the callee's view of the same storage. call_proc takes the descriptor's length from the Loc's size, which is the whole array's; call_frame takes it from the reference's type. So the native reference is typed as characters of the array's size. The array may be global or the calling procedure's own.
+
+In the callee, the elements' subfields of such a parameter (`m(i).field`) are now native: ds_array_field_of no longer refuses a data structure array that is a parameter. rt.local places it where Machine::sym does, which for one passed by reference is the caller's storage. path_sym checks only the index's range for a data structure array, so there is no MCH0601 `reach` check to reproduce. elem_off makes that check for a scalar array, which stays refused.
+
+**Verified by** the native unit NDSAPRM, under both engines, as captured on PUB400 (tools/golden/native169.txt n169_dsaparm: `1 2two 3 |9x 0 0 4four`, then a blank). It passes a global array and a procedure's local one. The capture's first version had arrays with no INZ, whose varying subfields began with blanks: IBM i ended in RNX9998, and the interpreter read the blanks as lengths. The arrays now have INZ. rla_test.rs IMQDSARR's call and DSPLY are native now.

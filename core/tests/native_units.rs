@@ -3698,3 +3698,17 @@ async fn native_unit_lowered_dec_of_bad_date() {
     assert_eq!(f.len(), 2, "NDECBAD: {line}");
     assert_eq!(f.get(1), Some(&"20260131"), "NDECBAD: {line}");
 }
+
+// Stage 2, S2.169: a data structure array for a CONST LIKEDS DIM parameter.
+// The capture ends with a blank, which `expect` trims as for every DSPLY.
+// Source: golden capture tools/golden/native169 n169_dsaparm (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_ds_array_parameter() {
+    let _ = require_db!();
+    expect(
+        "NDSAPRM",
+        include_str!("native/NDSAPRM.rpgle"),
+        &["1 2two 3 |9x 0 0 4four"],
+    )
+    .await;
+}

@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.169: a data structure array for a CONST LIKEDS DIM parameter (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native169.txt -f tools/golden/native169
+n169_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN169DA) SRCSTMF('@HOME@/gld/gn169da.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n169_dsaparm|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN169DA)"; cat gn1.out; rm -f gn1.out
