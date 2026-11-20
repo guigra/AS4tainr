@@ -259,3 +259,13 @@ With `ctl-opt datfmt(*eur) timfmt(*usa)`, the literals differ:
 - **The interpreter:** the other way round. It rejects `d'31.01.2026'` ("not a valid date literal in *ISO form") and takes the *ISO form.
 
 Native code follows the interpreter for both, which are upstream interpreter defects held for Kyle with the captures. The unit NTCHREX uses the default formats.
+
+## TEST with no E and no indicator (found 2026-11-20)
+
+Source: tools/golden/native138 n138_crt (PUB400, IBM i 7.5, 2026-11-20), first version of gn138ts.rpgle.
+
+A TEST(D), TEST(T) or TEST(Z) with neither the E extender nor an error indicator differs:
+- **IBM i:** RNF5056 (severity 30), and the program does not compile.
+- **The interpreter:** it compiles. ops.rs's TEST arm raises RNX0112 at run time for a value that is not valid.
+
+This is an upstream compiler-check defect, held for Kyle. Native code follows the interpreter. The unit NTESTDT uses TEST with E only.

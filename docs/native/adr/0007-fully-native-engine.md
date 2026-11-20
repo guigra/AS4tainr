@@ -1660,3 +1660,19 @@ Then the field is looked up in, or put in or taken out of, the machine's null in
 **Verified by** the native unit NNULLIND, under both engines, as captured on PUB400 (tools/golden/native137.txt n137_nullind: `11n0 20 2026-01-31`):
 - a null date read, then tested, in %CHAR, and set off;
 - then a record whose date is not null.
+
+## S2.138: TEST(D), TEST(T), TEST(Z)
+
+TEST(D), TEST(T) and TEST(Z) of a character or numeric field are lowered (`Lowered::TestTemporal`, `Runtime::test_temporal`), as ops.rs string_op's TEST arm runs them:
+- the field's value as text; a number is its whole digits, in the format with a 0;
+- checked against factor 1's format, or *ISO with none;
+- then %ERROR with E, the indicator in positions 73-74, or RNX0112.
+
+The tripwire already watches string_op.
+
+**Verified by** the native unit NTESTDT, under both engines, as captured on PUB400 (tools/golden/native138.txt n138_test: `10100`):
+- a date that is not valid, and a valid zoned *ISO one;
+- a time that is not valid, and a valid timestamp;
+- a *USA date.
+
+A TEST with neither E nor an indicator does not compile on IBM i (RNF5056), and the interpreter takes it (fidelity.md).

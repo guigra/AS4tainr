@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.137");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.138");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -643,6 +643,15 @@ pub mod ir {
         PrinterOp,
         /// OPEN or CLOSE of a database file (S2.128).
         DiskOpenClose,
+        /// TEST(D/T/Z) (S2.138): the field, factor 1's format, the kind
+        /// ('D', 'T' or 'Z'), the E extender and the indicator.
+        TestTemporal {
+            field: Operand,
+            fmt: String,
+            kind: char,
+            error: bool,
+            lo: Option<String>,
+        },
         /// WRITE of a printer file's record format (S2.79): the program
         /// fields it prints and the INDDS data structure, with places.
         PrinterWrite {
@@ -3284,6 +3293,31 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("da{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::TestTemporal {
+                field,
+                fmt,
+                kind,
+                error,
+                lo,
+            },
+        ) => {
+            let lo = match lo {
+                Some(n) => format!("Some({})", json_str(n)),
+                None => "None".to_string(),
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn tt{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let v = {};\n    rt.test_temporal(&v, {}, {kind:?}, {error}, {lo})\n}}",
+                value(field),
+                json_str(fmt)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("tt{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::DiskOpenClose) => guarded(
