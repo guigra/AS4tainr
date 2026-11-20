@@ -7120,14 +7120,20 @@ fn str_chars(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operan
         Expr::Str(b) | Expr::Hex(b) => Some(ir::Operand::Str(b.clone())),
         Expr::Name { .. } => {
             let o = sql_field(cx, e, used)?;
+            // A table named with no index (S2.163): its current element,
+            // as eval's table_index gives it (S2.149's index).
+            let whole = |ix: &Option<Box<ir::Index>>| match ix {
+                None => true,
+                Some(i) => i.table.is_some(),
+            };
             (is_char(&o)
                 && matches!(
-                    o,
+                    &o,
                     ir::Operand::Var {
-                        index: None,
+                        index,
                         based: None,
                         ..
-                    }
+                    } if whole(index)
                 ))
             .then_some(o)
         }

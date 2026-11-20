@@ -1914,3 +1914,9 @@ OPEN, CLOSE and FEOD of a printer file, and OPEN and CLOSE of a database file, a
 %ABS of a float expression is lowered as a float value (`FloatExpr::Abs`, `rpgrt::native::float_abs`). It is bif's ABS arm on eval's value of the argument, the float arm's: a float stays a float, and a decimal's absolute value is a decimal. is_float does not take %ABS as float, so float_expr tries it before its float check.
 
 **Verified by** the native unit NFLTABS, under both engines, against the PUB400 capture (tools/golden/native162.txt n162_fltabs: `+2.500000000000000E+000 +8.500000000000000E+000 +6.2500000E-01 huge`). It covers a field, an expression, a float(4) target, and a value too large for a 63-digit decimal (rla_test.rs FLOATS's `d = %abs(f - f / 2)`). The third field is %CHAR of a float(4), a known interpreter difference (fidelity.md, "%CHAR of float(4)"), so the unit checks the other three.
+
+## S2.163: a table's current element as a string operation's factor
+
+A character factor of a fixed-form string operation (SCAN, CHECK, CHECKR, XLATE, CAT) may now be a table named with no index. That is its current element, as eval's table_index gives it, with S2.149's index. RPG3TEST's and RPG3FREE's `MSG CAT TABN:1 OUT` after a LOOKUP is native now.
+
+**Verified by** the native unit NTABCAT, under both engines, as captured on PUB400 (tools/golden/native163.txt n163_tabcat: `IS: oneBt|AoneBt`). It uses a table as factor 2 and as factor 1, with (P).
