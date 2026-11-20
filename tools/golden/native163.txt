@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.163: CAT with a table's current element (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native163.txt -f tools/golden/native163
+n163_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN163TC) SRCSTMF('@HOME@/gld/gn163tc.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n163_tabcat|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN163TC)"; cat gn1.out; rm -f gn1.out

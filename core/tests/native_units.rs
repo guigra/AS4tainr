@@ -3523,3 +3523,18 @@ async fn native_unit_lowered_float_abs() {
         "NFLTABS: {line}"
     );
 }
+
+// Stage 2, S2.163: CAT with a table's current element. The compile-time
+// data "AoneBtwoCthr" splits as 1 + 5 characters per element pair, so
+// TABA(2) is 'w' and TABB(1) 'oneBt'; the capture shows the same.
+// Source: golden capture tools/golden/native163 n163_tabcat (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_table_cat() {
+    let _ = require_db!();
+    expect(
+        "NTABCAT",
+        include_str!("native/NTABCAT.rpgle"),
+        &["IS: oneBt|AoneBt"],
+    )
+    .await;
+}
