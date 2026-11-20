@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.159: %ADDR of a based subfield (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native159.txt -f tools/golden/native159
+n159_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN159AB) SRCSTMF('@HOME@/gld/gn159ab.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n159_addrbased|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN159AB)"; cat gn1.out; rm -f gn1.out

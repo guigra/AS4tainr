@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.160: comparisons of pointer expressions (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native160.txt -f tools/golden/native160
+n160_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN160PC) SRCSTMF('@HOME@/gld/gn160pc.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n160_ptrcmp|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN160PC)"; cat gn1.out; rm -f gn1.out

@@ -1883,3 +1883,20 @@ A date plus a time is lowered as a timestamp value (`CharExpr::DatePlusTime`, `r
 Only a constant maximum of at least 1 is lowered: a literal, a named constant or %SIZE. The arm converts the maximum `as usize`, which would wrap a negative one.
 
 **Verified by** the native unit NSTRSET, under both engines, as captured on PUB400 (tools/golden/native158.txt n158_strset: `Hello 5 xxxxxx Heab zzz`). It covers a literal maximum and a %SIZE one, a pointer moved on, and the bytes left after the null. rla_test.rs PTRS's `%str(...) = ...` is native now.
+
+## S2.159: %ADDR of a based field
+
+%ADDR of a field based on a pointer, a subfield of a based data structure included, is lowered. It takes loc_of's place, which Machine::sym gives through based_place: the pointer's storage checked for the field's size. Generated code gets it from `based_at`, as it does for a based field's value (S2.48). The address is ptr_to of that place. An element of a based array stays out.
+
+**Verified by** the native unit NADDRBS, under both engines, as captured on PUB400 (tools/golden/native159.txt n159_addrbased: `same ..........hello     ..........world`, then five blanks, which the unit's DSPLY comparison trims):
+- the address is written through by another based field;
+- it is compared with the basing pointer plus the subfield's offset;
+- it is taken again after the basing pointer moves.
+
+rla_test.rs SVAL's `q = %addr(data)` is native now.
+
+## S2.160: comparisons of pointer expressions
+
+A comparison with a pointer expression on a side is lowered (`Cond::PtrCmp`): pointer arithmetic, %ADDR, %ALLOC, %REALLOC or %PADDR, as `ptr_val` gives them. Eval's values of both sides, the left first, are compared by data::compare: in address order, with *NULL before any address. A comparison of two pointer fields was already lowered as operands.
+
+**Verified by** the native unit NPTRCMP, under both engines, as captured on PUB400 (tools/golden/native160.txt n160_ptrcmp: `lt gt eq nn`). It covers <, >, = (true and false) and <> *NULL with arithmetic and %ADDR on either side. NADDRBS's `if q = p + 10` (S2.159, the one statement of it the interpreter still ran) is native now.

@@ -3415,3 +3415,30 @@ async fn native_unit_lowered_str_target() {
     )
     .await;
 }
+
+// Stage 2, S2.159: %ADDR of a based subfield. The capture ends with five
+// blanks (data's last bytes), which `expect` trims as for every DSPLY.
+// Source: golden capture tools/golden/native159 n159_addrbased (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_addr_based() {
+    let _ = require_db!();
+    expect(
+        "NADDRBS",
+        include_str!("native/NADDRBS.rpgle"),
+        &["same ..........hello     ..........world"],
+    )
+    .await;
+}
+
+// Stage 2, S2.160: comparisons of pointer expressions.
+// Source: golden capture tools/golden/native160 n160_ptrcmp (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_pointer_comparisons() {
+    let _ = require_db!();
+    expect(
+        "NPTRCMP",
+        include_str!("native/NPTRCMP.rpgle"),
+        &["lt gt eq nn"],
+    )
+    .await;
+}
