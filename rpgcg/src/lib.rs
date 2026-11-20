@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.155");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.156");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -653,6 +653,9 @@ pub mod ir {
         PrinterOp,
         /// OPEN or CLOSE of a database file (S2.128).
         DiskOpenClose,
+        /// WRITE of a program-described printer file from a data structure
+        /// or field, its bytes the line (S2.156).
+        PrinterWriteDs(Operand),
         /// COMMIT, or ROLBK when true (S2.152).
         Commit(bool),
         /// The SQRT operation (S2.148): factor 2, the result field, its
@@ -3439,6 +3442,21 @@ fn lowered_step(
             format!("rt.stmt({pc}).map(|()| {next})"),
             format!("rt.commit_op({rollback}).map(|()| {next})"),
         ),
+        (ir::Kind::Stmt, ir::Lowered::PrinterWriteDs(o)) => {
+            let ir::Operand::Var { ty: t, .. } = o else {
+                return Err(bad());
+            };
+            let at = scalar_place(o).ok_or_else(bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn pd{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let (buf, off) = {at};\n    let ds = rpgrt::native::OutSlot {{ name: String::new(), buf, off, ty: {} }};\n    rt.printer_write_ds({pc}, ds)\n}}",
+                ty(t)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("pd{pc}(rt).map(|()| {next})"),
+            )
+        }
         (ir::Kind::Stmt, ir::Lowered::DiskOpenClose) => guarded(
             format!("rt.stmt({pc}).map(|()| {next})"),
             format!("rt.disk_open_close({pc}).map(|()| {next})"),

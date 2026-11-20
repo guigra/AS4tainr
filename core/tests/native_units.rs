@@ -3377,3 +3377,15 @@ async fn native_unit_lowered_uns() {
     )
     .await;
 }
+
+// Stage 2, S2.156: WRITE of a program-described printer file from a data
+// structure. The capture is PASE system's output of the spooled file,
+// without PUB400's banner line, as for NEXCPT.
+// Source: golden capture tools/golden/native156 n156_prtds (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_printer_write_ds() {
+    let _ = require_db!();
+    let want = ["first line           00042", "second line          00007"];
+    let got = printed("NPRTDS", include_str!("native/NPRTDS.rpgle")).await;
+    assert_eq!(got, want, "NPRTDS");
+}
