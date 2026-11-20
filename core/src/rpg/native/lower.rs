@@ -915,7 +915,8 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
         }) if code == "TEST"
             && !ext.no_lock
             && !ext.half_adjust
-            && ext.other.chars().all(|c| matches!(c, 'D' | 'T' | 'Z'))
+            // The parser keeps E in `other` too (ext.error is set as well).
+            && ext.other.chars().all(|c| matches!(c, 'D' | 'T' | 'Z' | 'E'))
             && ind.hi.is_none()
             && ind.eq.is_none() =>
         {
@@ -3906,6 +3907,30 @@ fn note_why(cx: &Cx<'_>, i: &Ins, at: usize) {
                     if ind.eq.is_some() { "eq" } else { "" },
                 )
         }
+        // A fixed-form or free-form operation not lowered (S2.147): its
+        // code, its extenders and resulting indicators, and which factors
+        // it has, so that a block's operation that stays with the
+        // interpreter shows here (S2.138's TEST(DE) did not).
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1,
+            f2,
+            result,
+            ext,
+            ind,
+        }) => format!(
+            "op={code} ext={}{}{}{} ind={}{}{} f1={} f2={} result={}\n",
+            if ext.error { "E" } else { "" },
+            if ext.no_lock { "N" } else { "" },
+            if ext.half_adjust { "H" } else { "" },
+            ext.other,
+            if ind.hi.is_some() { "hi" } else { "" },
+            if ind.lo.is_some() { "lo" } else { "" },
+            if ind.eq.is_some() { "eq" } else { "" },
+            f1.is_some(),
+            f2.is_some(),
+            result.is_some(),
+        ),
         // An EXEC SQL not lowered (S2.145): its first two words, and
         // whether it has host variables.
         Ins::Stmt(Stmt::Sql(text)) => {
