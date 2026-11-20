@@ -3364,3 +3364,16 @@ async fn native_unit_lowered_movea_literal_index() {
     )
     .await;
 }
+
+// Stage 2, S2.155: %UNS and %UNSH.
+// Source: golden capture tools/golden/native155 n155_uns (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_uns() {
+    let _ = require_db!();
+    expect(
+        "NUNSBIF",
+        include_str!("native/NUNSBIF.rpgle"),
+        &["42 8 9 10 13 103 103"],
+    )
+    .await;
+}

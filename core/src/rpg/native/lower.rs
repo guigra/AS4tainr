@@ -2419,6 +2419,24 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
             ip.push(0);
             Some(ir::NumExpr::Abs(Box::new(num_expr(cx, inner, used, ip)?)))
         }
+        // %UNS, %UNSH (S2.155): bif_more's "UNS" arm, a character value
+        // read by Dec::parse of its trimmed text, a number as it is; then
+        // rounded or truncated to an integer, RNQ0103 when negative.
+        Expr::Bif(b, args) if matches!(b.as_str(), "UNS" | "UNSH") => {
+            let [inner] = args.as_slice() else {
+                return None;
+            };
+            let mut ip = path.clone();
+            ip.push(0);
+            let v = match char_expr(cx, inner, used, ip.clone()) {
+                Some(c) => ir::ValExpr::Char(c),
+                None => ir::ValExpr::Num(num_expr(cx, inner, used, ip)?),
+            };
+            Some(ir::NumExpr::Uns {
+                inner: Box::new(v),
+                half: b == "UNSH",
+            })
+        }
         // %INT, %INTH of a numeric expression (S2.14).
         Expr::Bif(b, args) if matches!(b.as_str(), "INT" | "INTH") => {
             let [inner] = args.as_slice() else {

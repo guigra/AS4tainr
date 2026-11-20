@@ -2210,6 +2210,21 @@ pub fn sqrt_op(x: &Dec, decs: u8) -> NResult<Dec> {
     dec_sqrt(x, places)
 }
 
+/// Stage 2 (S2.155): %UNS or %UNSH, as bifs.rs bif_more's "UNS" arm:
+/// character data by Dec::parse of its trimmed text, a number as it is,
+/// then rescaled to no places (rounded for %UNSH), RNQ0103 when negative.
+pub fn uns_bif(v: &Value, half: bool, name: &str) -> NResult<Dec> {
+    let d = match v {
+        Value::Char(c) => Dec::parse(data::a(c).trim())?,
+        o => o.num()?,
+    };
+    let r = d.rescale(0, half)?;
+    if r.is_negative() {
+        anyhow::bail!("RNQ0103: %{name} of a negative value.");
+    }
+    Ok(r)
+}
+
 pub fn sqrt_bif(x: &Dec) -> NResult<Dec> {
     if x.is_negative() {
         anyhow::bail!("RNQ0101: %SQRT of a negative number.");

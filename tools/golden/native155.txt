@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.155: %UNS and %UNSH (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native155.txt -f tools/golden/native155
+n155_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN155UN) SRCSTMF('@HOME@/gld/gn155un.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n155_uns|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN155UN)"; cat gn1.out; rm -f gn1.out
