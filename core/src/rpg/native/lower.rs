@@ -1561,6 +1561,31 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 None => ir::ValExpr::Num(num_expr(cx, m, &mut used, Vec::new())?),
             }),
         }),
+        // CALLP(E), or CALLP with an error indicator (S2.173): errors.rs
+        // stmt_e around the call, the runtime's call_e_start and
+        // call_e_end.
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1: None,
+            f2: Some(Expr::Name { parts, args }),
+            result: None,
+            ext,
+            ind,
+        }) if code == "CALLP"
+            && (ext.error || ind.lo.is_some())
+            && ext.other.chars().all(|c| c == 'E')
+            && ext.error == !ext.other.is_empty()
+            && ind.hi.is_none()
+            && ind.eq.is_none() =>
+        {
+            ir::Lowered::CallE(call_of(
+                cx,
+                parts,
+                args.as_deref().unwrap_or(&[]),
+                &mut used,
+                Vec::new(),
+            )?)
+        }
         // CALLP of a procedure of this module (S2.35, ADR 0007).
         Ins::Stmt(Stmt::CallP(Expr::Name { parts, args })) => ir::Lowered::Call(call_of(
             cx,

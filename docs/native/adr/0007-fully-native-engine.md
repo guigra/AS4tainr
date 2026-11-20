@@ -1994,3 +1994,12 @@ Snapshot s2171 had the hole. S2.171 and S2.172 are therefore committed after a v
 **Verified by** the native unit NWRITEE, under both engines, as captured on PUB400 (tools/golden/native172.txt n172_writee: `0 0 1 1021`). It covers a WRITE(E) of a new key, then of a key the primary key already has.
 
 The capture's first version also had CHAIN and UPDATE(E) by the primary key. IBM i takes the table's primary key as its keyed access path (`keyed` compiles, and CHAIN finds the record). as4tainr does not: "file GN172F has 0 key fields" (fidelity.md).
+
+## S2.173: CALLP(E)
+
+CALLP(E), or CALLP with an error indicator in positions 73-74, of a call native code lowers is lowered (`Lowered::CallE`, `Runtime::call_e_start` and `call_e_end`), as errors.rs stmt_e runs it:
+- With E, %ERROR and %STATUS start over, and the error indicator is turned off.
+- Then the call runs, and stmt's pointer fault check follows: a fault while it ran is its error.
+- An error that is not a signal and does not pass this program by (passes_by) is noted (note_error), and the error indicator is turned on. The program goes on.
+
+**Verified by** the native unit NCALLPE, under both engines, as captured on PUB400 (tools/golden/native173.txt n173_callpe: `1 202 0 0 0 5`). A procedure that divides by zero leaves status 00202, the called procedure failed. A call that does not fail gives 0 0.

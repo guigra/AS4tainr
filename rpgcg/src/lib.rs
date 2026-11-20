@@ -657,6 +657,8 @@ pub mod ir {
         PrinterOp,
         /// OPEN or CLOSE of a database file (S2.128).
         DiskOpenClose,
+        /// CALLP(E) or CALLP with an error indicator (S2.173).
+        CallE(Call),
         /// SET RESULT SETS ARRAY (S2.166): the count, the structure's
         /// dimension, its subfields' names (the columns) and places.
         SqlSetResult {
@@ -4033,6 +4035,19 @@ fn lowered_step(
             );
             format!(
                 "match rv{pc}(rt) {{\n                    Ok(v) => return Ok(Flow::Return(v)),\n                    Err(e) => Err(e),\n                }}"
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::CallE(c)) => {
+            // errors.rs stmt_e: its start, the call, then its catch.
+            let call = call_fn(pc, c, helpers);
+            let call = call.strip_suffix('?').unwrap_or(&call);
+            let _ = writeln!(
+                helpers,
+                "\nfn ce{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    rt.call_e_start({pc})?;\n    let r = {call}.map(|_| ());\n    rt.call_e_end({pc}, r)\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("ce{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::Call(c)) => {
