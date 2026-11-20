@@ -1676,3 +1676,21 @@ The tripwire already watches string_op.
 - a *USA date.
 
 A TEST with neither E nor an indicator does not compile on IBM i (RNF5056), and the interpreter takes it (fidelity.md).
+
+## S2.139: database and printer files with an INFDS
+
+The runtime's file_end_n now ends with the interpreter's own `infds_update`, as errors.rs file_op ends every operation. It writes the file information data structure from the status just made. That status includes the routine and the statement, which the generated code keeps up to date with `rt.line` and the calls.
+
+So the operations of a database or printer file with an INFDS are lowered: reads, WRITE, UPDATE and DELETE, OPEN and CLOSE, and printer WRITE, OPEN, CLOSE and FEOD. A display file's INFDS, with its attention key, stays with the interpreter.
+
+AS4TAINR_NATIVE_WHY also notes each file operation that is not lowered:
+- its device, and whether the file is a procedure's own;
+- whether it has an INFDS;
+- its key, result data structure and %FIELDS;
+- its extenders and resulting indicators.
+
+It found nine operations kept in the interpreter by an INFDS alone.
+
+**Verified by** the native unit NINFDS, under both engines, as captured on PUB400 (tools/golden/native139.txt n139_infds). It checks the file name, the open and end-of-file flags, the status, the operation, and the record format and relative record number after two READs, then the READ at the end of file.
+
+The read count and the end-of-file record format and relative record number differ between IBM i and the interpreter (fidelity.md), so the unit leaves them out.

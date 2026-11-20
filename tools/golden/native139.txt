@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.139: a database file's INFDS (one batch; GN120F from native120).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native139.txt -f tools/golden/native139
+n139_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN139FB) SRCSTMF('@HOME@/gld/gn139fb.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n139_infds|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN139FB)"; cat gn1.out; rm -f gn1.out

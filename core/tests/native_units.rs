@@ -3163,3 +3163,51 @@ async fn native_unit_lowered_test_temporal() {
     let _ = require_db!();
     expect("NTESTDT", include_str!("native/NTESTDT.rpgle"), &["10100"]).await;
 }
+
+// Stage 2, S2.139: a database file's INFDS.
+// Source: golden capture tools/golden/native139 n139_infds (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_infds() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    // As the capture's GN120F after native120: 50 zz, 6 de.
+    let _ = job.run("DLTF FILE(QGPL/GN120F)").await;
+    job.run_sql_script(
+        "CREATE TABLE QGPL.GN120F (N INT, S CHAR(5));\nINSERT INTO QGPL.GN120F VALUES (50, 'zz'), (6, 'de');",
+        "native unit NINFDS",
+        10,
+        None,
+        true,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    expect(
+        "NINFDS",
+        include_str!("native/NINFDS.rpgle"),
+        &[
+            "GN120F  |10|0|READ F|REC120  |1",
+            "GN120F  |10|0|READ F|REC120  |2",
+            "GN120F  |11|11|READ F",
+        ],
+    )
+    .await;
+}
