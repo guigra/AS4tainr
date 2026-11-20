@@ -150,6 +150,9 @@ struct PendingRead {
     found: bool,
     eof: bool,
     has_record: bool,
+    /// The operation already ended (S2.171): an error E or the error
+    /// indicator took, file_op's end made.
+    ended: bool,
 }
 
 /// The instruction at `pc` (borrowing only the routine, not the machine).
@@ -2393,9 +2396,15 @@ impl Rt<'_, '_> {
         keys: Option<Vec<KeyArg>>,
         into_ds: bool,
     ) -> NResult<Option<Vec<Option<String>>>> {
-        let (op, file, key, ext, _) = self.file_stmt(pc)?;
+        let (op, file, key, ext, ind) = self.file_stmt(pc)?;
         let file = file.to_string();
         let no_lock = ext.no_lock;
+        // E or the error indicator (S2.171): file_op_inner takes the
+        // operation's error (file_failed, the indicator on), after its
+        // check that the file is open, which still raises.
+        let takes = ext.error || ind.lo.is_some();
+        let lo = ind.lo.clone();
+        let e = ext.error;
         // *LOVAL/*START and *HIVAL/*END positioning.
         let special = match key.as_deref() {
             Some([Expr::Fig(super::super::data::Fig::LoVal)]) => Some(false),
@@ -2411,6 +2420,10 @@ impl Rt<'_, '_> {
         let i = self
             .file_idx_n(&file)
             .ok_or_else(|| anyhow!("{file} is not a file of this program"))?;
+        if e {
+            // errors.rs file_op: %ERROR and %STATUS start over.
+            self.m.last = super::Status::default();
+        }
         self.file_n(i)?.status.error = false;
         let cmt = self.file_n(i)?.cmt.clone();
         if let Some(d) = &cmt {
@@ -2421,6 +2434,7 @@ impl Rt<'_, '_> {
                     .map_err(anyhow::Error::from)
             })?;
         }
+        let open = self.file_n(i)?.open.is_some();
         let read = self.read_inner_n(i, op, &file, special, keys, no_lock, cmt.as_deref());
         let read = read.and_then(|r| {
             let rec = match &r.record {
@@ -2439,8 +2453,25 @@ impl Rt<'_, '_> {
                     found: r.found,
                     eof: r.eof,
                     has_record: r.record.is_some(),
+                    ended: false,
                 });
                 Ok(rec)
+            }
+            Err(err) if takes && open => {
+                // file_failed and the indicator, then file_op's end with
+                // no error (the status keeps file_failed's).
+                self.file_end_n(i, op, &file, cmt.as_deref(), Err(&err))?;
+                if let Some(l) = &lo {
+                    self.m.set_ind(l, true);
+                }
+                self.pending = Some(PendingRead {
+                    file: i,
+                    found: false,
+                    eof: false,
+                    has_record: false,
+                    ended: true,
+                });
+                Ok(None)
             }
             Err(err) => {
                 self.pending = None;
@@ -2617,9 +2648,22 @@ impl Rt<'_, '_> {
             .take()
             .ok_or_else(|| anyhow!("native: {op:?} {file} ended with no read"))?;
         let i = p.file;
+        if p.ended {
+            // An error E or the error indicator took (S2.171): ended.
+            return moved;
+        }
         let cmt = self.file_n(i)?.cmt.clone();
         if let Err(err) = moved {
             self.file_end_n(i, op, &file, cmt.as_deref(), Err(&err))?;
+            // A data mapping error E or the error indicator takes
+            // (file_op_inner, S2.171): before the status and indicators.
+            if let Some(l) = &ind.lo {
+                self.m.set_ind(l, true);
+            }
+            let (_, _, _, ext, _) = self.file_stmt(pc)?;
+            if ext.error || ind.lo.is_some() {
+                return Ok(());
+            }
             return Err(err);
         }
         match op {
@@ -2790,11 +2834,17 @@ impl Rt<'_, '_> {
     /// check of the change arm (*CHANGE on the file). An error ends the
     /// operation (file_op's end).
     fn file_change_start_n(&mut self, pc: usize) -> NResult<()> {
-        let (op, file, _, _, _) = self.file_stmt(pc)?;
+        let (op, file, _, ext, _) = self.file_stmt(pc)?;
         let file = file.to_string();
+        let e = ext.error;
         let i = self
             .file_idx_n(&file)
             .ok_or_else(|| anyhow!("{file} is not a file of this program"))?;
+        if e {
+            // errors.rs file_op with E (S2.172): %ERROR and %STATUS start
+            // over.
+            self.m.last = super::Status::default();
+        }
         self.file_n(i)?.status.error = false;
         let cmt = self.file_n(i)?.cmt.clone();
         if let Some(d) = &cmt {
@@ -2826,6 +2876,7 @@ impl Rt<'_, '_> {
                     found: false,
                     eof: false,
                     has_record: false,
+                    ended: false,
                 });
                 Ok(())
             }
@@ -2868,8 +2919,13 @@ impl Rt<'_, '_> {
         rec: NResult<Vec<Option<String>>>,
         from_ds: bool,
     ) -> NResult<()> {
-        let (op, file, key, _, _) = self.file_stmt(pc)?;
+        let (op, file, key, ext, ind) = self.file_stmt(pc)?;
         let file = file.to_string();
+        // E or the error indicator (S2.172): file_op_inner's change arm
+        // takes record_change's error (file_failed, the indicator on); the
+        // record's making (record_of, ds_to_record) still raises.
+        let takes = ext.error || ind.lo.is_some();
+        let lo = ind.lo.clone();
         // *START/*END as a DELETE key: no key (file_op_inner's special).
         let special = matches!(
             key.as_deref(),
@@ -2894,8 +2950,24 @@ impl Rt<'_, '_> {
             }),
         };
         let made = rec.and_then(|cols| self.record_n(i, op, cols, from_ds));
-        let r = made.and_then(|rec| self.record_change_n(i, op, &rec, &keys, cmt.as_deref()));
+        let made = match made {
+            Ok(m) => m,
+            Err(err) => {
+                self.file_end_n(i, op, &file, cmt.as_deref(), Err(&err))?;
+                return Err(err);
+            }
+        };
+        let r = self.record_change_n(i, op, &made, &keys, cmt.as_deref());
         match r {
+            Err(err) if takes => {
+                // file_failed and the indicator, then file_op's end with no
+                // error (the status keeps file_failed's).
+                self.file_end_n(i, op, &file, cmt.as_deref(), Err(&err))?;
+                if let Some(l) = &lo {
+                    self.m.set_ind(l, true);
+                }
+                Ok(())
+            }
             Ok(()) => {
                 if let Some(d) = &cmt {
                     d.changed();

@@ -1507,7 +1507,8 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             fields: None,
             ext,
             ind,
-        }) if !ext.error && ext.other.is_empty() && ind.lo.is_none() => {
+        }) if file_e_ok(ext) => {
+            let _ = ind;
             file_read(cx, *op, file, key.as_deref(), Some(ds), &mut used)?
         }
         Ins::Stmt(Stmt::File {
@@ -1518,7 +1519,8 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             fields: None,
             ext,
             ind,
-        }) if !ext.error && ext.other.is_empty() && ind.lo.is_none() => {
+        }) if file_e_ok(ext) => {
+            let _ = ind;
             file_read(cx, *op, file, key.as_deref(), None, &mut used)?
         }
         // DSPLY with no response field (S2.36): Stmt::Dsply's batch path.
@@ -1931,6 +1933,21 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                 Box::new(ir::Cond::FileStatus(ir::FileBit::Error, None)),
                 path,
             ))
+        }
+        // %CHAR of %EOF, %FOUND or %EQUAL, of a file or not (S2.171):
+        // bif's CHAR of its Value::Ind, the condition cond_at lowers.
+        Expr::Bif(b, args)
+            if b == "CHAR"
+                && matches!(args.as_slice(), [Expr::Bif(e, _)]
+                    if matches!(e.as_str(), "EOF" | "FOUND" | "EQUAL")) =>
+        {
+            let mut cp = path.clone();
+            cp.push(0);
+            let c = cond_at(cx, args.first()?, used, cp)?;
+            if !matches!(c, ir::Cond::FileStatus(..)) {
+                return None;
+            }
+            Some(ir::CharExpr::CondChar(Box::new(c), path))
         }
         // %CHAR of a call returning an indicator (S2.133): bif's CHAR of
         // the indicator it returns, '1' or '0'.
@@ -3019,6 +3036,13 @@ fn hex_number(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<i128> {
             .iter()
             .fold(0i128, |acc, &x| acc.wrapping_shl(8) | i128::from(x)),
     )
+}
+
+/// A file read's extenders (S2.171): none, or E (the parser keeps it in
+/// `other` as well as setting `error`); E and the error indicator are
+/// the runtime's (file_read_n, file_done_n), as file_op_inner takes them.
+fn file_e_ok(ext: &super::super::ast::Ext) -> bool {
+    ext.other.chars().all(|c| c == 'E') && ext.error == !ext.other.is_empty()
 }
 
 /// %ABS of a float expression (S2.162), which float_expr lowers though

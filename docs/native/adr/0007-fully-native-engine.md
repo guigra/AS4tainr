@@ -1969,3 +1969,28 @@ In the callee, the elements' subfields of such a parameter (`m(i).field`) are no
 A character factor of a fixed-form string operation (SCAN, CHECK, CHECKR, XLATE, CAT) may be a named constant of character data. It takes eval's value of it, as of the literal it stands for, through any_operand, which puts the value in the layout lines. RPG3TEST's and RPG3FREE's `MSG CAT TABN:1 OUT`, with MSG a constant, is native now.
 
 **Verified by** the native unit NSTRCON, under both engines, as captured on PUB400 (tools/golden/native170.txt n170_strconst: `MONTH IS MAY|X-|2|CABBAge`). It covers CAT's factor 1 and factor 2, CAT(P), SCAN's argument, and XLATE's from and to strings.
+
+## S2.171: E and the error indicator on file reads
+
+READ, READE, READP, READPE, CHAIN, SETLL and SETGT of a database file are lowered with the E extender and with an error indicator in positions 73-74, as errors.rs file_op and file_op_inner take them:
+- With E, %ERROR and %STATUS start over, before the file's error flag is cleared.
+- An error of the operation itself (rla's read, positioning or lock) ends the operation: file_failed, the indicator on, then file_op's end, where the status keeps file_failed's. The read then gives no record, and file_done_n sees it as ended.
+- An error of moving the record into the program (a data mapping error) is taken the same way, before the status and the indicators.
+- The check that the file is open comes before the part E takes. So its CPF4135 is still raised, as in the interpreter.
+
+**Verified by** the native unit NREADE, under both engines, against the PUB400 capture (tools/golden/native171.txt n171_reade: `3 0 1 1 1211`), on the fields where IBM i and the interpreter agree: a READ(E) loop with %ERROR and %EOF. For READ(E) of a file that is not open, IBM i sets %ERROR and 01211, where the interpreter raises CPF4135 (fidelity.md). IBM i requires an OPEN in the program for a USROPN file (RNF7062), and EXTDESC for a file named by EXTFILE (SQL1001). Both were found on the capture's first runs.
+
+%CHAR of %EOF, %FOUND or %EQUAL, of a file or not, is lowered too, as bif's CHAR of its Value::Ind (CondChar of the file status condition). It is the unit's last statement.
+
+## S2.172: E and the error indicator on WRITE, UPDATE and DELETE
+
+S2.171's extender check also let E through on WRITE, UPDATE and DELETE, because file_read lowers changes as well, but their runtime did not take E yet. This is now done as file_op_inner's change arm does it:
+- With E, %ERROR and %STATUS start over at the change's start.
+- An error of record_change (the change itself, a duplicate key for example) is taken: file_failed, the indicator on, then file_op's end, where the status keeps file_failed's.
+- An error of making the record (record_of, ds_to_record), the authority check and the open check are still raised.
+
+Snapshot s2171 had the hole. S2.171 and S2.172 are therefore committed after a validation of a snapshot with both.
+
+**Verified by** the native unit NWRITEE, under both engines, as captured on PUB400 (tools/golden/native172.txt n172_writee: `0 0 1 1021`). It covers a WRITE(E) of a new key, then of a key the primary key already has.
+
+The capture's first version also had CHAIN and UPDATE(E) by the primary key. IBM i takes the table's primary key as its keyed access path (`keyed` compiles, and CHAIN finds the record). as4tainr does not: "file GN172F has 0 key fields" (fidelity.md).
