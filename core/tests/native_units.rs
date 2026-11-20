@@ -3284,3 +3284,16 @@ async fn native_unit_lowered_sqrt_op() {
     )
     .await;
 }
+
+// Stage 2, S2.149: compile-time tables and LOOKUP.
+// Source: golden capture tools/golden/native149 n149_tables (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_tables() {
+    let _ = require_db!();
+    expect(
+        "NTABLES",
+        include_str!("native/NTABLES.rpgle"),
+        &["two1two0Ctwo"],
+    )
+    .await;
+}

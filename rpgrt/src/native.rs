@@ -166,6 +166,9 @@ pub trait Runtime {
     /// Stage 2 (S2.31): the most recent program or file status code, as
     /// %STATUS with no file gives it.
     fn status(&self) -> u32;
+    /// Stage 2 (S2.149): a table's current element (interp.rs
+    /// table_index: LOOKUP's, 1 at first).
+    fn table_cur(&self, table: &str) -> NResult<Dec>;
     /// Stage 2 (S2.137): %NULLIND(field), after nullind_field's checks.
     fn nullind(&mut self, field: &str) -> NResult<bool>;
     /// Stage 2 (S2.137): EVAL %NULLIND(field), after the same checks.
@@ -525,6 +528,9 @@ pub enum MoveaSide {
 pub struct ArrOpIn {
     pub lookup: Option<(Value, Option<OutSlot>)>,
     pub xfoot: Option<(OutSlot, bool)>,
+    /// LOOKUP of a table (S2.149): its name and the alternate's, whose
+    /// current elements become the one found.
+    pub table: Option<(String, Option<String>)>,
     pub arr: (usize, usize, usize, u32, DType),
     pub hi: Option<String>,
     pub lo: Option<String>,

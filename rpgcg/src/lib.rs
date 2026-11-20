@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.148");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.149");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -198,6 +198,9 @@ pub mod ir {
         /// `*NEXT` (S2.103): a varying-dimension array's element after its
         /// elements in use, written only (assign_value: it grows).
         pub next: bool,
+        /// A table named with no index (S2.149): the index is its current
+        /// element (`Runtime::table_cur`), not `of`.
+        pub table: Option<String>,
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -302,6 +305,8 @@ pub mod ir {
     pub struct ArrOpData {
         pub lookup: Option<(Operand, Option<Operand>)>,
         pub xfoot: Option<(Operand, bool)>,
+        /// LOOKUP of a table (S2.149): its name and the alternate's.
+        pub table: Option<(String, Option<String>)>,
         pub arr: Operand,
         pub stride: usize,
         pub dim: u32,
@@ -1484,11 +1489,17 @@ fn elem_at(off: usize, ix: &ir::Index) -> String {
                 Some(o) => elem_at(off, o),
                 None => off.to_string(),
             };
+            // A table's current element (S2.149).
+            let at = match &ix.table {
+                Some(t) => format!(
+                    "rpgrt::rpg::data::Value::Num(rt.table_cur({})?)",
+                    json_str(t)
+                ),
+                None => value(&ix.of),
+            };
             format!(
-                "rpgrt::native::elem_at({base}, {}, {}, &{})?",
-                ix.stride,
-                ix.dim,
-                value(&ix.of)
+                "rpgrt::native::elem_at({base}, {}, {}, &{at})?",
+                ix.stride, ix.dim
             )
         }
     }
@@ -3115,6 +3126,7 @@ fn lowered_step(
             let ir::ArrOpData {
                 lookup,
                 xfoot,
+                table,
                 arr,
                 stride,
                 dim,
@@ -3160,7 +3172,11 @@ fn lowered_step(
             let mut body = String::new();
             let _ = writeln!(
                 body,
-                "    let op = rpgrt::native::ArrOpIn {{\n        lookup: {lk},\n        xfoot: {xf},\n        arr: ({buf}, {off}, {stride}, {dim}, {}),\n        hi: {},\n        lo: {},\n        eq: {},\n    }};\n    rt.array_op({pc}, op)?;",
+                "    let op = rpgrt::native::ArrOpIn {{\n        lookup: {lk},\n        xfoot: {xf},\n        table: {},\n        arr: ({buf}, {off}, {stride}, {dim}, {}),\n        hi: {},\n        lo: {},\n        eq: {},\n    }};\n    rt.array_op({pc}, op)?;",
+                match table {
+                    Some((t, alt)) => format!("Some(({}.to_string(), {}))", json_str(t), name(alt)),
+                    None => "None".to_string(),
+                },
                 ty(at),
                 name(hi),
                 name(lo),
