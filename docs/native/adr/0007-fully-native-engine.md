@@ -1624,3 +1624,16 @@ It follows bif_override. The value is temporal_value's, and the format is the ex
 That default format is the interpreter's, and IBM i differs from it under DATFMT or TIMFMT other than *ISO: IBM i gives *ISO (fidelity.md). Native code follows the interpreter.
 
 **Verified by** the native unit NTCHREX, under both engines, as captured on PUB400 with the default formats (tools/golden/native134.txt n134_tchariso: `10.00.00`, `2026-02-01-11.59.59.000000`, `2026-10-20`, `02/01/2026`, `2025-12-31`). It covers a time and a timestamp plus a duration, %DATE of characters with *MDY, a date plus days with *USA, and a date minus months.
+
+## S2.135: OPTIONS(*VARSIZE) for this module's procedures
+
+A character argument of any length for an OPTIONS(*VARSIZE) parameter of this module's procedure is lowered by reference. Since S2.51 that held only for programs and bound procedures. The call passes the argument as loc_of gives it, with its own size and type.
+
+call_frame now makes a reference argument's operational descriptor from that type, as call_proc does from the Loc's:
+- a varying one's current length (4, or 11 for UCS-2);
+- UCS-2's characters (9);
+- else its size (2).
+
+Before, it used the parameter's type, which a *VARSIZE parameter does not share. With the types the same, as for any other reference argument, nothing changes.
+
+**Verified by** the native units NDSCHRP (S2.125, `vsize(d)`) and NBASEDDS (S2.124, `fill(hdr: %size(hdr))`), as captured on PUB400. Their *VARSIZE calls to local procedures, which the WHY pass gave as `callp=local why=options`, are now native.
