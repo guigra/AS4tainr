@@ -3723,7 +3723,16 @@ fn call_of(
             if !p.by_value {
                 return None;
             }
-            out.push(ir::CallArg::Ind(Box::new(cond_at(cx, a, used, ap)?)));
+            // *ON or *OFF (S2.151): args_for's eval is Value::Fig, which
+            // data::store writes into the indicator as '1' or '0', the
+            // bytes a true or false condition gives; an empty chain is the
+            // constant (AND of none true, OR of none false).
+            let c = match a {
+                Expr::Fig(Fig::On) => ir::Cond::Chain(true, Vec::new()),
+                Expr::Fig(Fig::Off) => ir::Cond::Chain(false, Vec::new()),
+                _ => cond_at(cx, a, used, ap)?,
+            };
+            out.push(ir::CallArg::Ind(Box::new(c)));
             continue;
         }
         let ty = call_param_ty(p.dtype)?;

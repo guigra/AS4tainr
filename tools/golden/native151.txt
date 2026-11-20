@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.151: *ON and *OFF for indicator parameters passed by value (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native151.txt -f tools/golden/native151
+n151_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN151FI) SRCSTMF('@HOME@/gld/gn151fi.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n151_figind|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN151FI)"; cat gn1.out; rm -f gn1.out
