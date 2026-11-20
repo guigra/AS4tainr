@@ -1934,3 +1934,14 @@ XML-INTO into a receiver named with no index is lowered (`Lowered::XmlInto`, `Ru
 The fill assigns through the machine's names, as record_to_ds does for a result data structure (S2.119). It does not evaluate user expressions. Removing the interpreter would still need that fill, and the assignment it uses, in the runtime.
 
 **Verified by** the native unit NXMLIN, under both engines, as captured on PUB400 (tools/golden/native165.txt n165_xmlinto: `7 Ann A1=3 B2=12 [   ]`). It fills a data structure, and a data structure array with path and case=any, whose third element stays blank.
+
+## S2.166: SET RESULT SETS ARRAY
+
+`SET RESULT SETS [WITH RETURN ...] ARRAY :host FOR n ROWS` is lowered (`Lowered::SqlSetResult`, `Runtime::sql_set_result`), as exec_sql.rs sql_set_result_sets does it:
+- The count is taken first: a number, or a numeric field, at least 0 and at most the dimension.
+- The first n elements become rows of their subfields' text: characters as they are, numbers as their text.
+- Those rows are the result sets RESULT_SETS keeps for the procedure's caller, and SQLCODE is 0.
+
+The user authorized `pub(super)` on RESULT_SETS on 2026-11-20 (CLAUDE.native.md section 3). The host structure array may now be a procedure's own local, placed in its frame. INSERT ... ROWS (S2.74) shares the placement and still takes globals only. NONE, a cursor's result set and a structure of multiple occurrences stay with the interpreter.
+
+**Verified by** the native unit NRSLTST, under both engines, as captured on PUB400 (tools/golden/native166.txt n166_resultset). The module is called through an SQL procedure (CREATE PROCEDURE ... EXTERNAL NAME), as rla_test.rs LISTMOD does. Qshell db2's listing shows the columns NAME, QTY and NOTE, and two rows: `ab`, 7.50, `one` and `cd`, -8.00, an empty note. rla_test.rs LISTMOD's LISTARR is native now; its LISTOCC, an OCCURS structure, is not.

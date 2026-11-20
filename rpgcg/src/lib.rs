@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.165");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.166");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -396,6 +396,8 @@ pub mod ir {
         pub stride: usize,
         pub ty: Ty,
         pub numeric: bool,
+        /// A procedure's local (S2.166): placed in its frame.
+        pub local: bool,
     }
 
     /// The dynamic SQL statements (S2.71).
@@ -655,6 +657,15 @@ pub mod ir {
         PrinterOp,
         /// OPEN or CLOSE of a database file (S2.128).
         DiskOpenClose,
+        /// SET RESULT SETS ARRAY (S2.166): the count, the structure's
+        /// dimension, its subfields' names (the columns) and places.
+        SqlSetResult {
+            sqlca: Box<[Operand; 5]>,
+            count: SqlCount,
+            dim: u32,
+            columns: Vec<String>,
+            fields: Vec<SqlRowField>,
+        },
         /// XML-INTO (S2.165): %XML's document and options.
         XmlInto {
             doc: Box<CharExpr>,
@@ -1763,12 +1774,13 @@ fn sql_row_fields(body: &mut String, fields: &[ir::SqlRowField]) {
         .iter()
         .map(|f| {
             format!(
-                "rpgrt::native::SqlRowSlot {{ buf: {}, off: {}, stride: {}, ty: {}, numeric: {} }}",
+                "rpgrt::native::SqlRowSlot {{ buf: {}, off: {}, stride: {}, ty: {}, numeric: {}, local: {} }}",
                 f.buf,
                 f.off,
                 f.stride,
                 ty(&f.ty),
-                f.numeric
+                f.numeric,
+                f.local
             )
         })
         .collect();
@@ -3047,6 +3059,39 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("si{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::SqlSetResult {
+                sqlca,
+                count,
+                dim,
+                columns,
+                fields,
+            },
+        ) => {
+            // exec_sql.rs sql_set_result_sets: the count, the subfields'
+            // places, then the runtime; then the SQLCA.
+            let mut body = sql_count(count);
+            sql_row_fields(&mut body, fields);
+            let cols: Vec<String> = columns
+                .iter()
+                .map(|c| format!("{}.to_string()", json_str(c)))
+                .collect();
+            let _ = writeln!(
+                body,
+                "    let o = rt.sql_set_result({pc}, count, {dim}, vec![{}], fields)?;",
+                cols.join(", ")
+            );
+            sqlca_store(&mut body, sqlca, &bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn sr{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("sr{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::SqlCall { sqlca, name, args }) => {

@@ -1243,6 +1243,11 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             let sqlca = sqlca_ops(cx, &mut used)?;
             sql_call(cx, text, sqlca, &mut used)?
         }
+        // SET RESULT SETS ARRAY :dsarray FOR n ROWS (S2.166).
+        Ins::Stmt(Stmt::Sql(text)) if sql_set_result_kind(text) => {
+            let sqlca = sqlca_ops(cx, &mut used)?;
+            sql_set_result(cx, text, sqlca, &mut used)?
+        }
         // INSERT ... n ROWS VALUES (:dsarray) (S2.74).
         Ins::Stmt(Stmt::Sql(text)) if sql_insert_rows_kind(text) => {
             let sqlca = sqlca_ops(cx, &mut used)?;
@@ -6510,11 +6515,23 @@ fn sql_row_fields(
     host: &str,
     used: &mut Vec<String>,
 ) -> Option<(u32, Vec<ir::SqlRowField>)> {
+    sql_row_fields_at(cx, host, false, used)
+}
+
+/// `sql_row_fields`, a procedure's local structure too when `local`
+/// (S2.166): its subfields placed in the frame (`rt.local`), as
+/// Machine::sym places a local; not one based or a parameter's.
+fn sql_row_fields_at(
+    cx: &Cx<'_>,
+    host: &str,
+    local: bool,
+    used: &mut Vec<String>,
+) -> Option<(u32, Vec<ir::SqlRowField>)> {
     let prog = cx.prog;
     let Some(Sym::Ds(d)) = sym(cx, host) else {
         return None;
     };
-    if d.local
+    if (d.local && !(local && local_ds_ok(cx, d.buf)))
         || d.dim == 0
         || !d.qualified
         || prog.based.contains_key(&d.buf)
@@ -6528,7 +6545,7 @@ fn sql_row_fields(
         let Some(Sym::Var(v)) = sym(cx, &name) else {
             return None;
         };
-        if v.local || v.dim != 0 || v.buf != d.buf || prog.varying.contains_key(&name) {
+        if v.local != d.local || v.dim != 0 || v.buf != d.buf || prog.varying.contains_key(&name) {
             return None;
         }
         let (ty, numeric) = match v.dtype {
@@ -6551,6 +6568,7 @@ fn sql_row_fields(
             stride: d.size,
             ty,
             numeric,
+            local: v.local,
         });
     }
     Some((d.dim, fields))
@@ -6605,6 +6623,70 @@ fn sql_insert_rows(
         count,
         dim,
         host,
+        fields,
+    })
+}
+
+/// A procedure's local data structure generated code places in its frame
+/// (S2.166): in a procedure, not based (as clear_areas takes a local).
+fn local_ds_ok(cx: &Cx<'_>, buf: usize) -> bool {
+    cx.based.is_some_and(|b| !b.contains_key(&buf))
+}
+
+/// SET RESULT SETS [WITH RETURN ...] ARRAY :host FOR n ROWS (S2.166), as
+/// exec_sql.rs sql_set_result_sets reads it (its words): no NONE, ARRAY
+/// then the host, FOR, the count.
+fn sql_set_result_kind(sql: &str) -> bool {
+    let w: Vec<String> = sql
+        .split_whitespace()
+        .map(|x| x.to_ascii_uppercase())
+        .collect();
+    w.first().map(String::as_str) == Some("SET")
+        && w.get(1).map(String::as_str) == Some("RESULT")
+        && w.get(2).map(String::as_str) == Some("SETS")
+}
+
+/// SET RESULT SETS ... ARRAY (S2.166): a host structure array of this
+/// routine (global, or the procedure's own), the count a number or a
+/// numeric field.
+fn sql_set_result(
+    cx: &Cx<'_>,
+    sql: &str,
+    sqlca: [ir::Operand; 5],
+    used: &mut Vec<String>,
+) -> Option<ir::Lowered> {
+    let w: Vec<String> = sql
+        .split_whitespace()
+        .map(|x| x.to_ascii_uppercase())
+        .collect();
+    if w.iter().any(|x| x == "NONE") {
+        return None;
+    }
+    let k = w.iter().position(|x| x == "ARRAY")?;
+    let host = w
+        .get(k.checked_add(1)?)?
+        .trim_start_matches(':')
+        .to_string();
+    if w.get(k.checked_add(2)?).map(String::as_str) != Some("FOR")
+        || w.get(k.checked_add(4)?).map(String::as_str) != Some("ROWS")
+        || w.len() != k.checked_add(5)?
+    {
+        return None;
+    }
+    // The count's word as written (its case kept for a field's name).
+    let raw: Vec<&str> = sql.split_whitespace().collect();
+    let count = sql_count_of(cx, raw.get(k.checked_add(3)?)?, used)?;
+    let Some(Sym::Ds(d)) = sym(cx, &host) else {
+        return None;
+    };
+    let columns: Vec<String> = d.subfields.to_vec();
+    let (dim, fields) = sql_row_fields_at(cx, &host, true, used)?;
+    used.push(format!("sql set result sets {host}"));
+    Some(ir::Lowered::SqlSetResult {
+        sqlca: Box::new(sqlca),
+        count,
+        dim,
+        columns,
         fields,
     })
 }

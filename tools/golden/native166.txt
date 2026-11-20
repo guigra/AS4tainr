@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.166: SET RESULT SETS ARRAY (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native166.txt -f tools/golden/native166
+n166_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN166M) SRCSTMF('@HOME@/gld/gn166rs.rpgle') COMMIT(*NONE) OBJTYPE(*MODULE)"; system "CRTSRVPGM SRVPGM(@LIB@/GN166S) MODULE(@LIB@/GN166M) EXPORT(*ALL) REPLACE(*YES)"; cd @HOME@/gld && printf '%s' "create or replace procedure @LIB@.GN166P (in n int) dynamic result sets 1 language rpgle external name '@LIB@/GN166S(LISTARR)' parameter style general" > gn166p.sql && system "RUNSQLSTM SRCSTMF('@HOME@/gld/gn166p.sql') COMMIT(*NONE)"; rm -f gn166p.sql
+n166_resultset|!qsh -c "db2 'call @LIB@.GN166P(2)'"
