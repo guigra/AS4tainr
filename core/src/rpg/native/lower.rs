@@ -6956,16 +6956,18 @@ fn printer_file(cx: &Cx<'_>, file: &str) -> bool {
 /// The file a name in the calculations refers to (S2.118), as
 /// errors.rs file_idx finds it: one declared in the routine's procedure
 /// first (by name, then by format), then the program's, then
-/// file_index. A LIKEFILE parameter anywhere (file_idx looks at the
-/// frame's files first) leaves it to the interpreter.
+/// file_index. A LIKEFILE parameter of the routine's own procedure by
+/// that name (file_idx looks at the frame's files first: the caller's
+/// file) leaves it to the interpreter; other names resolve as file_idx
+/// resolves them after that (S2.164: the frame holds its procedure's
+/// file parameters only).
 fn file_of(cx: &Cx<'_>, file: &str) -> Option<usize> {
     let prog = cx.prog;
-    if prog.procs.values().any(|p| p.params.iter().any(|q| q.file))
-        || prog
-            .protos
-            .values()
-            .any(|p| p.params.iter().any(|q| q.file))
-    {
+    let param = cx
+        .proc
+        .and_then(|p| prog.procs.get(p))
+        .is_some_and(|pi| pi.params.iter().any(|q| q.file && q.name == file));
+    if param {
         return None;
     }
     let files = &prog.files;
