@@ -239,3 +239,23 @@ On a qualified file, `WRITE gn120f.gn120f o` and `UPDATE gn120f.gn120f r` name t
 - **The interpreter:** it fails at run time with "GN120F.GN120F is not a file of this program". errors.rs file_idx compares the whole qualified name with the files' names and formats.
 
 Native code follows the interpreter: lowering finds no file either, and leaves the statement to it. This is an upstream interpreter defect, held for Kyle with the capture. The unit NDSIO takes the program with the file not qualified and its format renamed (n120_dsiou), which IBM i runs with the same result.
+
+## %CHAR of a date or time expression under DATFMT and TIMFMT (found 2026-11-19)
+
+Source: tools/golden/native134 n134_tchar (PUB400, IBM i 7.5, 2026-11-19), a program with `ctl-opt datfmt(*eur) timfmt(*usa)`.
+
+%CHAR of a date or time expression with no format of its own differs (`%char(t + %minutes(45))`, `%char(%date('10/20/26' : *mdy))`, `%char(d - %months(1))`):
+- **IBM i:** *ISO (`10.00.00`, `2026-10-20`, `2025-12-31`).
+- **The interpreter:** the control specification's TIMFMT or DATFMT (`10:00 AM`, `20.10.2026`, `31.12.2025`). bifs.rs temporal_type gives an expression the default type, and bif_override takes that type's format.
+
+Under the default formats (*ISO) the two agree (n134_tchariso).
+
+## Date and time literals under DATFMT and TIMFMT (found 2026-11-19)
+
+Source: tools/golden/native134 n134_crt (PUB400, IBM i 7.5, 2026-11-19).
+
+With `ctl-opt datfmt(*eur) timfmt(*usa)`, the literals differ:
+- **IBM i:** they must be in those formats. `inz(d'2026-01-31')` and `inz(t'09.15.00')` are RNF0305 and RNF0306 (severity 20), and `d'31.01.2026'` and `t'09:15 AM'` compile.
+- **The interpreter:** the other way round. It rejects `d'31.01.2026'` ("not a valid date literal in *ISO form") and takes the *ISO form.
+
+Native code follows the interpreter for both, which are upstream interpreter defects held for Kyle with the captures. The unit NTCHREX uses the default formats.

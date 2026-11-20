@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.133");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.134");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -824,6 +824,11 @@ pub mod ir {
         /// bif_override picks (`rpgrt::native::temporal_char`).
         TemporalChar {
             of: Operand,
+            fmt: TemporalFmt,
+        },
+        /// %CHAR of a temporal expression (S2.134), in its format.
+        TemporalCharOf {
+            of: Box<CharExpr>,
             fmt: TemporalFmt,
         },
         /// A date, time or timestamp plus or minus a duration (S2.55):
@@ -4164,6 +4169,23 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
                 }
             };
             format!("rpgrt::native::temporal_char(&{}, {f})?", value(of))
+        }
+        ir::CharExpr::TemporalCharOf { of, fmt } => {
+            let f = match fmt {
+                ir::TemporalFmt::Date(n, sep) => format!(
+                    "rpgrt::native::TemporalFmt::Date(rpgrt::rpg::dates::DateFmt {{ name: {n:?}, sep: {sep:?} }})"
+                ),
+                ir::TemporalFmt::Time(n, sep) => format!(
+                    "rpgrt::native::TemporalFmt::Time(rpgrt::rpg::dates::TimeFmt {{ name: {n:?}, sep: {sep:?} }})"
+                ),
+                ir::TemporalFmt::Ts { iso0 } => {
+                    format!("rpgrt::native::TemporalFmt::Ts {{ iso0: {iso0} }}")
+                }
+            };
+            format!(
+                "rpgrt::native::temporal_char(&{}, {f})?",
+                char_expr(pc, of, helpers)
+            )
         }
         ir::CharExpr::CharOfNum {
             inner,

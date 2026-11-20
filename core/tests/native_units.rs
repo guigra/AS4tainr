@@ -3079,3 +3079,22 @@ async fn native_unit_lowered_indicator_calls() {
     let _ = require_db!();
     expect("NINDCALL", include_str!("native/NINDCALL.rpgle"), &["ab61"]).await;
 }
+
+// Stage 2, S2.134: %CHAR of temporal expressions.
+// Source: golden capture tools/golden/native134 n134_tchariso (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_char_of_temporal_expressions() {
+    let _ = require_db!();
+    expect(
+        "NTCHREX",
+        include_str!("native/NTCHREX.rpgle"),
+        &[
+            "10.00.00",
+            "2026-02-01-11.59.59.000000",
+            "2026-10-20",
+            "02/01/2026",
+            "2025-12-31",
+        ],
+    )
+    .await;
+}
