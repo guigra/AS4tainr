@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.164");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.165");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -655,6 +655,11 @@ pub mod ir {
         PrinterOp,
         /// OPEN or CLOSE of a database file (S2.128).
         DiskOpenClose,
+        /// XML-INTO (S2.165): %XML's document and options.
+        XmlInto {
+            doc: Box<CharExpr>,
+            opts: Option<Box<CharExpr>>,
+        },
         /// EVAL of %STR(p : max) (S2.158): the pointer, the maximum, the
         /// character value.
         EvalStr {
@@ -3510,6 +3515,22 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("es{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::XmlInto { doc, opts }) => {
+            // The op arm's order: the document, then the options.
+            let d = char_expr(pc, doc, helpers);
+            let o = match opts {
+                Some(o) => format!("Some({})", char_expr(pc, o, helpers)),
+                None => "None".to_string(),
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn xi{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let d = {d};\n    let o = {o};\n    rt.xml_into({pc}, d, o)\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("xi{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::DiskOpenClose) => guarded(

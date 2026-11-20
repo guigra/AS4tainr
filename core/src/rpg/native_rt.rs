@@ -1339,6 +1339,27 @@ impl Runtime for Rt<'_, '_> {
         self.disk_open_close_n(pc)
     }
 
+    fn xml_into(&mut self, pc: usize, doc: Value, opts: Option<Value>) -> NResult<()> {
+        // The op arm's XML-INTO: the receiver, then xml_into's options
+        // text (`a` of their characters, none for none) and the rest.
+        let Ins::Stmt(super::super::ast::Stmt::Op {
+            code,
+            f1: Some(target),
+            ..
+        }) = &at(self.code, pc)?.ins
+        else {
+            return Err(mismatch(pc, "an XML-INTO"));
+        };
+        if code != "XML-INTO" {
+            return Err(mismatch(pc, "an XML-INTO"));
+        }
+        let opts = match opts {
+            Some(o) => a(&o.chars()?),
+            None => String::new(),
+        };
+        self.m.xml_into_doc(target, doc, &opts)
+    }
+
     fn printer_write_ds(&mut self, pc: usize, ds: rpgrt::native::OutSlot) -> NResult<()> {
         self.printer_write_ds_n(pc, &ds)
     }

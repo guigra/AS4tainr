@@ -1,8 +1,61 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-20 07:40 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
+Last update: 2026-11-20 12:00 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
 
-## Now (2026-11-20, 07:40 UTC)
+## Now (2026-11-20, 12:00 UTC)
+
+**Committed up to S2.161** (7eba985). The aarch64 run s7f-s2161 gives level 2 rust 772 of 772 as under the interpreter, and coverage is 98.4%. The full WHY pass on the s2162 tree leaves 89 instructions in the interpreter, out of 5599.
+
+S2.147 to S2.161 add:
+- TEST(E);
+- SQRT;
+- tables (TABx);
+- *OMIT;
+- *ON/*OFF for indicator parameters;
+- COMMIT/ROLBK;
+- the bit functions of numbers;
+- MOVEA with a literal index;
+- %UNS;
+- WRITE of a printer from a DS;
+- date + time;
+- %STR as a target;
+- %ADDR of based fields;
+- pointer comparisons;
+- OPEN/CLOSE/FEOD with E.
+
+**Validating:**
+
+| Snapshot | What | Where |
+| --- | --- | --- |
+| s2162 | %ABS of float expressions | jsr-test-2 |
+| s2163 | CAT and the other string operations with a table's current element | ARM |
+| s2164 | file operations beside a LIKEFILE parameter | jsr-test-2, after s2162 |
+
+Each later snapshot contains the earlier ones. Only one run may use dev41 on a machine. Stop a chain by its process group (memory: remote-kill-by-pid).
+
+**What is left, and what each part needs:**
+- **Needs an upstream touch point (ask the user):**
+  - Operations inside a procedure on its LIKEFILE parameter, and calls that pass a file, need the parameter's template file. `ParamInfo` keeps only `file: bool`, in program.rs.
+  - Timestamp host variables in EXEC SQL (SQLOVR) need exec_sql.rs's iso_timestamp and db2_timestamp. They would have to be moved into rpgrt, or copied there with a tripwire.
+- **Large blocks:** XML-INTO (7 instructions) and XML-SAX; SET RESULT SETS with host variables (LISTMOD); EVAL-CORR; data structure array parameters (IMQPATH, IMQDSARR, NESTED); returning a data structure (RUNITF); UCS-2 (TYPES).
+- **Left on purpose, with the reason in ADR 0007:**
+  - DSPLY of a float, which has no capture;
+  - SYSAPI's QDCXLATE call, which IBM i does not compile;
+  - NEXCPT2's local edit word;
+  - NBASARR's based-array operations;
+  - NEST100's depth limit.
+
+**Interpreter defects found today** (fidelity.md, held for Kyle with captures):
+- a second OPEN(E) of a file;
+- a time plus a date;
+- %BITXOR with more than two arguments;
+- %CHAR of a float(4) (already known).
+
+**Lessons (2026-11-20):**
+- A units run's WHY entries and emit map are the check, not the pass count. S2.160 and S2.162 each passed while one of their statements still ran in the interpreter.
+- Db2 for i's `create or replace table` keeps the rows (ON REPLACE PRESERVE ROWS), so a capture's setup deletes before it inserts.
+
+## Before (2026-11-20, 07:40 UTC)
 
 **Committed up to S2.146** (63c40e0). The x86_64 run s7f-s2146 gives level 2 rust 758 of 758 as under the interpreter, and coverage is 97.6%.
 

@@ -1926,3 +1926,11 @@ A character factor of a fixed-form string operation (SCAN, CHECK, CHECKR, XLATE,
 A LIKEFILE parameter no longer keeps every file operation of the program in the interpreter. errors.rs file_idx, and the runtime's file_idx_n, look first at the frame's files, and a frame holds only its own procedure's file parameters. So only a name that is a file parameter of the routine's own procedure stays with the interpreter. Every other name is resolved as file_idx resolves it after that step.
 
 **Verified by** the native unit NLIKEF, under both engines, as captured on PUB400 (tools/golden/native164.txt n164_likef: `3 3cc`). In the main procedure it runs OPEN, SETLL *HIVAL, READP into a data structure and CLOSE on a LIKEFILE file with EXTFILE, while a procedure reads the file through a LIKEFILE parameter. That procedure's own operations, and the call that passes the file, stay with the interpreter. IBM i requires BLOCK on the template file (RNF2590) and refuses SETLL *LOVAL on a file with no key (RNF7055); both were found on the capture's first run.
+
+## S2.165: XML-INTO
+
+XML-INTO into a receiver named with no index is lowered (`Lowered::XmlInto`, `Runtime::xml_into`), with %XML(document [: options]) and without %HANDLER or E. The document and the options are character expressions, which generated code evaluates as the op arm's eval does. The rest is shared with the interpreter: parsing the document, the options, and filling the receiver by its names. It runs in xmlinto.rs `xml_into_doc`, which xml_into now calls after its evaluation. The user authorized that split on 2026-11-20 as a touch point, with no behavior change (CLAUDE.native.md section 3).
+
+The fill assigns through the machine's names, as record_to_ds does for a result data structure (S2.119). It does not evaluate user expressions. Removing the interpreter would still need that fill, and the assignment it uses, in the runtime.
+
+**Verified by** the native unit NXMLIN, under both engines, as captured on PUB400 (tools/golden/native165.txt n165_xmlinto: `7 Ann A1=3 B2=12 [   ]`). It fills a data structure, and a data structure array with path and case=any, whose third element stays blank.
