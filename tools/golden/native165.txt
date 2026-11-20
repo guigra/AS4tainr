@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.165: XML-INTO (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native165.txt -f tools/golden/native165
+n165_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN165XI) SRCSTMF('@HOME@/gld/gn165xi.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n165_xmlinto|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN165XI)"; cat gn1.out; rm -f gn1.out

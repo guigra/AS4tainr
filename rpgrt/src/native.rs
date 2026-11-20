@@ -397,6 +397,9 @@ pub trait Runtime {
     /// Stage 2 (S2.128): OPEN or CLOSE of a database file (errors.rs
     /// file_op around file_op_inner's OPEN and CLOSE).
     fn disk_open_close(&mut self, pc: usize) -> NResult<()>;
+    /// Stage 2 (S2.165): XML-INTO at `pc` with %XML's document and
+    /// options (none: no options) evaluated: xmlinto.rs xml_into_doc.
+    fn xml_into(&mut self, pc: usize, doc: Value, opts: Option<Value>) -> NResult<()>;
     /// Stage 2 (S2.156): WRITE at `pc` of a program-described printer
     /// file from the data structure or field in `ds`, its bytes the line.
     fn printer_write_ds(&mut self, pc: usize, ds: OutSlot) -> NResult<()>;

@@ -197,7 +197,13 @@ impl Machine<'_> {
             Some(e) => a(&self.eval(e)?.chars()?),
             None => String::new(),
         };
-        let o = XmlOpts::parse(&opts)?;
+        self.xml_into_doc(target, doc, &opts)
+    }
+
+    /// XML-INTO receiver with the document's value and the options' text
+    /// already evaluated.
+    pub(super) fn xml_into_doc(&mut self, target: &Expr, doc: Value, opts: &str) -> Result<()> {
+        let o = XmlOpts::parse(opts)?;
         let text = if o.file {
             let path = a(&doc.chars()?).trim().to_string();
             // What this job wrote to files it still has open is in them.

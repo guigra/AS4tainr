@@ -3578,3 +3578,16 @@ async fn native_unit_lowered_likefile_neighbours() {
     .unwrap_or_else(|e| panic!("{e:#}"));
     expect("NLIKEF", include_str!("native/NLIKEF.rpgle"), &["3 3cc"]).await;
 }
+
+// Stage 2, S2.165: XML-INTO.
+// Source: golden capture tools/golden/native165 n165_xmlinto (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_xml_into() {
+    let _ = require_db!();
+    expect(
+        "NXMLIN",
+        include_str!("native/NXMLIN.rpgle"),
+        &["7 Ann A1=3 B2=12 [   ]"],
+    )
+    .await;
+}

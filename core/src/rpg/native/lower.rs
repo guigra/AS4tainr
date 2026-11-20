@@ -1110,6 +1110,44 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
         {
             str_op(cx, code, f1, f2, result, ext, ind, &mut used)?
         }
+        // XML-INTO receiver %XML(document [: options]) (S2.165): the
+        // document and options as character expressions, evaluated here;
+        // the op arm's xml_into_doc (xmlinto.rs) parses and fills the
+        // receiver from those values. A receiver named with no index; not
+        // %HANDLER, not E.
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1: Some(Expr::Name { args: None, .. }),
+            f2: Some(Expr::Bif(_, parts)),
+            result: None,
+            ext,
+            ind,
+        }) if code == "XML-INTO"
+            && !ext.error
+            && !ext.no_lock
+            && ext.other.is_empty()
+            && ind.is_empty() =>
+        {
+            let xml = parts.iter().find_map(|p| match p {
+                Expr::Bif(b, a) if b == "XML" => Some(a),
+                _ => None,
+            })?;
+            let (doc, opts) = match xml.as_slice() {
+                [d] => (d, None),
+                [d, o] => (d, Some(o)),
+                _ => return None,
+            };
+            let doc = char_expr(cx, doc, &mut used, vec![0])?;
+            let opts = match opts {
+                Some(o) => Some(char_expr(cx, o, &mut used, vec![1])?),
+                None => None,
+            };
+            used.push("xml-into".into());
+            ir::Lowered::XmlInto {
+                doc: Box::new(doc),
+                opts: opts.map(Box::new),
+            }
+        }
         // IN and OUT of data areas (S2.80): interp.rs data_area for the
         // field or, for *DTAARA, every data area of the program in name
         // order; the fields (and *VAR: name fields) placed.
