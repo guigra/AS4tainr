@@ -390,6 +390,10 @@ pub trait Runtime {
     /// Stage 2 (S2.128): OPEN or CLOSE of a database file (errors.rs
     /// file_op around file_op_inner's OPEN and CLOSE).
     fn disk_open_close(&mut self, pc: usize) -> NResult<()>;
+    /// Stage 2 (S2.140): DSPLY with a response field at `pc`: on an
+    /// interactive job's screen with the reply into the field, else the
+    /// message alone.
+    fn dsply_reply(&mut self, pc: usize, text: String) -> NResult<()>;
     /// Stage 2 (S2.138): TEST(D/T/Z) of `v` in format `fmt` ('D', 'T' or
     /// 'Z'), then %ERROR (E), the indicator, or RNX0112.
     fn test_temporal(

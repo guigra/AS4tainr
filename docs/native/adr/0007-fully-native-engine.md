@@ -1694,3 +1694,15 @@ It found nine operations kept in the interpreter by an INFDS alone.
 **Verified by** the native unit NINFDS, under both engines, as captured on PUB400 (tools/golden/native139.txt n139_infds). It checks the file name, the open and end-of-file flags, the status, the operation, and the record format and relative record number after two READs, then the READ at the end of file.
 
 The read count and the end-of-file record format and relative record number differ between IBM i and the interpreter (fidelity.md), so the unit leaves them out.
+
+## S2.140: DSPLY with a response field
+
+DSPLY with a response field is lowered (`Lowered::DsplyReply`, `Runtime::dsply_reply`). The message is made as for a DSPLY with none. Then Stmt::Dsply's match decides:
+- **an interactive job:** the message and a reply line on its screen (dsply_screen), with the reply assigned to the field;
+- **a batch call:** the message alone, and the field stays as it was.
+
+A date or time field as the message stays with the interpreter.
+
+**Verified by parity only**, against rla_test.rs rpg_data_area_in_lock_out's DTALOCK under native-diff. Its `dsply 'Next order?' '' r` runs with a simulated operator, who answers on the DSPLYR screen while another job waits on the data area's lock. That is the interactive case, and the test expects `1005` after it.
+
+There is no IBM i value for the batch case. On IBM i a DSPLY with a response in batch sends an inquiry to QSYSOPR and waits, and as4tainr gives a batch call no operator, by design. Native code runs the interpreter's own functions for both cases.

@@ -1307,6 +1307,20 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
         }
         // DSPLY with no response field (S2.36): Stmt::Dsply's batch path.
         // A float, date or time message is not an eligible expression.
+        // DSPLY with a response field (S2.140): the message as below, then
+        // Stmt::Dsply's reply on an interactive job's screen into the
+        // field (dsply_screen and assign), or in batch the message alone.
+        Ins::Stmt(Stmt::Dsply {
+            message,
+            response: Some(_),
+        }) => ir::Lowered::DsplyReply(match message {
+            None => None,
+            Some(m @ Expr::Name { .. }) if is_temporal_name(cx, m) => return None,
+            Some(m) => Some(match char_expr(cx, m, &mut used, Vec::new()) {
+                Some(c) => ir::ValExpr::Char(c),
+                None => ir::ValExpr::Num(num_expr(cx, m, &mut used, Vec::new())?),
+            }),
+        }),
         Ins::Stmt(Stmt::Dsply {
             message,
             response: None,
