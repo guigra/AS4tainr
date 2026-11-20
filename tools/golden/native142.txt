@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.142: procedures with their own *PSSR (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native142.txt -f tools/golden/native142
+n142_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN142PS) SRCSTMF('@HOME@/gld/gn142ps.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n142_pssr|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN142PS)"; cat gn1.out; rm -f gn1.out
