@@ -2041,3 +2041,9 @@ EVAL-CORR of two data structures named with no index is lowered (`Lowered::EvalC
 The pairs run in that order. A structure on one side only, a based or multiple-occurrence one, and a field `variable` does not place stay with the interpreter.
 
 **Verified by** the native unit NEVCORR, under both engines, as captured on PUB400 (tools/golden/native177.txt n177_evalcorr: `[Alice     ] 30 7 Paris     75001 T1T2 O`). It covers character into varying, packed into zoned, a LIKEDS subfield in both, arrays of 3 and 2 elements, character against packed (kept), and a target-only subfield. rla_test.rs EVALCORR is native now.
+
+## S2.178: SET RESULT SETS ARRAY of a structure of multiple occurrences
+
+SET RESULT SETS ARRAY of a global data structure of multiple occurrences is lowered with S2.166's runtime. sql_set_result_sets sets each occurrence from the first, reads each subfield (`HOST.SF`, else `SF`), and gives the current occurrence back. Machine::sym places a subfield of occurrence i at its place plus (i - 1) times the occurrence's size. So the rows are read as an array's: the occurrence's size is the stride, and the number of occurrences is the dimension. The current occurrence is not changed.
+
+**Verified by** the native unit NRSLTOC, under both engines, as captured on PUB400 (tools/golden/native178.txt n178_resultocc). Qshell db2 lists the columns LINE and QTY and the rows `first` 5 and `second` -7, three occurrences set and a count of 2. rla_test.rs LISTMOD's LISTOCC is native now.

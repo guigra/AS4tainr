@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.178: SET RESULT SETS ARRAY of an OCCURS structure (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native178.txt -f tools/golden/native178
+n178_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN178M) SRCSTMF('@HOME@/gld/gn178ro.rpgle') COMMIT(*NONE) OBJTYPE(*MODULE)"; system "CRTSRVPGM SRVPGM(@LIB@/GN178S) MODULE(@LIB@/GN178M) EXPORT(*ALL) REPLACE(*YES)"; cd @HOME@/gld && printf '%s' "create or replace procedure @LIB@.GN178P () dynamic result sets 1 language rpgle external name '@LIB@/GN178S(LISTOCC)' parameter style general" > gn178p.sql && system "RUNSQLSTM SRCSTMF('@HOME@/gld/gn178p.sql') COMMIT(*NONE)"; rm -f gn178p.sql
+n178_resultocc|!qsh -c "db2 'call @LIB@.GN178P()'"

@@ -3921,3 +3921,86 @@ async fn native_unit_lowered_eval_corr() {
     )
     .await;
 }
+
+// Stage 2, S2.178: SET RESULT SETS ARRAY of a structure of multiple
+// occurrences, for a count in a field. The capture is Qshell db2's
+// listing: columns LINE, QTY; rows "first" 5 and "second" -7
+// (2 records); here as sql::run_as gives them.
+// Source: golden capture tools/golden/native178 n178_resultocc (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_set_result_sets_occurs() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    use as4tainr_core::source;
+    use as4tainr_core::sql::Outcome as SqlOut;
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    let _ = source::create_file(&client, "QGPL", "QRPGLESRC", "").await;
+    source::put_member(
+        &client,
+        &source::Member {
+            library: "QGPL".into(),
+            file: "QRPGLESRC".into(),
+            name: "NRSLTOC".into(),
+            srctype: "SQLRPGLE".into(),
+            source: include_str!("native/NRSLTOC.rpgle").into(),
+            ..Default::default()
+        },
+        true,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    for c in [
+        "CRTSQLRPGI OBJ(QGPL/NRSLTOC) OBJTYPE(*MODULE)",
+        "CRTSRVPGM SRVPGM(QGPL/NRSLTOS) MODULE(QGPL/NRSLTOC) EXPORT(*ALL)",
+    ] {
+        let _ = job.run("DLTSRVPGM SRVPGM(QGPL/NRSLTOS)").await;
+        job.run(c).await.unwrap_or_else(|e| panic!("{c}: {e:#}"));
+    }
+    let libl = vec!["QGPL".to_string()];
+    as4tainr_core::ddl::try_run(
+        &url,
+        "QSECOFR",
+        &libl,
+        Some("QGPL".into()),
+        &mut None,
+        "CREATE OR REPLACE PROCEDURE QGPL.NRSLTOP () DYNAMIC RESULT SETS 1 \
+         LANGUAGE RPGLE EXTERNAL NAME 'QGPL/NRSLTOS(LISTOCC)' PARAMETER STYLE GENERAL",
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let r = as4tainr_core::sql::run_as(
+        &client,
+        &url,
+        &libl,
+        "QSECOFR",
+        Some("QGPL".into()),
+        None,
+        "CALL QGPL.NRSLTOP()",
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    let SqlOut::Rows { columns, rows, .. } = r else {
+        panic!("NRSLTOC: no result set: {r:?}");
+    };
+    assert_eq!(columns, ["LINE", "QTY"], "NRSLTOC");
+    assert_eq!(rows, [["first ", "5"], ["second", "-7"]], "NRSLTOC");
+}
