@@ -644,6 +644,22 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             on: *on,
             inds: inds.clone(),
         },
+        // RETURN in a procedure returning a pointer (S2.141): eval's
+        // pointer value, as ptr_val makes it (an address, pointer
+        // arithmetic, a pointer field, a call), or *NULL.
+        Ins::Return(Some(x))
+            if cx.proc.is_some_and(|p| {
+                cx.prog
+                    .procs
+                    .get(p)
+                    .is_some_and(|pi| pi.returns == Some(DType::Pointer))
+            }) =>
+        {
+            ir::Lowered::ReturnPtr(match x {
+                Expr::Fig(Fig::Null) => ir::PtrVal::Null,
+                _ => ptr_val(cx, x, &mut used, Vec::new())?,
+            })
+        }
         // RETURN (S2.38) of an eligible numeric or character expression,
         // or of nothing (a whole data structure array is not eligible).
         // RETURN of a comparison, AND, OR or NOT (S2.133, `return x > 5`
@@ -4344,6 +4360,10 @@ fn ptr_val(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
             // float field's place too (S2.110): only its place is taken.
             let of = if float_target_ok(cx, of) {
                 float_target(cx, of, used)?
+            } else if let Some(w) = whole_array_place(cx, of, used) {
+                // A whole array or data structure array (S2.141): loc_of's
+                // place, its first element's.
+                w
             } else {
                 variable(cx, of, used)?
             };
@@ -6525,6 +6545,51 @@ fn base_pointer_ok(ptr: &ir::Operand) -> bool {
         ),
         _ => false,
     }
+}
+
+/// Where a whole array or data structure array starts (S2.141), as
+/// interp.rs loc_of gives it for a name with no index: the variable's own
+/// buffer and offset. Only for %ADDR, which takes the place and not the
+/// value, so the operand's type is the element's. Not based, not of
+/// multiple occurrences; a procedure's own only in a procedure.
+fn whole_array_place(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    let Expr::Name { parts, args: None } = e else {
+        return None;
+    };
+    let name = parts.join(".");
+    let prog = cx.prog;
+    let based = |buf: usize, local: bool| {
+        if local {
+            cx.based.is_none_or(|b| b.contains_key(&buf))
+        } else {
+            prog.based.contains_key(&buf) || prog.occurs.iter().any(|o| o.buf == buf)
+        }
+    };
+    let (buf, off, local, ty) = match sym(cx, &name) {
+        Some(Sym::Var(v)) if v.dim > 0 && !based(v.buf, v.local) => {
+            (v.buf, v.off, v.local, param_ty(v.dtype)?)
+        }
+        Some(Sym::Ds(d)) if d.dim > 0 && !based(d.buf, d.local) => (
+            d.buf,
+            d.off,
+            d.local,
+            ir::Ty::Char(u32::try_from(d.size).ok()?),
+        ),
+        _ => return None,
+    };
+    used.push(format!(
+        "layout {name} {buf} {off} whole array {}",
+        if local { "local" } else { "global" }
+    ));
+    Some(ir::Operand::Var {
+        name,
+        buf,
+        off,
+        ty,
+        local,
+        index: None,
+        based: None,
+    })
 }
 
 /// A database file (S2.128) as file_idx finds it, with no INFDS.

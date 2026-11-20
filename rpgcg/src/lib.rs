@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.140");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.141");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -524,6 +524,8 @@ pub mod ir {
         Return(Option<ValExpr>),
         /// RETURN of a condition (S2.133): its Value::Ind.
         ReturnInd(Box<Cond>),
+        /// RETURN of a pointer value (S2.141).
+        ReturnPtr(PtrVal),
         /// EVAL of a pointer field (S2.47): another pointer field, or the
         /// address of a field (%ADDR), `skip` bytes in (%ADDR(v:*DATA)).
         EvalPtr { target: Operand, value: PtrVal },
@@ -3745,6 +3747,17 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("ep{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Return, ir::Lowered::ReturnPtr(pv)) => {
+            // As Return: the pointer value, then the routine ends with it.
+            let v = ptr_val(pc, pv, helpers).ok_or_else(bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn rv{pc}(rt: &mut dyn Runtime) -> NResult<Option<rpgrt::rpg::data::Value>> {{\n    Ok(Some({v}))\n}}"
+            );
+            format!(
+                "match rv{pc}(rt) {{\n                    Ok(v) => return Ok(Flow::Return(v)),\n                    Err(e) => Err(e),\n                }}"
             )
         }
         (ir::Kind::Return, ir::Lowered::ReturnInd(c)) => {
