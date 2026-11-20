@@ -1954,6 +1954,15 @@ pub fn float_cmp(op: CmpOp, x: &Value, y: &Value) -> NResult<bool> {
 
 /// Stage 2 (S2.108): unary minus of a float expression's value, as eval's
 /// Unary arm: a float stays a float, a decimal is negated.
+/// Stage 2 (S2.162): %ABS of a float expression's value, as bif's ABS
+/// arm: a float's absolute value stays a float, a decimal's a decimal.
+pub fn float_abs(v: Value) -> NResult<Value> {
+    Ok(match v {
+        Value::Float(f) => Value::Float(f.abs()),
+        other => Value::Num(other.num()?.abs()),
+    })
+}
+
 pub fn float_neg(v: Value) -> NResult<Value> {
     Ok(match v {
         Value::Float(f) => Value::Float(-f),

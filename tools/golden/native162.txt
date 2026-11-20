@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.162: %ABS of float expressions (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native162.txt -f tools/golden/native162
+n162_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN162FA) SRCSTMF('@HOME@/gld/gn162fa.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n162_fltabs|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN162FA)"; cat gn1.out; rm -f gn1.out

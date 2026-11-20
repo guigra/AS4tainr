@@ -3497,3 +3497,29 @@ async fn native_unit_lowered_open_close_e() {
         "NOPENE: {line}"
     );
 }
+
+// Stage 2, S2.162: %ABS of float expressions. The capture is
+// "+2.500000000000000E+000 +8.500000000000000E+000 +6.2500000E-01 huge";
+// the third field is %CHAR of a float(4), whose text differs in the
+// interpreter (fidelity.md, "%CHAR of float(4)"), so the test checks the
+// other three, as NFLTEVL leaves its float(4) values out.
+// Source: golden capture tools/golden/native162 n162_fltabs (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_float_abs() {
+    let _ = require_db!();
+    let got = shown("NFLTABS", include_str!("native/NFLTABS.rpgle")).await;
+    let [line] = got.as_slice() else {
+        panic!("NFLTABS: {got:?}");
+    };
+    let f: Vec<&str> = line.split_whitespace().collect();
+    assert_eq!(f.len(), 4, "NFLTABS: {line}");
+    assert_eq!(
+        (f.first(), f.get(1), f.get(3)),
+        (
+            Some(&"+2.500000000000000E+000"),
+            Some(&"+8.500000000000000E+000"),
+            Some(&"huge")
+        ),
+        "NFLTABS: {line}"
+    );
+}

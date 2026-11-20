@@ -512,7 +512,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
         }) if !ext.error
             && !ext.no_lock
             && ext.other.chars().all(|c| c == 'H')
-            && is_float_static(cx, value, 0) =>
+            && (is_float_static(cx, value, 0) || float_abs_of(cx, value)) =>
         {
             let target = if float_target_ok(cx, target) {
                 float_target(cx, target, &mut used)?
@@ -2978,6 +2978,12 @@ fn hex_number(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<i128> {
     )
 }
 
+/// %ABS of a float expression (S2.162), which float_expr lowers though
+/// is_float does not take it as float.
+fn float_abs_of(cx: &Cx<'_>, e: &Expr) -> bool {
+    matches!(e, Expr::Bif(b, args) if b == "ABS" && matches!(args.as_slice(), [x] if is_float_static(cx, x, 0)))
+}
+
 /// Whether an expression gives a pointer (S2.160): a pointer field, %ADDR,
 /// %ALLOC, %REALLOC, %PADDR, or a pointer plus or minus a number.
 fn ptr_expr(cx: &Cx<'_>, e: &Expr) -> bool {
@@ -4570,6 +4576,19 @@ fn float_expr(
     // procedure may give in its own type (the review of 2026-11-19).
     if depth == 0 && has_call(cx, e, 0) {
         return None;
+    }
+    // %ABS of a float expression (S2.162): bif's ABS arm on eval's value
+    // of it (the float arm's), a float's absolute value or a decimal's.
+    // is_float does not take %ABS as float, so it comes first.
+    if let Expr::Bif(b, args) = e {
+        if let [x] = args.as_slice() {
+            if b == "ABS" && is_float_static(cx, x, 0) {
+                let mut p = path.clone();
+                p.push(0);
+                let inner = float_expr(cx, x, used, p, depth.saturating_add(1))?;
+                return Some(ir::FloatExpr::Abs(Box::new(inner)));
+            }
+        }
     }
     if !is_float_static(cx, e, 0) {
         return Some(ir::FloatExpr::Dec(num_expr(cx, e, used, path)?));
