@@ -2293,6 +2293,12 @@ pub enum TemporalFmt {
 /// bifs.rs `temporal` parses it, then shown in `f`. A value that does not
 /// parse as one (bif_override gives no value) is %CHAR's generic form,
 /// the characters as they are.
+/// A value's characters parsed as a number (S2.143), as bifs.rs
+/// bif_override's DEC arm parses a date's text: `Dec::parse`.
+pub fn text_dec(v: &Value) -> NResult<Dec> {
+    Dec::parse(&data::a(&v.chars()?))
+}
+
 pub fn temporal_char(v: &Value, f: TemporalFmt) -> NResult<Value> {
     use crate::rpg::dates::{self, DateFmt, TimeFmt};
     let Value::Char(c) = v else {
