@@ -1781,3 +1781,11 @@ A FOR limit is now a numeric expression (`LoopTest::limit`), as in `for i = 0 to
 - a difference of a product.
 
 A limit that is not whole (`10 / 4`) does not compile on IBM i (RNF7569), while the interpreter takes it (fidelity.md).
+
+## S2.147: S2.138's TEST(DE), lowered as it was meant to be
+
+S2.138 lowered TEST only when the operation's other extenders held nothing but D, T or Z. The parser keeps E there too, as well as setting ext.error, so a TEST(DE) never matched. It went on running in the interpreter, and so did every TEST in the suite. NTESTDT passed under both engines because the interpreter ran its TESTs. S2.138's commit says the unit verifies the native path, and that was wrong.
+
+The condition now allows E, and the five TESTs of NTESTDT are native: the generated code's map has `"what":"TEST","via":"native"`. The expected value is still the PUB400 capture's (tools/golden/native138.txt n138_test: `10100`).
+
+The WHY pass did not show it, because it noted no `Stmt::Op`. AS4TAINR_NATIVE_WHY now notes every operation that is not lowered: its code, extenders, resulting indicators and factors. A block is verified only when the map shows its statements as native.
