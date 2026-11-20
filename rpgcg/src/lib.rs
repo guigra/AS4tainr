@@ -679,6 +679,8 @@ pub mod ir {
         XmlInto {
             doc: Box<CharExpr>,
             opts: Option<Box<CharExpr>>,
+            /// E (S2.176): errors.rs stmt_e around it.
+            e: bool,
         },
         /// EVAL of %STR(p : max) (S2.158): the pointer, the maximum, the
         /// character value.
@@ -3584,7 +3586,7 @@ fn lowered_step(
                 format!("es{pc}(rt).map(|()| {next})"),
             )
         }
-        (ir::Kind::Stmt, ir::Lowered::XmlInto { doc, opts }) => {
+        (ir::Kind::Stmt, ir::Lowered::XmlInto { doc, opts, e }) => {
             // The op arm's order: the document, then the options.
             let d = char_expr(pc, doc, helpers);
             let o = match opts {
@@ -3593,7 +3595,17 @@ fn lowered_step(
             };
             let _ = writeln!(
                 helpers,
-                "\nfn xi{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let d = {d};\n    let o = {o};\n    rt.xml_into({pc}, d, o)\n}}"
+                "\nfn xo{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let d = {d};\n    let o = {o};\n    rt.xml_into({pc}, d, o)\n}}"
+            );
+            // E (S2.176): stmt_e's start and catch around the operation.
+            let body = if *e {
+                format!("    rt.call_e_start({pc})?;\n    let r = xo{pc}(rt);\n    rt.call_e_end({pc}, r)")
+            } else {
+                format!("    xo{pc}(rt)")
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn xi{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}\n}}"
             );
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
