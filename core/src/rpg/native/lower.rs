@@ -1148,6 +1148,39 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 opts: opts.map(Box::new),
             }
         }
+        // SND-MSG (S2.175): the op arm's message type (factor 1, *INFO
+        // with none), the message a character expression or %MSG(id : msgf
+        // [: data]) with each argument a character expression evaluated in
+        // order; the runtime's snd_msg (the job log, or *ESCAPE's error).
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1,
+            f2: Some(m),
+            result: None,
+            ext,
+            ind,
+        }) if code == "SND-MSG" && !ext.error && ext.other.is_empty() && ind.is_empty() => {
+            let kind = match f1 {
+                None => "*INFO".to_string(),
+                Some(e) => except_name(&Some(e.clone()))?,
+            };
+            let parts = match m {
+                Expr::Bif(b, args) if b == "MSG" && matches!(args.len(), 2 | 3) => {
+                    let mut v = Vec::with_capacity(args.len());
+                    for (k, a) in args.iter().enumerate() {
+                        v.push(char_expr(cx, a, &mut used, vec![u8::try_from(k).ok()?])?);
+                    }
+                    (true, v)
+                }
+                e => (false, vec![char_expr(cx, e, &mut used, Vec::new())?]),
+            };
+            used.push(format!("snd-msg {kind}"));
+            ir::Lowered::SndMsg {
+                kind,
+                msg: parts.0,
+                parts: parts.1,
+            }
+        }
         // IN and OUT of data areas (S2.80): interp.rs data_area for the
         // field or, for *DTAARA, every data area of the program in name
         // order; the fields (and *VAR: name fields) placed.

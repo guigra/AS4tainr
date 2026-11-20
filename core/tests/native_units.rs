@@ -3879,3 +3879,19 @@ async fn native_unit_lowered_update_fields() {
     )
     .await;
 }
+
+// Stage 2, S2.175: SND-MSG *INFO. The capture is the DSPLY'd line
+// ("start info"); the *INFO text goes to the job log, which the program's
+// messages show here and the capture does not, so the test checks the
+// last line.
+// Source: golden capture tools/golden/native175 n175_sndmsg (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_snd_msg() {
+    let _ = require_db!();
+    let got = shown("NSNDMSG", include_str!("native/NSNDMSG.rpgle")).await;
+    assert_eq!(
+        got.last().map(String::as_str),
+        Some("start info"),
+        "NSNDMSG: {got:?}"
+    );
+}

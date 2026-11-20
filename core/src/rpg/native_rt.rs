@@ -1354,6 +1354,40 @@ impl Runtime for Rt<'_, '_> {
         self.disk_open_close_n(pc)
     }
 
+    fn snd_msg(&mut self, kind: &str, msg: bool, parts: Vec<Value>) -> NResult<()> {
+        // The op arm's "SND-MSG": %MSG's id (trimmed) and data (blanks off
+        // the end), or the text (blanks off the end); "id: text".
+        let (id, text) = if msg {
+            let id = match parts.first() {
+                Some(x) => a(&x.chars()?).trim().to_string(),
+                None => String::new(),
+            };
+            let data = match parts.get(2) {
+                Some(d) => a(&d.chars()?).trim_end().to_string(),
+                None => String::new(),
+            };
+            (Some(id), data)
+        } else {
+            let t = match parts.first() {
+                Some(v) => a(&v.chars()?).trim_end().to_string(),
+                None => String::new(),
+            };
+            (None, t)
+        };
+        let full = match &id {
+            Some(i) => format!("{i}: {text}"),
+            None => text.clone(),
+        };
+        if kind == "*ESCAPE" {
+            if id.is_some() {
+                anyhow::bail!("{full}");
+            }
+            anyhow::bail!("CPF9898: {text}");
+        }
+        self.m.job_log(&full);
+        Ok(())
+    }
+
     fn call_e_start(&mut self, pc: usize) -> NResult<()> {
         let (e, lo) = self.call_e_of(pc)?;
         if e {

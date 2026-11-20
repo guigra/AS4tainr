@@ -657,6 +657,13 @@ pub mod ir {
         PrinterOp,
         /// OPEN or CLOSE of a database file (S2.128).
         DiskOpenClose,
+        /// SND-MSG (S2.175): the message type, whether the message is
+        /// %MSG (its arguments) or text (one part).
+        SndMsg {
+            kind: String,
+            msg: bool,
+            parts: Vec<CharExpr>,
+        },
         /// CALLP(E) or CALLP with an error indicator (S2.173).
         CallE(Call),
         /// SET RESULT SETS ARRAY (S2.166): the count, the structure's
@@ -4035,6 +4042,30 @@ fn lowered_step(
             );
             format!(
                 "match rv{pc}(rt) {{\n                    Ok(v) => return Ok(Flow::Return(v)),\n                    Err(e) => Err(e),\n                }}"
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::SndMsg { kind, msg, parts }) => {
+            // The op arm: the message's value (each %MSG argument in its
+            // order), then the runtime.
+            let mut body = String::new();
+            let mut names = Vec::new();
+            for (k, c) in parts.iter().enumerate() {
+                let _ = writeln!(body, "    let p{k} = {};", char_expr(pc, c, helpers));
+                names.push(format!("p{k}"));
+            }
+            let _ = writeln!(
+                body,
+                "    rt.snd_msg({}, {msg}, vec![{}])",
+                json_str(kind),
+                names.join(", ")
+            );
+            let _ = writeln!(
+                helpers,
+                "\nfn sm{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("sm{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::CallE(c)) => {

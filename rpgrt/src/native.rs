@@ -408,6 +408,9 @@ pub trait Runtime {
     /// Stage 2 (S2.128): OPEN or CLOSE of a database file (errors.rs
     /// file_op around file_op_inner's OPEN and CLOSE).
     fn disk_open_close(&mut self, pc: usize) -> NResult<()>;
+    /// Stage 2 (S2.175): SND-MSG of type `kind`: %MSG's arguments' values
+    /// (`msg`), else the text's; the job log, or *ESCAPE's error.
+    fn snd_msg(&mut self, kind: &str, msg: bool, parts: Vec<Value>) -> NResult<()>;
     /// Stage 2 (S2.173): errors.rs stmt_e's start for the CALLP at `pc`
     /// (E: %ERROR and %STATUS start over; the error indicator off).
     fn call_e_start(&mut self, pc: usize) -> NResult<()>;
