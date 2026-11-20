@@ -1299,6 +1299,31 @@ impl Runtime for Rt<'_, '_> {
         self.disk_open_close_n(pc)
     }
 
+    fn dsply_reply(&mut self, pc: usize, text: String) -> NResult<()> {
+        // Stmt::Dsply's match on the response and the job's display.
+        let Ins::Stmt(super::super::ast::Stmt::Dsply {
+            response: Some(r), ..
+        }) = &at(self.code, pc)?.ins
+        else {
+            return Err(mismatch(pc, "a DSPLY with a response"));
+        };
+        match self.m.io.display.clone() {
+            Some(display) => {
+                let reply = self.m.dsply_screen(&display, text.trim_end(), r)?;
+                self.m.assign(
+                    r,
+                    &reply,
+                    super::super::data::Fit::Truncate { half_adjust: false },
+                    false,
+                )
+            }
+            None => {
+                self.m.messages.push(text.trim_end().to_string());
+                Ok(())
+            }
+        }
+    }
+
     fn test_temporal(
         &mut self,
         v: &Value,
