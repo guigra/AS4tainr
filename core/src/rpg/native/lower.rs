@@ -882,6 +882,63 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
         }
         // Fixed-form TESTN, TESTZ, TESTB, BITON and BITOFF (S2.84): ops.rs
         // bit_op on a character field.
+        // TEST(D), TEST(T), TEST(Z) (S2.138): ops.rs string_op's TEST arm,
+        // the field's value against factor 1's format (*ISO with none),
+        // then %ERROR with E, the indicator in positions 73-74, or
+        // RNX0112. A character or numeric field.
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1,
+            f2: None,
+            result: Some(r),
+            ext,
+            ind,
+        }) if code == "TEST"
+            && !ext.no_lock
+            && !ext.half_adjust
+            && ext.other.chars().all(|c| matches!(c, 'D' | 'T' | 'Z'))
+            && ind.hi.is_none()
+            && ind.eq.is_none() =>
+        {
+            let fmt = match f1 {
+                Some(Expr::Name { parts, .. }) => parts.join("."),
+                _ => "*ISO".to_string(),
+            };
+            let field = variable(cx, r, &mut used)?;
+            let ir::Operand::Var { ty, index, .. } = &field else {
+                return None;
+            };
+            if index.is_some()
+                || !matches!(
+                    ty,
+                    ir::Ty::Char(_)
+                        | ir::Ty::Varchar(_)
+                        | ir::Ty::Zoned(..)
+                        | ir::Ty::Packed(..)
+                        | ir::Ty::Binary(..)
+                        | ir::Ty::Int(_)
+                        | ir::Ty::Uns(_)
+                )
+            {
+                return None;
+            }
+            let o = ext.other.as_str();
+            let kind = if o.contains('Z') {
+                'Z'
+            } else if o.contains('T') {
+                'T'
+            } else {
+                'D'
+            };
+            used.push(format!("test {kind} {fmt}"));
+            ir::Lowered::TestTemporal {
+                field,
+                fmt,
+                kind,
+                error: ext.error,
+                lo: ind.lo.clone(),
+            }
+        }
         Ins::Stmt(Stmt::Op {
             code,
             f1: _,

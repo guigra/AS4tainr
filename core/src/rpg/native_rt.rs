@@ -1299,6 +1299,51 @@ impl Runtime for Rt<'_, '_> {
         self.disk_open_close_n(pc)
     }
 
+    fn test_temporal(
+        &mut self,
+        v: &Value,
+        fmt: &str,
+        kind: char,
+        error: bool,
+        lo: Option<&str>,
+    ) -> NResult<()> {
+        // ops.rs string_op's TEST arm, as it is.
+        let text = match v {
+            Value::Num(d) => d.trunc().mantissa().to_string(),
+            other => super::super::data::a(&other.chars()?),
+        };
+        let numeric = matches!(v, Value::Num(_));
+        let fmt0 = |f: &str| {
+            if numeric {
+                format!("{}0", f.trim_end_matches('0'))
+            } else {
+                f.to_string()
+            }
+        };
+        let ok = match kind {
+            'Z' => crate::rpg::dates::parse_ts(&text).is_ok(),
+            'T' => crate::rpg::dates::TimeFmt::parse(&fmt0(fmt))
+                .and_then(|f| crate::rpg::dates::parse_time(&text, &f))
+                .is_ok(),
+            _ => crate::rpg::dates::DateFmt::parse(&fmt0(fmt))
+                .and_then(|f| crate::rpg::dates::parse_date(&text, &f))
+                .is_ok(),
+        };
+        if error {
+            self.m.last = super::Status {
+                error: !ok,
+                ..super::Status::default()
+            };
+        }
+        if let Some(lo) = lo {
+            self.m.set_ind(lo, !ok);
+        }
+        if !ok && !error && lo.is_none() {
+            return Err(anyhow!("RNX0112: {text} is not a valid value for {fmt}."));
+        }
+        Ok(())
+    }
+
     fn str_at(&mut self, p: &Value, max: Option<Dec>) -> NResult<Value> {
         // ptrs.rs str_at: the pointer's place (addr), then the bytes up to
         // the first null within max (else 16 MB) and the storage's end.

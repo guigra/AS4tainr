@@ -3155,3 +3155,11 @@ async fn native_unit_lowered_nullind() {
     )
     .await;
 }
+
+// Stage 2, S2.138: TEST(D/T/Z).
+// Source: golden capture tools/golden/native138 n138_test (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_test_temporal() {
+    let _ = require_db!();
+    expect("NTESTDT", include_str!("native/NTESTDT.rpgle"), &["10100"]).await;
+}

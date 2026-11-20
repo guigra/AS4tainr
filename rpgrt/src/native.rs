@@ -390,6 +390,16 @@ pub trait Runtime {
     /// Stage 2 (S2.128): OPEN or CLOSE of a database file (errors.rs
     /// file_op around file_op_inner's OPEN and CLOSE).
     fn disk_open_close(&mut self, pc: usize) -> NResult<()>;
+    /// Stage 2 (S2.138): TEST(D/T/Z) of `v` in format `fmt` ('D', 'T' or
+    /// 'Z'), then %ERROR (E), the indicator, or RNX0112.
+    fn test_temporal(
+        &mut self,
+        v: &Value,
+        fmt: &str,
+        kind: char,
+        error: bool,
+        lo: Option<&str>,
+    ) -> NResult<()>;
     /// Stage 2 (S2.79): WRITE of an externally described printer file's
     /// record format (errors.rs file_op around printer.rs printer_write),
     /// its fields read at `fields`, its indicators the INDDS structure at
