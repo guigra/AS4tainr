@@ -3310,3 +3310,16 @@ async fn native_unit_lowered_omit_arguments() {
     )
     .await;
 }
+
+// Stage 2, S2.151: *ON and *OFF for indicator parameters passed by value.
+// Source: golden capture tools/golden/native151 n151_figind (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_fig_indicator_arguments() {
+    let _ = require_db!();
+    expect(
+        "NINDFGA",
+        include_str!("native/NINDFGA.rpgle"),
+        &["yesno if 21"],
+    )
+    .await;
+}

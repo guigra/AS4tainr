@@ -1818,3 +1818,11 @@ Tables (TABxxx arrays) are lowered in two places:
 An *OMIT argument for an OPTIONS(*OMIT) parameter is lowered as args_for's `Arg::Omit` (`CallArg::Omit`). It applies to a call of a bound procedure, a CEE API, a C function or a procedure pointer, and call_proto passes the argument on as it is. A program (EXTPGM) and a procedure of this module keep the interpreter for now, so call_frame never sees one. Any other argument for such a parameter goes as it would with no *OMIT.
 
 **Verified by** the native unit NOMITCE, under both engines, as captured on PUB400 (tools/golden/native150.txt n150_omit: `161912 7 2026-02-01`). It calls CEEDAYS and CEEDYWK with an omitted feedback code, and CEEDATE with one passed.
+
+## S2.151: *ON and *OFF for an indicator parameter passed by value
+
+*ON or *OFF as the argument for an indicator parameter passed by value is lowered as a constant condition, an empty `Cond::Chain` (an AND of none is true, an OR of none is false). args_for's eval of the argument gives Value::Fig, which data::store writes into the indicator as '1' or '0', the same bytes a true or false condition gives.
+
+**Verified by** the native unit NINDFGA, under both engines, as captured on PUB400 (tools/golden/native151.txt n151_figind: `yesno if 21`). It makes the calls in an assignment, in a condition and in arithmetic.
+
+Not lowered: a by-reference parameter given a field of another type without OPTIONS(*VARSIZE). args_for passes it as the argument's own storage, but IBM i rejects such a call when it compiles it, so no value can be captured (SYSAPI's QDCXLATE call, a CHAR(2) for CHAR(10)).
