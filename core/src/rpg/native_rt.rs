@@ -1354,6 +1354,52 @@ impl Runtime for Rt<'_, '_> {
         self.disk_open_close_n(pc)
     }
 
+    fn assign_list(
+        &mut self,
+        arr: rpgrt::native::ArrPlace,
+        name: &str,
+        varying: bool,
+        items: Vec<Value>,
+        fit: Fit,
+        right: bool,
+    ) -> NResult<()> {
+        // assign_value's list into an array.
+        let dim = usize::try_from(arr.dim)?;
+        if items.len() > dim {
+            anyhow::bail!(
+                "RNQ0121: {} values do not fit in array {name} ({} elements).",
+                items.len(),
+                arr.dim
+            );
+        }
+        for k in 0..dim {
+            let off = Self::arr_at_n(&arr, k)?;
+            match items.get(k) {
+                Some(x) => {
+                    rpgrt::native::store(&mut self.m.bufs, arr.buf, off, arr.ty, x, fit, right)?;
+                }
+                None => {
+                    let init = arr.ty.initial();
+                    let end = off
+                        .checked_add(init.len())
+                        .ok_or_else(|| anyhow!("native: an element's place"))?;
+                    self.m
+                        .bufs
+                        .get_mut(arr.buf)
+                        .and_then(|b| b.get_mut(off..end))
+                        .ok_or_else(|| anyhow!("native: an element's storage"))?
+                        .copy_from_slice(&init);
+                }
+            }
+        }
+        if varying {
+            self.m
+                .var_elems
+                .insert(name.to_string(), u32::try_from(items.len())?);
+        }
+        Ok(())
+    }
+
     fn snd_msg(&mut self, kind: &str, msg: bool, parts: Vec<Value>) -> NResult<()> {
         // The op arm's "SND-MSG": %MSG's id (trimmed) and data (blanks off
         // the end), or the text (blanks off the end); "id: text".

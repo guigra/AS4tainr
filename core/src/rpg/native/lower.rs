@@ -464,6 +464,77 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 value: Box::new(v),
             }
         }
+        // An array assigned %SPLIT (S2.179): bifs.rs's "SPLIT" arm (the
+        // string, the separators when not a special value, *ALLSEP), then
+        // assign_value's list into an array: each piece into its element,
+        // the elements after it initialized, RNQ0121 for more pieces than
+        // elements, a varying-dimension array's elements in use the
+        // pieces'. A global character or varying array, not based or of
+        // multiple occurrences.
+        Ins::Stmt(Stmt::Eval {
+            target: Expr::Name { parts, args: None },
+            value: Expr::Bif(b, args),
+            ext,
+            right,
+        }) if b == "SPLIT"
+            && !ext.error
+            && !ext.no_lock
+            && ext.other.chars().all(|c| c == 'H')
+            && matches!(args.len(), 1..=3) =>
+        {
+            let name = parts.join(".");
+            let Some(Sym::Var(v)) = sym(cx, &name) else {
+                return None;
+            };
+            let prog = cx.prog;
+            if v.dim == 0
+                || v.local
+                || prog.based.contains_key(&v.buf)
+                || prog.occurs.iter().any(|o| o.buf == v.buf)
+                || !matches!(v.dtype, DType::Char(_) | DType::Varchar(_))
+            {
+                return None;
+            }
+            let special = |e: &Expr| match e {
+                Expr::Name { parts, args: None } if parts.len() == 1 => parts
+                    .first()
+                    .filter(|p| p.starts_with('*'))
+                    .map(|p| p.to_ascii_uppercase()),
+                _ => None,
+            };
+            let text = char_expr(cx, args.first()?, &mut used, vec![0])?;
+            let seps = match args.get(1) {
+                Some(e) if special(e).is_none() => Some(char_expr(cx, e, &mut used, vec![1])?),
+                _ => None,
+            };
+            let allsep = args
+                .iter()
+                .skip(1)
+                .any(|e| special(e).as_deref() == Some("*ALLSEP"));
+            // Another special value as an argument: not lowered.
+            if args
+                .iter()
+                .skip(1)
+                .any(|e| special(e).is_some_and(|x| x != "*ALLSEP"))
+            {
+                return None;
+            }
+            let ty = global_elem_ty(v.dtype, true)?;
+            used.push(format!(
+                "split into {name} {} {} {} {} {:?}",
+                v.buf, v.off, v.stride, v.dim, v.dtype
+            ));
+            ir::Lowered::EvalSplit {
+                arr: (v.buf, v.off, v.stride, v.dim, ty),
+                varying: prog.varying.contains_key(&name),
+                name: name.clone(),
+                text: Box::new(text),
+                seps: seps.map(Box::new),
+                allsep,
+                half: ext.half_adjust,
+                right: *right,
+            }
+        }
         // EVAL with %SUBST as its target (S2.44): assign_value's "SUBST"
         // arm, on an eligible character field, with a character value.
         Ins::Stmt(Stmt::Eval {
