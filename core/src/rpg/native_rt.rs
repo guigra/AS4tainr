@@ -2078,14 +2078,17 @@ fn ind_name(n: &str) -> String {
 // note_error: its file information comes from the interpreter's file
 // state, which phase A's file operations replace.
 impl Rt<'_, '_> {
-    /// The CALLP at `pc`'s E and error indicator (S2.173), as stmt_e
-    /// reads them.
+    /// The operation at `pc`'s E and error indicator (S2.173, S2.176), as
+    /// stmt_e reads them: the indicator for IN, OUT and CALLP only.
     fn call_e_of(&self, pc: usize) -> NResult<(bool, Option<String>)> {
         match &at(self.code, pc)?.ins {
-            Ins::Stmt(super::super::ast::Stmt::Op { code, ext, ind, .. }) if code == "CALLP" => {
-                Ok((ext.error, ind.lo.clone()))
-            }
-            _ => Err(mismatch(pc, "a CALLP(E)")),
+            Ins::Stmt(super::super::ast::Stmt::Op { code, ext, ind, .. }) => Ok((
+                ext.error,
+                ind.lo
+                    .clone()
+                    .filter(|_| matches!(code.as_str(), "IN" | "OUT" | "CALLP")),
+            )),
+            _ => Err(mismatch(pc, "an operation with E")),
         }
     }
 

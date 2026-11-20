@@ -2021,3 +2021,12 @@ SND-MSG is lowered (`Lowered::SndMsg`, `Runtime::snd_msg`), as the op arm does i
 **Verified by** the native unit NSNDMSG, under both engines, as captured on PUB400 (tools/golden/native175.txt n175_sndmsg: `start info`). *INFO goes to the job log, and the program goes on.
 
 The capture's first version also sent *ESCAPE inside MONITOR groups. IBM i sends it to the caller by default, so the program ended with CPF9898 unmonitored. The interpreter catches it in the procedure's own group (fidelity.md), and native code does the same.
+
+## S2.176: XML-INTO(E)
+
+XML-INTO with the E extender is lowered. It runs inside errors.rs stmt_e's start and catch, which S2.173's call_e_start and call_e_end now give any operation. With E, %ERROR and %STATUS start over. An error of the operation, the document's evaluation included, is noted, and the program goes on. As stmt_e does, the error indicator counts only for IN, OUT and CALLP.
+
+**Verified by** the native unit NXMLINE, under both engines, as captured on PUB400 (tools/golden/native176.txt n176_xmlintoe: `1 351 1 353 0 9Cy`):
+- a document that is not well formed gives 00351;
+- a value that does not fit its subfield's type gives 00353;
+- a good document gives no error.

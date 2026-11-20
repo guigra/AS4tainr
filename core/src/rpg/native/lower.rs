@@ -1123,9 +1123,10 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             ext,
             ind,
         }) if code == "XML-INTO"
-            && !ext.error
             && !ext.no_lock
-            && ext.other.is_empty()
+            // E (S2.176): errors.rs stmt_e around it.
+            && ext.other.chars().all(|c| c == 'E')
+            && ext.error == !ext.other.is_empty()
             && ind.is_empty() =>
         {
             let xml = parts.iter().find_map(|p| match p {
@@ -1146,6 +1147,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             ir::Lowered::XmlInto {
                 doc: Box::new(doc),
                 opts: opts.map(Box::new),
+                e: ext.error,
             }
         }
         // SND-MSG (S2.175): the op arm's message type (factor 1, *INFO

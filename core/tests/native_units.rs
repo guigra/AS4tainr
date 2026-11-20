@@ -3895,3 +3895,16 @@ async fn native_unit_lowered_snd_msg() {
         "NSNDMSG: {got:?}"
     );
 }
+
+// Stage 2, S2.176: XML-INTO(E).
+// Source: golden capture tools/golden/native176 n176_xmlintoe (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_xml_into_e() {
+    let _ = require_db!();
+    expect(
+        "NXMLINE",
+        include_str!("native/NXMLINE.rpgle"),
+        &["1 351 1 353 0 9Cy"],
+    )
+    .await;
+}
