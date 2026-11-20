@@ -1,8 +1,47 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-19 22:10 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
+Last update: 2026-11-20 07:40 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
 
-## Now (2026-11-19, 22:10 UTC)
+## Now (2026-11-20, 07:40 UTC)
+
+**Committed up to S2.146** (63c40e0). The x86_64 run s7f-s2146 gives level 2 rust 758 of 758 as under the interpreter, and coverage is 97.6%.
+
+S2.140 to S2.146 add:
+- DSPLY with a response field;
+- %ADDR of a whole array, RETURN of a pointer;
+- procedures with their own *PSSR;
+- %DEC of temporal values;
+- indicator subfields by their path;
+- arithmetic in conditions and in FOR limits.
+
+The S2.142 commit message corrects the "752 of 752" of S2.140 and S2.141, which should read 753.
+
+**Snapshots validating, chained** (`as4tainr-up-logs/s7-<tag>.commit`, each one's parent the snapshot before). Commit them in order as they pass.
+
+| Snapshot | What | Where |
+| --- | --- | --- |
+| s2147 | TEST(E) of dates, times and timestamps (S2.138 claimed native but was not: correct that claim in this commit's message) | ARM |
+| s2148 | SQRT | jsr-test-2 |
+| s2149 | tables (TABx): LOOKUP with an alternate, the current element | ARM |
+| s2150 | *OMIT arguments (CEE, C, bound procedures, procedure pointers) | jsr-test-2 |
+| s2151 | *ON/*OFF for indicator parameters passed by value | ARM |
+| s2152 | COMMIT and ROLBK | jsr-test-2 |
+| s2153, s2154 | %BITAND/%BITOR/%BITXOR/%BITNOT of numbers and comparisons with hex constants; MOVEA with a literal index | not yet: units running locally, one snapshot |
+
+The snapshots s2142 and s2144 on ARM are made redundant by the x86_64 runs, which already validated them.
+
+**Left to the interpreter, with the reason (2026-11-20):**
+- DSPLY of a float: two PUB400 captures could not get IBM i's text. Under PASE system it ends in RNX9998, and the batch job left no job log (S2.110, S2.151 note).
+- A by-reference argument of another type without *VARSIZE: IBM i does not compile it (SYSAPI).
+- EXCEPT whose edit word is a procedure's own constant (NEXCPT2, review of 2026-11-18).
+- Data structure array parameters (IMQPATH, IMQDSARR), XML-INTO, SET RESULT SETS with host variables, printer WRITE from a data structure, UCS-2.
+
+**Lessons (2026-11-20):**
+- Check the emit map's `"via":"native"` before calling a block verified: S2.138's TEST never ran natively.
+- Never edit rpgrt or rpgcg while a units run is going: S2.153's rust phase built against S2.154's runtime and failed. Run the units again together.
+- Renaming identifiers with sed also renames inside strings (gn1.out became gn1.outdt).
+
+## Before (2026-11-19, 22:10 UTC)
 
 **Committed up to S2.128** (10e6dba). Native-diff level 2 rust is 744 of 744 as under the interpreter, and coverage is 96.7%.
 

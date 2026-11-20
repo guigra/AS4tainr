@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.153: bit built-in functions of numbers (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native153.txt -f tools/golden/native153
+n153_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN153BT) SRCSTMF('@HOME@/gld/gn153bt.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n153_bitnum|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN153BT)"; cat gn1.out; rm -f gn1.out

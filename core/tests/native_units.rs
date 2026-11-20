@@ -3336,3 +3336,31 @@ async fn native_unit_lowered_commit() {
     )
     .await;
 }
+
+// Stage 2, S2.153: bit built-in functions of numbers.
+// Source: golden capture tools/golden/native153 n153_bitnum (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_bit_numbers() {
+    let _ = require_db!();
+    expect(
+        "NBITNUM",
+        include_str!("native/NBITNUM.rpgle"),
+        &["src low 8 15 9 28 -13"],
+    )
+    .await;
+}
+
+// Stage 2, S2.154: MOVEA with a literal index. The capture ends with
+// two blanks (B3(3) padded by P), which `expect` trims as it trims every
+// DSPLY line.
+// Source: golden capture tools/golden/native154 n154_moveal (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_movea_literal_index() {
+    let _ = require_db!();
+    expect(
+        "NMOVEAL",
+        include_str!("native/NMOVEAL.rpgle"),
+        &["AXYDEF DEF... ..EF"],
+    )
+    .await;
+}

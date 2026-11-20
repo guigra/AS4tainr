@@ -517,6 +517,8 @@ pub enum MoveaSide {
     Array {
         arr: ArrPlace,
         index: Option<OutSlot>,
+        /// A literal index instead (S2.154), from 1 to the dimension.
+        at: Option<i128>,
     },
     Bytes(Vec<u8>),
     Field(OutSlot),
@@ -2237,6 +2239,35 @@ pub fn float_of_chars(v: &Value) -> NResult<Value> {
 /// Stage 2 (S2.107, ADR 0008): %CHAR of a float field of `bytes` bytes,
 /// as interp.rs bif's CHAR arm for a float: data::float_text of its
 /// float_value.
+/// Stage 2 (S2.153): the bit built-in function of `bit_num`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BitFn {
+    And,
+    Or,
+    Xor,
+    Not,
+}
+
+/// Stage 2 (S2.153): %BITAND, %BITOR, %BITXOR or %BITNOT of numbers, as
+/// bifs.rs bif_more's numeric arm: the first value as an integer
+/// (negated for %BITNOT), each other one's integer combined with it, the
+/// result an integer.
+pub fn bit_num(op: BitFn, first: &Dec, rest: &[Dec]) -> NResult<Dec> {
+    let mut acc = first.to_i128()?;
+    if op == BitFn::Not {
+        acc = !acc;
+    }
+    for x in rest {
+        let x = x.to_i128()?;
+        acc = match op {
+            BitFn::And => acc & x,
+            BitFn::Or => acc | x,
+            _ => acc ^ x,
+        };
+    }
+    Ok(Dec::new(acc, 0))
+}
+
 pub fn float_char(v: &Value, bytes: u32) -> NResult<Value> {
     Ok(Value::str(&data::float_text(float_value(v)?, bytes)))
 }

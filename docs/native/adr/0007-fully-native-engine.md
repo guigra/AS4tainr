@@ -1836,3 +1836,19 @@ COMMIT and ROLBK with no boundary, extender or indicator are lowered (`Lowered::
 - then its commit or its rollback runs, and RNQ0804 or RNQ0805 is raised if that fails.
 
 **Verified by** the native unit NCOMMIT, under both engines, as captured on PUB400 (tools/golden/native152.txt n152_commit: `commit 802 rolbk 802`). It runs both operations with no commitment control active, each in a MONITOR group. The path with commitment control active, where a CL caller starts it, is the native-diff suite's CMTRPG under upstream's commitment_control test.
+
+## S2.153: bit built-in functions of numbers
+
+%BITAND, %BITOR, %BITXOR and %BITNOT of numbers are lowered (`NumExpr::Bit`, `rpgrt::native::bit_num`), as bif_more's numeric arm:
+- the first argument is a numeric expression, taken as an integer and negated for %BITNOT;
+- each further argument is combined with it as int_arg gives it. That is a number, or a hexadecimal literal or constant of 1 to 8 bytes as its unsigned value (data::hex_unsigned, worked out from its bytes when lowering).
+
+A comparison of a number with such a hexadecimal literal or constant keeps its character side, and data::compare reads it the same way. That is iRPGUnit's `%bitand(flags : SRCBIT) = SRCBIT`, rla_test.rs FDTEST.
+
+**Verified by** the native unit NBITNUM, under both engines, as captured on PUB400 (tools/golden/native153.txt n153_bitnum: `src low 8 15 9 28 -13`). IBM i accepts two arguments for %BITXOR and no more (RNF0317 for three, first run of the capture); the interpreter takes more.
+
+## S2.154: MOVEA with a literal index
+
+A MOVEA side that is an array element named by a literal index (`MOVEA 'XY' CH(2)`, `MOVEA CH(4) A3`) is lowered, with `MoveaSide::Array`'s `at`. movea_parts takes the elements from that index on, as it does for an index field. Only a whole number from 1 to the dimension is lowered, because IBM i refuses a literal index out of range when it compiles, so there is no range error to reproduce.
+
+**Verified by** the native unit NMOVEAL, under both engines, as captured on PUB400 (tools/golden/native154.txt n154_moveal: `AXYDEF DEF... ..EF`, then two blanks, which the unit's DSPLY comparison trims). It moves into an element, out of an element, and with P from an element into an element.

@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.154: MOVEA with a literal index (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native154.txt -f tools/golden/native154
+n154_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN154MA) SRCSTMF('@HOME@/gld/gn154ma.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n154_moveal|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN154MA)"; cat gn1.out; rm -f gn1.out
