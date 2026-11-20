@@ -3601,13 +3601,12 @@ fn ds_array_field_of(
     let Some(Sym::Ds(d)) = sym(cx, ds) else {
         return None;
     };
-    // A local one (S2.63): of the procedure's own storage, not based and
-    // not a parameter (`local_array_ok`).
-    let local_ok = !d.local
-        || (cx.based.is_some_and(|b| !b.contains_key(&d.buf))
-            && cx
-                .params
-                .is_some_and(|ps| ps.iter().all(|p| p.buf != Some(d.buf))));
+    // A local one (S2.63): of the procedure's own storage, not based. A
+    // parameter too (S2.169): rt.local places it where Machine::sym does
+    // (the caller's storage for one passed by reference), and path_sym
+    // checks no more than the index's range for a data structure array
+    // (no `reach`, which elem_off does for a scalar array).
+    let local_ok = !d.local || cx.based.is_some_and(|b| !b.contains_key(&d.buf));
     if !local_ok
         || d.dim == 0
         || (!d.local && prog.based.contains_key(&d.buf))
@@ -3970,6 +3969,50 @@ fn call_of(
                 && matches!(pi.syms.get(&p.name), Some(Sym::Var(_)))
                 && matches!(p.dtype, DType::Char(_))
         });
+        // A whole data structure array (DIM above 1) for a CONST parameter
+        // of this module's procedure (S2.169): args_for's Arg::Ref of all
+        // its elements (Loc size: the array's), for a LIKEDS DIM(n)
+        // parameter the callee's view of the same storage. call_frame
+        // aliases its place and takes the descriptor's length from the
+        // reference's type, so the type here is characters of the array's
+        // size, the length call_proc takes from the Loc's size.
+        if p.konst && !p.by_value && local.is_some() {
+            if let Expr::Name { parts, args: None } = a {
+                if let Some(Sym::Ds(d)) = sym(cx, &parts.join(".")) {
+                    let total = d.size.checked_mul(usize::try_from(d.dim).ok()?)?;
+                    if d.dim > 1 {
+                        let placeable = if d.local {
+                            local_ds_ok(cx, d.buf)
+                        } else {
+                            !prog.based.contains_key(&d.buf)
+                                && !prog.occurs.iter().any(|o| o.buf == d.buf)
+                        };
+                        if !placeable {
+                            return None;
+                        }
+                        let ty = ir::Ty::Char(u32::try_from(total).ok()?);
+                        used.push(format!(
+                            "whole ds array {} {} {} {} for {}",
+                            parts.join("."),
+                            d.buf,
+                            d.off,
+                            if d.local { "local" } else { "global" },
+                            p.name
+                        ));
+                        out.push(ir::CallArg::Ref(ir::Operand::Var {
+                            name: parts.join("."),
+                            buf: d.buf,
+                            off: d.off,
+                            ty,
+                            local: d.local,
+                            index: None,
+                            based: None,
+                        }));
+                        continue;
+                    }
+                }
+            }
+        }
         if (local.is_some_and(|pi| !matches!(pi.syms.get(&p.name), Some(Sym::Var(_)))) && !ds_ref)
             || (whole_ds && local.is_some() && !ds_ref && !ds_to_field)
         {
