@@ -657,6 +657,12 @@ pub mod ir {
         PrinterOp,
         /// OPEN or CLOSE of a database file (S2.128).
         DiskOpenClose,
+        /// EVAL-CORR (S2.177): the pairs of target and source fields, in
+        /// order, and (H).
+        EvalCorr {
+            pairs: Vec<(Operand, Operand)>,
+            half: bool,
+        },
         /// SND-MSG (S2.175): the message type, whether the message is
         /// %MSG (its arguments) or text (one part).
         SndMsg {
@@ -4078,6 +4084,31 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("sm{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::EvalCorr { pairs, half }) => {
+            // ops.rs eval_corr: each pair's value (eval) then assign
+            // (Strict, H), in order.
+            let mut body = String::new();
+            for (t, src) in pairs {
+                let ir::Operand::Var { ty: tt, .. } = t else {
+                    return Err(bad());
+                };
+                let (prelude, sb, so) = place_of(t).ok_or_else(bad)?;
+                let _ = writeln!(
+                    body,
+                    "    {{\n    let v = {};\n{prelude}    rpgrt::native::store(rt.mem(), {sb}, {so}, {}, &v, rpgrt::rpg::data::Fit::Strict {{ half_adjust: {half} }}, false)?;\n    }}",
+                    value(src),
+                    ty(tt)
+                );
+            }
+            let _ = writeln!(
+                helpers,
+                "\nfn ec{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("ec{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::CallE(c)) => {

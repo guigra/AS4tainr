@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.177: EVAL-CORR (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native177.txt -f tools/golden/native177
+n177_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN177EC) SRCSTMF('@HOME@/gld/gn177ec.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n177_evalcorr|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN177EC)"; cat gn1.out; rm -f gn1.out
