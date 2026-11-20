@@ -1643,3 +1643,20 @@ Before, it used the parameter's type, which a *VARSIZE parameter does not share.
 An EVAL of a figurative constant to %SUBST is lowered (*BLANKS, *ZEROS, *HIVAL, *LOVAL, *ALL'x', *NULL; not *ON or *OFF). The value is eval's Value::Fig. assign's SUBST arm fills the part with it by data::store, and so does `subst_target`. Examples: `%subst(x: 1: 3) = *blanks`, rla_test.rs's `%subst(jid: 49: 8) = *allx'00'`.
 
 **Verified by** the native unit NSUBFIG, under both engines, as captured on PUB400 (tools/golden/native136.txt n136_substfig: `[a   efgh][--  efgh][--  0000]h`). It covers *BLANKS, *ALL'-', *ZEROS to the end of the field, and *HIVAL.
+
+## S2.137: %NULLIND
+
+%NULLIND(field) is lowered in three places:
+- as a condition, `Cond::NullInd` and `Runtime::nullind`;
+- in %CHAR, as its '1' or '0';
+- as an EVAL target, `Lowered::EvalNullInd` and `Runtime::set_nullind`, with *ON, *OFF or a condition.
+
+The runtime calls the interpreter's own nullind_field:
+- ALWNULL(*USRCTL) is required;
+- the field must be a null-capable file field.
+
+Then the field is looked up in, or put in or taken out of, the machine's null indicators, which the native file reads set (fields_read_n) as fill_fields does. As in Stmt::Eval, the value is evaluated before the target's checks.
+
+**Verified by** the native unit NNULLIND, under both engines, as captured on PUB400 (tools/golden/native137.txt n137_nullind: `11n0 20 2026-01-31`):
+- a null date read, then tested, in %CHAR, and set off;
+- then a record whose date is not null.

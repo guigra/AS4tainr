@@ -575,6 +575,32 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 },
             }
         }
+        // EVAL %NULLIND(field) (S2.137): Stmt::Eval's value, then
+        // assign's NULLIND arm, nullind_field's checks and the field in or
+        // out of the null indicators by the value's truth.
+        Ins::Stmt(Stmt::Eval {
+            target: Expr::Bif(b, args),
+            value,
+            ext,
+            ..
+        }) if b == "NULLIND"
+            && !ext.error
+            && !ext.no_lock
+            && ext.other.is_empty()
+            && matches!(args.as_slice(), [Expr::Name { args: None, .. }]) =>
+        {
+            let Some(Expr::Name { parts, .. }) = args.first() else {
+                return None;
+            };
+            ir::Lowered::EvalNullInd {
+                name: parts.join("."),
+                value: match value {
+                    Expr::Fig(Fig::On) => ir::IndValue::On,
+                    Expr::Fig(Fig::Off) => ir::IndValue::Off,
+                    v => ir::IndValue::Cond(Box::new(cond_at(cx, v, &mut used, Vec::new())?)),
+                },
+            }
+        }
         // EVAL of an indicator (S2.39): Stmt::Eval then assign's
         // `set_ind(n, val.truth()?)`, for *ON, *OFF or a condition.
         Ins::Stmt(Stmt::Eval {
@@ -1652,7 +1678,10 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                         _,
                         _
                     )] | [Expr::Unary(super::super::ast::UnOp::Not, _)]
-                ) =>
+                        // %NULLIND (S2.137): bif's Value::Ind.
+                        | [Expr::Bif(_, _)]
+                )
+                && !matches!(args.as_slice(), [Expr::Bif(n, _)] if n != "NULLIND") =>
         {
             let mut cp = path.clone();
             cp.push(0);
@@ -2380,6 +2409,18 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
             let mut p = path.clone();
             p.push(0);
             return Some(ir::Cond::Not(Box::new(cond_at(cx, x, used, p)?)));
+        }
+        // %NULLIND(field) (S2.137): bif's NULLIND arm, nullind_field's
+        // checks, then whether the field is in the null indicators.
+        Expr::Bif(b, args)
+            if b == "NULLIND" && matches!(args.as_slice(), [Expr::Name { args: None, .. }]) =>
+        {
+            let Some(Expr::Name { parts, .. }) = args.first() else {
+                return None;
+            };
+            let name = parts.join(".");
+            used.push(format!("nullind {name}"));
+            return Some(ir::Cond::NullInd(name));
         }
         // A call of a procedure returning an indicator (S2.133): eval's
         // call, then the value's truth, as IF takes it.

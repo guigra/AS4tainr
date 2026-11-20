@@ -166,6 +166,10 @@ pub trait Runtime {
     /// Stage 2 (S2.31): the most recent program or file status code, as
     /// %STATUS with no file gives it.
     fn status(&self) -> u32;
+    /// Stage 2 (S2.137): %NULLIND(field), after nullind_field's checks.
+    fn nullind(&mut self, field: &str) -> NResult<bool>;
+    /// Stage 2 (S2.137): EVAL %NULLIND(field), after the same checks.
+    fn set_nullind(&mut self, field: &str, on: bool) -> NResult<()>;
     /// Stage 2 (S2.129): %PARMS, the arguments passed to the running
     /// procedure (its frame), or to the program.
     fn parms(&self) -> NResult<i64>;

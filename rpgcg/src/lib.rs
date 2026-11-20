@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.136");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.137");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -217,6 +217,8 @@ pub mod ir {
         /// A comparison with an expression on either side (S2.13):
         /// %SCAN, %SUBST, %TRIM, %XLATE, concatenation.
         CmpExpr(CmpOp, Box<CmpSide>, Box<CmpSide>),
+        /// %NULLIND(field) (S2.137): whether it is null.
+        NullInd(String),
         /// A call of a procedure returning an indicator (S2.133): the
         /// truth of its value.
         Call(Call),
@@ -696,6 +698,9 @@ pub mod ir {
         },
         /// EVAL of an indicator (S2.39): `*ON`, `*OFF` or a condition.
         EvalInd { name: String, value: IndValue },
+        /// EVAL %NULLIND(field) (S2.137): the field in or out of the null
+        /// indicators by the value's truth.
+        EvalNullInd { name: String, value: IndValue },
         /// MOVE or MOVEL with a date, time or timestamp on either side
         /// (S2.115): factor 1's format, factor 2, the result.
         MoveTemporal {
@@ -1966,6 +1971,9 @@ fn cond_fns_in(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usiz
                 "    rpgrt::native::cmp(rpgrt::native::CmpOp::{op}, &x, &y)\n}}"
             );
         }
+        ir::Cond::NullInd(name) => {
+            let _ = writeln!(out, "    rt.nullind({})\n}}", json_str(name));
+        }
         ir::Cond::Call(c) => {
             // The call's helpers go after this function.
             let mut extra = String::new();
@@ -2463,6 +2471,27 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("fr{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::EvalNullInd { name, value }) => {
+            // Stmt::Eval: the value's truth, then assign's NULLIND arm.
+            let v = match value {
+                ir::IndValue::On => "true".to_string(),
+                ir::IndValue::Off => "false".to_string(),
+                ir::IndValue::Cond(c) => {
+                    let mut n = 0;
+                    cond_fns(pc, c, &format!("ci{pc}"), helpers, &mut n);
+                    format!("ci{pc}(rt)?")
+                }
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn en{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let v = {v};\n    rt.set_nullind({}, v)\n}}",
+                json_str(name)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("en{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::EvalInd { name, value }) => {

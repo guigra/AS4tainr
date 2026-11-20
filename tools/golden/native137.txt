@@ -1,0 +1,5 @@
+# Captures for stage 2, S2.137: %NULLIND (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native137.txt -f tools/golden/native137
+n137_mkf|!system "RUNSQL SQL('create or replace table @LIB@/GN137N (id int, d date)') COMMIT(*NONE)"; system "RUNSQL SQL('delete from @LIB@/GN137N') COMMIT(*NONE)"; system "RUNSQL SQL('insert into @LIB@/GN137N values (1, NULL), (2, ''2026-01-31'')') COMMIT(*NONE)"
+n137_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN137NI) SRCSTMF('@HOME@/gld/gn137ni.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n137_nullind|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN137NI)"; cat gn1.out; rm -f gn1.out
