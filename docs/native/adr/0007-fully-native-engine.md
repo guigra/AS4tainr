@@ -1826,3 +1826,13 @@ An *OMIT argument for an OPTIONS(*OMIT) parameter is lowered as args_for's `Arg:
 **Verified by** the native unit NINDFGA, under both engines, as captured on PUB400 (tools/golden/native151.txt n151_figind: `yesno if 21`). It makes the calls in an assignment, in a condition and in arithmetic.
 
 Not lowered: a by-reference parameter given a field of another type without OPTIONS(*VARSIZE). args_for passes it as the argument's own storage, but IBM i rejects such a call when it compiles it, so no value can be captured (SYSAPI's QDCXLATE call, a CHAR(2) for CHAR(10)).
+
+Still not lowered: DSPLY of a float field. A second capture was tried on 2026-11-20: the program was submitted as a batch job (SBMJOB LOG(4 00 *SECLVL) LOGOUTPUT(*JOBEND)), and its QPJOBLOG was to be copied to a stream file. It left neither a job log nor its stream file within 45 seconds (CPF3303). IBM i's text is therefore still unknown, and the interpreter keeps the statement (S2.110).
+
+## S2.152: COMMIT and ROLBK
+
+COMMIT and ROLBK with no boundary, extender or indicator are lowered (`Lowered::Commit`, `Runtime::commit_op`), as the op arm does them:
+- the commitment definition of the job and activation group is looked up, and RNQ0802 is raised when there is none;
+- then its commit or its rollback runs, and RNQ0804 or RNQ0805 is raised if that fails.
+
+**Verified by** the native unit NCOMMIT, under both engines, as captured on PUB400 (tools/golden/native152.txt n152_commit: `commit 802 rolbk 802`). It runs both operations with no commitment control active, each in a MONITOR group. The path with commitment control active, where a CL caller starts it, is the native-diff suite's CMTRPG under upstream's commitment_control test.

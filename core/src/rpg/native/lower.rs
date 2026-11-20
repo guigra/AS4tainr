@@ -1269,6 +1269,26 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             used.push(format!("printer {op:?} {file}"));
             ir::Lowered::PrinterOp
         }
+        // COMMIT and ROLBK (S2.152): the op arm's commitment definition of
+        // the job and activation group (RNQ0802 with none), its commit or
+        // rollback (RNQ0804, RNQ0805); no boundary, extender or indicator.
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1: None,
+            f2: None,
+            result: None,
+            ext,
+            ind,
+        }) if (code == "COMMIT" || code == "ROLBK")
+            && !ext.error
+            && !ext.no_lock
+            && !ext.half_adjust
+            && ext.other.is_empty()
+            && ind.is_empty() =>
+        {
+            used.push(format!("commitment {code}"));
+            ir::Lowered::Commit(code == "ROLBK")
+        }
         // OPEN and CLOSE of a database file (S2.128): errors.rs file_op
         // around file_op_inner's OPEN (CPF4161 when open, then
         // open_file) and CLOSE (close_open_file of the open file). An

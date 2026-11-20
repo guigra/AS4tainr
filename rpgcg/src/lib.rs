@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.151");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.152");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -653,6 +653,8 @@ pub mod ir {
         PrinterOp,
         /// OPEN or CLOSE of a database file (S2.128).
         DiskOpenClose,
+        /// COMMIT, or ROLBK when true (S2.152).
+        Commit(bool),
         /// The SQRT operation (S2.148): factor 2, the result field, its
         /// decimal places, (H).
         SqrtOp {
@@ -3406,6 +3408,10 @@ fn lowered_step(
                 format!("sq{pc}(rt).map(|()| {next})"),
             )
         }
+        (ir::Kind::Stmt, ir::Lowered::Commit(rollback)) => guarded(
+            format!("rt.stmt({pc}).map(|()| {next})"),
+            format!("rt.commit_op({rollback}).map(|()| {next})"),
+        ),
         (ir::Kind::Stmt, ir::Lowered::DiskOpenClose) => guarded(
             format!("rt.stmt({pc}).map(|()| {next})"),
             format!("rt.disk_open_close({pc}).map(|()| {next})"),
