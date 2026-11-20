@@ -207,24 +207,31 @@ impl<'a> Rt<'_, 'a> {
         let passed = args.len();
         for (p, arg) in pi.params.iter().zip(args) {
             match arg {
-                CallArg::Ref { buf, off, .. } => {
-                    // The descriptor of a reference argument of the
-                    // parameter's own type (call_proc).
-                    lengths.push(Some(match p.dtype {
-                        data::DType::Varchar(n) => {
-                            let max = usize::try_from(n)?;
-                            let pre = data::var_prefix(n);
-                            let end = off
-                                .checked_add(pre)
-                                .ok_or_else(|| anyhow!("native: an argument's offset"))?;
-                            let cur = self
-                                .m
-                                .bufs
-                                .get(buf)
-                                .and_then(|b| b.get(off..end))
-                                .map(|x| data::var_len(n, x))
-                                .unwrap_or(0);
-                            (cur, 4, max)
+                CallArg::Ref { buf, off, dtype } => {
+                    // The descriptor of a reference argument, as call_proc
+                    // makes it from the argument's own type (loc_of's),
+                    // which an OPTIONS(*VARSIZE) parameter does not share
+                    // (S2.135): a varying one's current length, UCS-2's
+                    // characters, else its size.
+                    let cur = |n: u32| -> NResult<usize> {
+                        let pre = data::var_prefix(n);
+                        let end = off
+                            .checked_add(pre)
+                            .ok_or_else(|| anyhow!("native: an argument's offset"))?;
+                        Ok(self
+                            .m
+                            .bufs
+                            .get(buf)
+                            .and_then(|b| b.get(off..end))
+                            .map(|x| data::var_len(n, x))
+                            .unwrap_or(0))
+                    };
+                    lengths.push(Some(match dtype {
+                        data::DType::Varchar(n) => (cur(n)?, 4, usize::try_from(n)?),
+                        data::DType::VarUcs2(n) => (cur(n)?, 11, usize::try_from(n)?),
+                        data::DType::Ucs2(n) => {
+                            let k = usize::try_from(n)?;
+                            (k, 9, k)
                         }
                         t => (t.size(), 2, t.size()),
                     }));

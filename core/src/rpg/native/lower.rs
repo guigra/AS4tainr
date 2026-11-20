@@ -3360,9 +3360,10 @@ fn call_of(
     }
     let mut out = Vec::with_capacity(args.len());
     for (k, (p, a)) in params.iter().zip(args).enumerate() {
-        // OPTIONS(*VARSIZE) (S2.51) only for a program or a bound
-        // procedure, whose arguments go as the interpreter's loc_of gives
-        // them (the argument's own size and type).
+        // OPTIONS(*VARSIZE) (S2.51): the argument as the interpreter's
+        // loc_of gives it (its own size and type); for this module's
+        // procedure too since S2.135, whose descriptor call_frame makes
+        // from that type as call_proc does.
         // OPTIONS(*STRING) (S2.66): for a pointer parameter of a C
         // function passed by value or CONST (call_proto's C path makes the
         // copy args_for makes).
@@ -3376,7 +3377,6 @@ fn call_of(
             || (p.string && !string_ok)
             || (p.trim && matches!(a, Expr::Fig(_)))
             || p.convert
-            || (p.varsize && local.is_some())
         {
             return None;
         }

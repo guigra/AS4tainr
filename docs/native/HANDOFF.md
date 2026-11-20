@@ -1,8 +1,54 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-19 07:35 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
+Last update: 2026-11-19 22:10 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
 
-## Now (2026-11-19, 07:35 UTC)
+## Now (2026-11-19, 22:10 UTC)
+
+**Committed up to S2.128** (10e6dba). Native-diff level 2 rust is 744 of 744 as under the interpreter, and coverage is 96.7%.
+
+S2.121 (ee603f9) made native-diff's three suite runs use the same library names:
+- each test binary is process 1 of its own PID namespace (`unshare -cpf`);
+- its tests run one at a time;
+- each run has a new database.
+
+The 23 programs `rust` mode had refused whole now run natively, with no difference. The only refusal left is NATSW1, on purpose.
+
+**Evidence manifests** (4003e3b): `scripts/native-manifest.py` writes one per commit, and the manifests run from 2026-11-15 on.
+- It finds the validating runs by git tree. They are copied into `target/evidence/vm/<machine>/<run>`, outside Git.
+- It never rewrites a committed manifest (section 8).
+- After each commit: copy the run, run the script for the new range, and commit its output in a later snapshot.
+- docs/native/methodology.md (English, for Kyle) describes the process.
+
+**Snapshots validating, chained** (`as4tainr-up-logs/s7-<tag>.commit`). Commit each as it passes; a later one validates the ones it contains.
+
+| Snapshot | What | Where |
+| --- | --- | --- |
+| s2129 | %PARMS | ARM |
+| s2130b, s2131b, s2132b | fields based on based pointers; IN %RANGE and IN %LIST; RETURN of figurative constants | s2131b on ARM, s2132b on jsr-test-2 |
+| s2133 | calls returning indicators as conditions, RETURN of a condition | jsr-test-2 |
+| s2134 | %CHAR of temporal expressions | ARM |
+
+The b snapshots keep 2026-11-19-383f072.json as committed, because a working copy had rewritten it.
+
+**Interpreter defects found today** (fidelity.md, held for Kyle with captures):
+- WRITE and UPDATE of `file.format` on a qualified file (native120);
+- %CHAR of a date or time expression under DATFMT or TIMFMT other than *ISO: IBM i gives *ISO (native134);
+- date and time literals under DATFMT(*EUR) and TIMFMT(*USA) (native134).
+
+**Left to the interpreter, with the reason:**
+- arithmetic on a comparison side, which has no target precision (S2.13, S2.131);
+- %BITAND with hexadecimal constants as numbers (FDTEST);
+- a by-reference argument shorter than its parameter without *VARSIZE, which IBM i does not compile (SYSAPI's QDCXLATE);
+- tables (TABx) as their current element.
+
+**Next:** a WHY pass, `AS4TAINR_NATIVE_WHY` over the whole suite, which now also notes conditions and RETURNs. Pick the largest group left: DSPLY 28, EVAL 23 and CALLP 16 in the last coverage.
+
+**Lessons:**
+- Over ssh, never `pkill -f` or `pgrep -f` with a pattern in the same command, since it kills its own session. List the PIDs, then kill them by number.
+- Check that a unit's name is new before writing it: NDSPARM's source was overwritten once and restored from git.
+- Replace the CAPTURE placeholder with a check that it happened.
+
+## Before (2026-11-19, 07:35 UTC)
 
 **Committed up to S2.105** (1bc82c0; 94.6% native, level 2 rust 705 of 727 as under the interpreter):
 - S2.100-S2.101 and S2.104-S2.105: indicator fields as targets, conditions, VALUE arguments, characters, and compared;
