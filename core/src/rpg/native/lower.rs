@@ -3650,11 +3650,21 @@ fn call_of(
         // OPTIONS(*TRIM) (S2.116): args_for's value path with the
         // character value's leading and trailing blanks removed; not for a
         // figurative constant, which args_for leaves as it is.
-        if p.file
-            || p.omit
-            || (p.string && !string_ok)
-            || (p.trim && matches!(a, Expr::Fig(_)))
-            || p.convert
+        // OPTIONS(*OMIT) (S2.150): args_for's Arg::Omit for an *OMIT
+        // argument, for a bound procedure, a CEE API, a C function or a
+        // procedure pointer's prototype (call_proto passes the Arg on); not
+        // for a program (EXTPGM) or this module's procedure. Any other
+        // argument for such a parameter goes as it would with no *OMIT.
+        if matches!(a, Expr::Omit) {
+            let extpgm = proto(cx, &name).is_some_and(|pr| pr.extpgm.is_some());
+            if !p.omit || local.is_some() || extpgm || prog.procs.contains_key(&name) {
+                return None;
+            }
+            let _ = std::fmt::Write::write_fmt(&mut layout, format_args!(" {}=omit", p.name));
+            out.push(ir::CallArg::Omit);
+            continue;
+        }
+        if p.file || (p.string && !string_ok) || (p.trim && matches!(a, Expr::Fig(_))) || p.convert
         {
             return None;
         }

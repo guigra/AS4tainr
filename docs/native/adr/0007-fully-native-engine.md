@@ -1812,3 +1812,9 @@ Tables (TABxxx arrays) are lowered in two places:
 - a LOOKUP found and one not found;
 - a LOOKUP of the table alone;
 - each table's current element by its name.
+
+## S2.150: *OMIT arguments
+
+An *OMIT argument for an OPTIONS(*OMIT) parameter is lowered as args_for's `Arg::Omit` (`CallArg::Omit`). It applies to a call of a bound procedure, a CEE API, a C function or a procedure pointer, and call_proto passes the argument on as it is. A program (EXTPGM) and a procedure of this module keep the interpreter for now, so call_frame never sees one. Any other argument for such a parameter goes as it would with no *OMIT.
+
+**Verified by** the native unit NOMITCE, under both engines, as captured on PUB400 (tools/golden/native150.txt n150_omit: `161912 7 2026-02-01`). It calls CEEDAYS and CEEDYWK with an omitted feedback code, and CEEDATE with one passed.
