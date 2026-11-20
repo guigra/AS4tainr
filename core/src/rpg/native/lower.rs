@@ -458,7 +458,13 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                     Some(l) => Some(Box::new(num_expr(cx, l, &mut used, vec![tp, 2])?)),
                     None => None,
                 },
-                value: Box::new(char_expr(cx, value, &mut used, Vec::new())?),
+                // A figurative constant (S2.136: `%subst(x: 1: 3) =
+                // *blanks`): eval's Value::Fig, which assign's data::store
+                // of the part fills with (subst_target).
+                value: Box::new(match value {
+                    Expr::Fig(f) => ir::CharExpr::Leaf(ir::Operand::Fig(fig_op(f)?)),
+                    _ => char_expr(cx, value, &mut used, Vec::new())?,
+                }),
                 half_adjust: ext.half_adjust,
                 right: *right,
             }

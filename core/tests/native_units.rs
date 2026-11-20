@@ -3098,3 +3098,16 @@ async fn native_unit_lowered_char_of_temporal_expressions() {
     )
     .await;
 }
+
+// Stage 2, S2.136: figurative constants assigned to %SUBST.
+// Source: golden capture tools/golden/native136 n136_substfig (PUB400, IBM i 7.5, 2026-11-19)
+#[tokio::test]
+async fn native_unit_lowered_subst_figuratives() {
+    let _ = require_db!();
+    expect(
+        "NSUBFIG",
+        include_str!("native/NSUBFIG.rpgle"),
+        &["[a   efgh][--  efgh][--  0000]h"],
+    )
+    .await;
+}

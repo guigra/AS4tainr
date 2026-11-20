@@ -1637,3 +1637,9 @@ call_frame now makes a reference argument's operational descriptor from that typ
 Before, it used the parameter's type, which a *VARSIZE parameter does not share. With the types the same, as for any other reference argument, nothing changes.
 
 **Verified by** the native units NDSCHRP (S2.125, `vsize(d)`) and NBASEDDS (S2.124, `fill(hdr: %size(hdr))`), as captured on PUB400. Their *VARSIZE calls to local procedures, which the WHY pass gave as `callp=local why=options`, are now native.
+
+## S2.136: a figurative constant assigned to %SUBST
+
+An EVAL of a figurative constant to %SUBST is lowered (*BLANKS, *ZEROS, *HIVAL, *LOVAL, *ALL'x', *NULL; not *ON or *OFF). The value is eval's Value::Fig. assign's SUBST arm fills the part with it by data::store, and so does `subst_target`. Examples: `%subst(x: 1: 3) = *blanks`, rla_test.rs's `%subst(jid: 49: 8) = *allx'00'`.
+
+**Verified by** the native unit NSUBFIG, under both engines, as captured on PUB400 (tools/golden/native136.txt n136_substfig: `[a   efgh][--  efgh][--  0000]h`). It covers *BLANKS, *ALL'-', *ZEROS to the end of the field, and *HIVAL.

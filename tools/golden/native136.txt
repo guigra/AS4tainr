@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.136: figurative constants assigned to %SUBST (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native136.txt -f tools/golden/native136
+n136_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN136SF) SRCSTMF('@HOME@/gld/gn136sf.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n136_substfig|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN136SF)"; cat gn1.out; rm -f gn1.out
