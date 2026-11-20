@@ -1852,3 +1852,12 @@ A comparison of a number with such a hexadecimal literal or constant keeps its c
 A MOVEA side that is an array element named by a literal index (`MOVEA 'XY' CH(2)`, `MOVEA CH(4) A3`) is lowered, with `MoveaSide::Array`'s `at`. movea_parts takes the elements from that index on, as it does for an index field. Only a whole number from 1 to the dimension is lowered, because IBM i refuses a literal index out of range when it compiles, so there is no range error to reproduce.
 
 **Verified by** the native unit NMOVEAL, under both engines, as captured on PUB400 (tools/golden/native154.txt n154_moveal: `AXYDEF DEF... ..EF`, then two blanks, which the unit's DSPLY comparison trims). It moves into an element, out of an element, and with P from an element into an element.
+
+## S2.155: %UNS and %UNSH
+
+%UNS and %UNSH are lowered (`NumExpr::Uns`, `rpgrt::native::uns_bif`), as bif_more's "UNS" arm:
+- a character value is read by Dec::parse of its trimmed text, and a number is taken as it is;
+- the value is then rescaled to no places, rounded for %UNSH;
+- RNQ0103 is raised when the result is negative.
+
+**Verified by** the native unit NUNSBIF, under both engines, as captured on PUB400 (tools/golden/native155.txt n155_uns: `42 8 9 10 13 103 103`). It covers character and numeric arguments, a sum of a %UNS, a negative value, and a value too large for UNS(3), each in a MONITOR group. rla_test.rs IMQINT's `u3 = %uns('300')` is native now.

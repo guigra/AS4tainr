@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.154");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.155");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -975,6 +975,11 @@ pub mod ir {
         FileCode(String),
         /// %SQRT of a numeric expression (S2.113).
         Sqrt(Box<NumExpr>),
+        /// %UNS or (half) %UNSH of a character or numeric value (S2.155).
+        Uns {
+            inner: Box<ValExpr>,
+            half: bool,
+        },
         /// %BITAND, %BITOR, %BITXOR or %BITNOT of numbers (S2.153): the
         /// first argument, then the others (a hexadecimal one as its
         /// unsigned value).
@@ -4709,6 +4714,16 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             json_str(f)
         ),
         ir::NumExpr::Sqrt(x) => format!("rpgrt::native::sqrt_bif(&{})?", num_expr(pc, x, helpers)),
+        ir::NumExpr::Uns { inner, half } => {
+            let v = match inner.as_ref() {
+                ir::ValExpr::Char(c) => char_expr(pc, c, helpers),
+                ir::ValExpr::Num(e) => {
+                    format!("rpgrt::rpg::data::Value::Num({})", num_expr(pc, e, helpers))
+                }
+            };
+            let name = if *half { "UNSH" } else { "UNS" };
+            format!("rpgrt::native::uns_bif(&{v}, {half}, {name:?})?")
+        }
         ir::NumExpr::Bit { op, first, rest } => {
             let f = num_expr(pc, first, helpers);
             let r: Vec<String> = rest.iter().map(|x| num_expr(pc, x, helpers)).collect();
