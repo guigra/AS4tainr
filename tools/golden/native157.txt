@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.157: a date plus a time (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native157.txt -f tools/golden/native157
+n157_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN157DT) SRCSTMF('@HOME@/gld/gn157dt.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n157_datetime|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN157DT)"; cat gn1.out; rm -f gn1.out

@@ -163,6 +163,7 @@ The harness now runs each test binary as process 1 of its own PID namespace (`un
 
 - **For every commit**, a manifest: `docs/native/evidence/<date>-<commit>.json`.
   - `scripts/native-manifest.py` writes it mechanically from the validation runs. It checks with Git which run validated the commit: one whose snapshot has the same tree as the commit, or a later snapshot whose history contains it.
+  - A run stopped by hand carries an `ABORTED` file saying why, and the script skips it. On 2026-11-20 two runs on the ARM machine shared one work directory, and both were stopped and marked this way.
   - It records:
     - the commit and its tree;
     - the toolchain (`rust-toolchain.toml`);

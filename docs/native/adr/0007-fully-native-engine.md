@@ -1867,3 +1867,9 @@ A MOVEA side that is an array element named by a literal index (`MOVEA 'XY' CH(2
 WRITE of a program-described printer file from a global data structure is lowered (`Lowered::PrinterWriteDs`, `Runtime::printer_write_ds`). It follows errors.rs file_op around printer.rs printer_write's program-described arm: the structure's bytes are printed as one line, an output record with that one literal field and no spacing (print_line_n). IBM i accepts only a data structure there (RNF5191 for a field, first run of the capture); the interpreter also takes a field.
 
 **Verified by** the native unit NPRTDS, under both engines, as captured on PUB400 (tools/golden/native156.txt n156_prtds: PASE system's output of the spooled file, `first line           00042` and `second line          00007`, then PUB400's banner). rla_test.rs WRTPRT's two WRITEs are native now.
+
+## S2.157: a date plus a time
+
+A date plus a time is lowered as a timestamp value (`CharExpr::DatePlusTime`, `rpgrt::native::date_plus_time`), as eval's arm builds it: the text `date-time.000000`, with the time's colons as periods, checked by parse_ts. Both sides are evaluated in their written order. Only the date-first form is lowered: IBM i refuses a time plus a date (RNF7421 and RNF7416, first run of the capture), which the interpreter takes (fidelity.md).
+
+**Verified by** the native unit NDATTIM, under both engines, as captured on PUB400 (tools/golden/native157.txt n157_datetime: `2024-09-16-11.22.33.000000 2026-01-31-23.59.58.000000 2026-01-31-23.59.58`). It adds %DATE to %TIME and a date field to a time field, into timestamps of 6 and 0 fractional digits. rla_test.rs TSPREC's `%date(...) + %time(...)` is native now.

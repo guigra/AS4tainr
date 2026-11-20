@@ -3389,3 +3389,16 @@ async fn native_unit_lowered_printer_write_ds() {
     let got = printed("NPRTDS", include_str!("native/NPRTDS.rpgle")).await;
     assert_eq!(got, want, "NPRTDS");
 }
+
+// Stage 2, S2.157: a date plus a time.
+// Source: golden capture tools/golden/native157 n157_datetime (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_date_plus_time() {
+    let _ = require_db!();
+    expect(
+        "NDATTIM",
+        include_str!("native/NDATTIM.rpgle"),
+        &["2024-09-16-11.22.33.000000 2026-01-31-23.59.58.000000 2026-01-31-23.59.58"],
+    )
+    .await;
+}

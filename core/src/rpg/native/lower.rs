@@ -5177,6 +5177,21 @@ fn temporal_value(
         Expr::Bif(b, args) if matches!(b.as_str(), "DATE" | "TIME" | "TIMESTAMP") => {
             temporal_bif(cx, b, args, used, path)
         }
+        // A date plus a time (S2.157): eval's arm, the timestamp text
+        // `date-time.000000` checked by parse_ts. The date first: IBM i
+        // refuses a time plus a date (RNF7421, tools/golden/native157 first
+        // run), which the interpreter takes.
+        Expr::Bin(BinOp::Add, l, r)
+            if temporal_kind(cx, l) == Some('D') && temporal_kind(cx, r) == Some('T') =>
+        {
+            let x = temporal_value(cx, l, used, at(0))?;
+            let y = temporal_value(cx, r, used, at(1))?;
+            Some(ir::CharExpr::DatePlusTime {
+                left: Box::new(x),
+                right: Box::new(y),
+                date_first: true,
+            })
+        }
         Expr::Bin(op @ (BinOp::Add | BinOp::Sub), l, r) => {
             let (base, dur, dur_first) = match (duration(l), duration(r)) {
                 (None, Some(d)) => (&**l, d, false),
