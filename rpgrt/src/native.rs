@@ -393,6 +393,9 @@ pub trait Runtime {
     /// Stage 2 (S2.128): OPEN or CLOSE of a database file (errors.rs
     /// file_op around file_op_inner's OPEN and CLOSE).
     fn disk_open_close(&mut self, pc: usize) -> NResult<()>;
+    /// Stage 2 (S2.152): COMMIT, or ROLBK when `rollback` (the op arm:
+    /// the job's commitment definition, RNQ0802 with none).
+    fn commit_op(&mut self, rollback: bool) -> NResult<()>;
     /// Stage 2 (S2.140): DSPLY with a response field at `pc`: on an
     /// interactive job's screen with the reply into the field, else the
     /// message alone.

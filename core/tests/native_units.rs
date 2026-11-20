@@ -3323,3 +3323,16 @@ async fn native_unit_lowered_fig_indicator_arguments() {
     )
     .await;
 }
+
+// Stage 2, S2.152: COMMIT and ROLBK with no commitment control.
+// Source: golden capture tools/golden/native152 n152_commit (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_commit() {
+    let _ = require_db!();
+    expect(
+        "NCOMMIT",
+        include_str!("native/NCOMMIT.rpgle"),
+        &["commit 802 rolbk 802"],
+    )
+    .await;
+}

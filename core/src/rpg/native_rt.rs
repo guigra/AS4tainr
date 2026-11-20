@@ -1339,6 +1339,29 @@ impl Runtime for Rt<'_, '_> {
         self.disk_open_close_n(pc)
     }
 
+    fn commit_op(&mut self, rollback: bool) -> NResult<()> {
+        // The op arm's "COMMIT" | "ROLBK": the commitment definition of
+        // the job and activation group, then its commit or rollback.
+        let code = if rollback { "ROLBK" } else { "COMMIT" };
+        let Some(d) = crate::cmtctl::find(&self.m.io.job_key, &self.m.io.actgrp) else {
+            anyhow::bail!("RNQ0802: Commitment control is not active.");
+        };
+        let rt = self.m.io.rt.clone();
+        let r = if rollback {
+            rt.block_on(d.rollback())
+        } else {
+            rt.block_on(d.commit())
+        };
+        r.map_err(|e| {
+            anyhow!(
+                "RNQ080{}: {} failed: {e}",
+                if rollback { 5 } else { 4 },
+                code
+            )
+        })?;
+        Ok(())
+    }
+
     fn dsply_reply(&mut self, pc: usize, text: String) -> NResult<()> {
         // Stmt::Dsply's match on the response and the job's display.
         let Ins::Stmt(super::super::ast::Stmt::Dsply {

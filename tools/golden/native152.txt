@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.152: COMMIT and ROLBK with no commitment control (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native152.txt -f tools/golden/native152
+n152_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN152CM) SRCSTMF('@HOME@/gld/gn152cm.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n152_commit|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN152CM)"; cat gn1.out; rm -f gn1.out
