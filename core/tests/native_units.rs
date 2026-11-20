@@ -3821,3 +3821,16 @@ async fn native_unit_lowered_write_e() {
     )
     .await;
 }
+
+// Stage 2, S2.173: CALLP(E).
+// Source: golden capture tools/golden/native173 n173_callpe (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_callp_e() {
+    let _ = require_db!();
+    expect(
+        "NCALLPE",
+        include_str!("native/NCALLPE.rpgle"),
+        &["1 202 0 0 0 5"],
+    )
+    .await;
+}

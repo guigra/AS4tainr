@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.173: CALLP(E) (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native173.txt -f tools/golden/native173
+n173_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN173CE) SRCSTMF('@HOME@/gld/gn173ce.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n173_callpe|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN173CE)"; cat gn1.out; rm -f gn1.out

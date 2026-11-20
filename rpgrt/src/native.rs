@@ -408,6 +408,13 @@ pub trait Runtime {
     /// Stage 2 (S2.128): OPEN or CLOSE of a database file (errors.rs
     /// file_op around file_op_inner's OPEN and CLOSE).
     fn disk_open_close(&mut self, pc: usize) -> NResult<()>;
+    /// Stage 2 (S2.173): errors.rs stmt_e's start for the CALLP at `pc`
+    /// (E: %ERROR and %STATUS start over; the error indicator off).
+    fn call_e_start(&mut self, pc: usize) -> NResult<()>;
+    /// Stage 2 (S2.173): stmt_e's end: stmt's pointer fault check, then an
+    /// error that is not a signal and does not pass this program by is
+    /// noted (note_error), the error indicator on, and the program goes on.
+    fn call_e_end(&mut self, pc: usize, r: NResult<()>) -> NResult<()>;
     /// Stage 2 (S2.165): XML-INTO at `pc` with %XML's document and
     /// options (none: no options) evaluated: xmlinto.rs xml_into_doc.
     fn xml_into(&mut self, pc: usize, doc: Value, opts: Option<Value>) -> NResult<()>;

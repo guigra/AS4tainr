@@ -1354,6 +1354,37 @@ impl Runtime for Rt<'_, '_> {
         self.disk_open_close_n(pc)
     }
 
+    fn call_e_start(&mut self, pc: usize) -> NResult<()> {
+        let (e, lo) = self.call_e_of(pc)?;
+        if e {
+            self.m.last = super::Status::default();
+        }
+        if let Some(l) = &lo {
+            self.m.set_ind(l, false);
+        }
+        Ok(())
+    }
+
+    fn call_e_end(&mut self, pc: usize, r: NResult<()>) -> NResult<()> {
+        let (_, lo) = self.call_e_of(pc)?;
+        // stmt: a pointer fault while the statement ran is its error.
+        let r = match (r, self.m.take_fault()) {
+            (Err(e), _) if errors::is_signal(&e) => Err(e),
+            (_, Some(f)) => Err(anyhow!(f)),
+            (r, None) => r,
+        };
+        match r {
+            Err(err) if !errors::is_signal(&err) && !self.passes_by_n(&err) => {
+                self.note_error_n(&err);
+                if let Some(l) = &lo {
+                    self.m.set_ind(l, true);
+                }
+                Ok(())
+            }
+            r => r,
+        }
+    }
+
     fn xml_into(&mut self, pc: usize, doc: Value, opts: Option<Value>) -> NResult<()> {
         // The op arm's XML-INTO: the receiver, then xml_into's options
         // text (`a` of their characters, none for none) and the rest.
@@ -2013,6 +2044,17 @@ fn ind_name(n: &str) -> String {
 // note_error: its file information comes from the interpreter's file
 // state, which phase A's file operations replace.
 impl Rt<'_, '_> {
+    /// The CALLP at `pc`'s E and error indicator (S2.173), as stmt_e
+    /// reads them.
+    fn call_e_of(&self, pc: usize) -> NResult<(bool, Option<String>)> {
+        match &at(self.code, pc)?.ins {
+            Ins::Stmt(super::super::ast::Stmt::Op { code, ext, ind, .. }) if code == "CALLP" => {
+                Ok((ext.error, ind.lo.clone()))
+            }
+            _ => Err(mismatch(pc, "a CALLP(E)")),
+        }
+    }
+
     /// errors.rs passes_by: an escape message sent to a caller passes this
     /// procedure by.
     fn passes_by_n(&self, err: &anyhow::Error) -> bool {
