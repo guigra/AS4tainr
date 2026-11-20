@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.156");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.157");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -867,6 +867,13 @@ pub mod ir {
         TemporalCharOf {
             of: Box<CharExpr>,
             fmt: TemporalFmt,
+        },
+        /// A date plus a time (S2.157): the sides as written, `date_first`
+        /// when the left one is the date.
+        DatePlusTime {
+            left: Box<CharExpr>,
+            right: Box<CharExpr>,
+            date_first: bool,
         },
         /// A date, time or timestamp plus or minus a duration (S2.55):
         /// `unit` is rpgrt::rpg::data::DurUnit's variant; `dur_first` when
@@ -4324,6 +4331,18 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
                 "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::data::Value> {{\n    let s = {x}.chars()?;\n    let st = rpgrt::rpg::data::Value::Num({st});\n    let from = rpgrt::native::subst_start(&s, &st)?;\n{take}\n}}"
             );
             format!("{name}(rt)?")
+        }
+        ir::CharExpr::DatePlusTime {
+            left,
+            right,
+            date_first,
+        } => {
+            let x = char_expr(pc, left, helpers);
+            let y = char_expr(pc, right, helpers);
+            let (d, t) = if *date_first { ("x", "y") } else { ("y", "x") };
+            format!(
+                "{{\n    let x = {x};\n    let y = {y};\n    rpgrt::native::date_plus_time(&{d}, &{t})?\n    }}"
+            )
         }
         ir::CharExpr::TemporalAdd {
             base,

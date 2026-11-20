@@ -2228,6 +2228,17 @@ pub fn uns_bif(v: &Value, half: bool, name: &str) -> NResult<Dec> {
     Ok(r)
 }
 
+/// Stage 2 (S2.157): a date plus a time, as interp.rs eval's arm: the
+/// timestamp text `date-time.000000` (the time's colons as periods),
+/// checked by dates::parse_ts.
+pub fn date_plus_time(d: &Value, t: &Value) -> NResult<Value> {
+    let d = data::a(&d.chars()?);
+    let t = data::a(&t.chars()?);
+    let ts = format!("{}-{}.000000", d.trim(), t.trim().replace(':', "."));
+    crate::rpg::dates::parse_ts(&ts)?;
+    Ok(Value::str(&ts))
+}
+
 pub fn sqrt_bif(x: &Dec) -> NResult<Dec> {
     if x.is_negative() {
         anyhow::bail!("RNQ0101: %SQRT of a negative number.");

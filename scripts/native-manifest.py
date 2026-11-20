@@ -110,6 +110,10 @@ def runs(evidence):
             st = os.path.join(d, "status")
             if not os.path.isfile(st):
                 continue
+            # A run stopped by hand (its ABORTED file says why, for example
+            # two runs in one work directory) is no evidence.
+            if os.path.isfile(os.path.join(d, "ABORTED")):
+                continue
             status = read_status(st)
             # The earlier s7 runs kept their snapshot beside the run, in
             # <run>.commit.
