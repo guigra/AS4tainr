@@ -4801,7 +4801,8 @@ impl Rt<'_, '_> {
     /// open_file; CLOSE closes the open file, if any (close_open_file);
     /// then file_op's end (file_end_n).
     fn disk_open_close_n(&mut self, pc: usize) -> NResult<()> {
-        let (op, file, _, _, _) = self.file_stmt(pc)?;
+        let (op, file, _, ext, _) = self.file_stmt(pc)?;
+        let e = ext.error;
         let file = file.to_string();
         if !matches!(op, FileOp::Open | FileOp::Close) {
             return Err(mismatch(pc, "an OPEN or CLOSE"));
@@ -4809,6 +4810,10 @@ impl Rt<'_, '_> {
         let i = self
             .file_idx_n(&file)
             .ok_or_else(|| anyhow!("{file} is not a file of this program"))?;
+        // errors.rs file_op with E (S2.161): %ERROR and %STATUS start over.
+        if e {
+            self.m.last = super::Status::default();
+        }
         self.file_n(i)?.status.error = false;
         let cmt = self.file_n(i)?.cmt.clone();
         if let Some(d) = &cmt {
@@ -4841,7 +4846,8 @@ impl Rt<'_, '_> {
     /// writes them, and the spooled file is complete (an OPEN after it
     /// starts a new one).
     fn printer_op_n(&mut self, pc: usize) -> NResult<()> {
-        let (op, file, _, _, _) = self.file_stmt(pc)?;
+        let (op, file, _, ext, _) = self.file_stmt(pc)?;
+        let e = ext.error;
         let file = file.to_string();
         if !matches!(op, FileOp::Open | FileOp::Close | FileOp::Feod) {
             return Err(mismatch(pc, "an OPEN, CLOSE or FEOD"));
@@ -4849,6 +4855,10 @@ impl Rt<'_, '_> {
         let i = self
             .file_idx_n(&file)
             .ok_or_else(|| anyhow!("{file} is not a file of this program"))?;
+        // errors.rs file_op with E (S2.161): %ERROR and %STATUS start over.
+        if e {
+            self.m.last = super::Status::default();
+        }
         self.file_n(i)?.status.error = false;
         let cmt = self.file_n(i)?.cmt.clone();
         if let Some(d) = &cmt {

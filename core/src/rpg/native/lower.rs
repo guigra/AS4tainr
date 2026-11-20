@@ -1293,7 +1293,14 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             fields: None,
             ext,
             ind,
-        }) if !ext.error && ext.other.is_empty() && ind.is_empty() && printer_file(cx, file) => {
+        }) if ext.other.chars().all(|c| c == 'E')
+            && ext.error == !ext.other.is_empty()
+            && ind.is_empty()
+            && printer_file(cx, file) =>
+        {
+            // E (S2.161): file_op's start clears %ERROR and %STATUS; an
+            // error still goes on as it does in errors.rs file_op (the
+            // statement is not one stmt_e takes).
             used.push(format!("printer {op:?} {file}"));
             ir::Lowered::PrinterOp
         }
@@ -1329,7 +1336,12 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             fields: None,
             ext,
             ind,
-        }) if !ext.error && ext.other.is_empty() && ind.is_empty() && disk_file(cx, file) => {
+        }) if ext.other.chars().all(|c| c == 'E')
+            && ext.error == !ext.other.is_empty()
+            && ind.is_empty()
+            && disk_file(cx, file) =>
+        {
+            // E (S2.161), as for a printer file above.
             used.push(format!("disk {op:?} {file}"));
             ir::Lowered::DiskOpenClose
         }

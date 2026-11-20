@@ -1900,3 +1900,11 @@ rla_test.rs SVAL's `q = %addr(data)` is native now.
 A comparison with a pointer expression on a side is lowered (`Cond::PtrCmp`): pointer arithmetic, %ADDR, %ALLOC, %REALLOC or %PADDR, as `ptr_val` gives them. Eval's values of both sides, the left first, are compared by data::compare: in address order, with *NULL before any address. A comparison of two pointer fields was already lowered as operands.
 
 **Verified by** the native unit NPTRCMP, under both engines, as captured on PUB400 (tools/golden/native160.txt n160_ptrcmp: `lt gt eq nn`). It covers <, >, = (true and false) and <> *NULL with arithmetic and %ADDR on either side. NADDRBS's `if q = p + 10` (S2.159, the one statement of it the interpreter still ran) is native now.
+
+## S2.161: OPEN, CLOSE and FEOD with E
+
+OPEN, CLOSE and FEOD of a printer file, and OPEN and CLOSE of a database file, are lowered with the E extender too. errors.rs file_op clears %ERROR and %STATUS at its start when E is given, and the runtime's printer_op_n and disk_open_close_n now do the same. An error of these operations still goes on as the interpreter's does, because stmt_e does not take a file statement.
+
+**Verified by** the native unit NOPENE, under both engines, against the PUB400 capture (tools/golden/native161.txt n161_opene: `1 1215 0 0 0 0`). Two differences between IBM i and the interpreter, which the native engine reproduces, are in fidelity.md:
+- the second OPEN(E) of a printer file gives `1 1215` on IBM i but `0 0` in the interpreter, so the unit checks only the four fields where both agree;
+- OPEN(E) of a database file that is already open gives `1 1215` on IBM i (n161_dblopen), where the interpreter raises CPF4161.

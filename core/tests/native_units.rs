@@ -3442,3 +3442,58 @@ async fn native_unit_lowered_pointer_comparisons() {
     )
     .await;
 }
+
+// Stage 2, S2.161: OPEN(E), FEOD(E) and CLOSE(E). The capture is
+// "1 1215 0 0 0 0": IBM i gives the second OPEN(E) of the printer %ERROR
+// and status 1215, where the interpreter (and so the native engine)
+// gives 0 0 (fidelity.md, "OPEN of a file already open"). The test
+// checks the four fields where both agree: FEOD(E) and CLOSE(E) of the
+// printer, and %ERROR and %STATUS after CLOSE(E) of a closed database
+// file.
+// Source: golden capture tools/golden/native161 n161_opene (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_open_close_e() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    // As the capture's GN120F (native161's n161_crt makes it again).
+    let _ = job.run("DLTF FILE(QGPL/GN120F)").await;
+    job.run_sql_script(
+        "CREATE TABLE QGPL.GN120F (N INT, S CHAR(5));",
+        "native unit NOPENE",
+        10,
+        None,
+        true,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    let got = shown("NOPENE", include_str!("native/NOPENE.rpgle")).await;
+    let [line] = got.as_slice() else {
+        panic!("NOPENE: {got:?}");
+    };
+    let fields: Vec<&str> = line.split_whitespace().collect();
+    assert_eq!(fields.len(), 6, "NOPENE: {line}");
+    assert_eq!(
+        fields.get(2..),
+        Some(&["0", "0", "0", "0"][..]),
+        "NOPENE: {line}"
+    );
+}

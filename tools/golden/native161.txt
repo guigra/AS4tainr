@@ -1,0 +1,5 @@
+# Captures for stage 2, S2.161: OPEN(E), CLOSE(E), FEOD(E) (one batch; GN120F from native120).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native161.txt -f tools/golden/native161
+n161_crt|!system "RUNSQL SQL('create or replace table @LIB@/GN120F (n int, s char(5))') COMMIT(*NONE)"; system "CRTSQLRPGI OBJ(@LIB@/GN161OE) SRCSTMF('@HOME@/gld/gn161oe.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"; system "CRTSQLRPGI OBJ(@LIB@/GN161DO) SRCSTMF('@HOME@/gld/gn161do.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n161_opene|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN161OE)"; cat gn1.out; rm -f gn1.out
+n161_dblopen|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN161DO)"; cat gn1.out; rm -f gn1.out
