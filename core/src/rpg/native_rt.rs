@@ -1636,6 +1636,12 @@ impl Runtime for Rt<'_, '_> {
         Ok(())
     }
 
+    fn table_cur(&self, table: &str) -> NResult<Dec> {
+        // interp.rs table_index: the current element, 1 at first.
+        let k = self.m.table_cur.get(table).copied().unwrap_or(1);
+        Ok(Dec::from_i64(i64::try_from(k)?))
+    }
+
     fn parms(&self) -> NResult<i64> {
         // interp.rs bif's "PARMS": the last frame's `passed`, or the
         // program's parms_passed.
@@ -5631,6 +5637,18 @@ impl Rt<'_, '_> {
             if let Some(i) = i {
                 self.m.set_ind(i, on);
             }
+        }
+        // A table (S2.149): ops.rs lookup's table arm, the table's and the
+        // alternate's current elements when one is found (no index).
+        if let Some((t, alt)) = &op.table {
+            if let Some((k, _)) = found {
+                let k = i128::try_from(k)?;
+                self.m.table_cur.insert(t.clone(), k);
+                if let Some(a) = alt {
+                    self.m.table_cur.insert(a.clone(), k);
+                }
+            }
+            return Ok(());
         }
         if let Some(ix) = index {
             let at = found.map(|(k, _)| k).unwrap_or(1);

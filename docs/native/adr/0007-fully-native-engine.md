@@ -1801,3 +1801,14 @@ The fixed-form SQRT operation is lowered (`Lowered::SqrtOp`, `rpgrt::native::sqr
 The result is a packed, zoned, binary or integer field. The tripwire already watches string_op and dec_sqrt.
 
 **Verified by** the native unit NSQRTOP, under both engines, as captured on PUB400 (tools/golden/native148.txt n148_sqrtop: `3.16 1.4142 4 4`). It covers (H) into packed(5:2), no (H) into packed(7:4), and (H) and not into an integer. The four SQRTs are native in the generated map.
+
+## S2.149: tables and their current elements
+
+Tables (TABxxx arrays) are lowered in two places:
+- **A table named with no index** is its current element, as interp.rs table_index takes it: LOOKUP's, or 1 at first. `ir::Index::table` makes the index `Runtime::table_cur` instead of an operand. This holds for a global table that is neither varying, based, nor of multiple occurrences.
+- **LOOKUP of a table**, with an alternate table or array in the result or none, follows ops.rs lookup's table arm. When an element is found, the table's current element becomes it, and so does the alternate's (the machine's table_cur). There is no index to set.
+
+**Verified by** the native unit NTABLES, under both engines, as captured on PUB400 (tools/golden/native149.txt n149_tables: `two1two0Ctwo`). It uses a compile-time table with its ALT table:
+- a LOOKUP found and one not found;
+- a LOOKUP of the table alone;
+- each table's current element by its name.

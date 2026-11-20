@@ -840,11 +840,27 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 index: None,
                 based: None,
             };
+            let mut table: Option<(String, Option<String>)> = None;
             let (lookup, xfoot) = if code == "LOOKUP" {
-                // An array, not a table (TAB...: its current element is the
-                // interpreter's state); no alternating array.
-                if aname.starts_with("TAB") || result.is_some() {
-                    return None;
+                // An array with no alternating array, or (S2.149) a table
+                // (TAB...) with an alternate table or array or none: ops.rs
+                // lookup then sets their current elements (table_cur).
+                let alt = match result {
+                    None => None,
+                    Some(Expr::Name { parts, args: None }) if aname.starts_with("TAB") => {
+                        let an = parts.join(".");
+                        match sym(cx, &an) {
+                            Some(Sym::Var(a)) if a.dim > 0 => Some(an),
+                            _ => return None,
+                        }
+                    }
+                    Some(_) => return None,
+                };
+                if aname.starts_with("TAB") {
+                    if args.is_some() {
+                        return None;
+                    }
+                    table = Some((aname.clone(), alt));
                 }
                 let arg = match f1.as_ref()? {
                     Expr::Str(b) | Expr::Hex(b) => ir::Operand::Str(b.clone()),
@@ -891,6 +907,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             ir::Lowered::ArrOp(Box::new(ir::ArrOpData {
                 lookup,
                 xfoot,
+                table,
                 arr,
                 stride: v.stride,
                 dim: v.dim,
@@ -3037,6 +3054,40 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
     // An element with an index that is a field (S2.21): its place is
     // worked out when it runs (`rpgrt::native::elem_at`), as `elem_off`.
     let mut index = None;
+    // A table (TABxxx) named with no index (S2.149): its current element,
+    // as interp.rs table_index takes it (LOOKUP's, 1 at first); global,
+    // not a varying-dimension one.
+    if args.is_none()
+        && v.dim > 0
+        && name.starts_with("TAB")
+        && !v.local
+        && !cx.prog.varying.contains_key(name)
+        && !cx.prog.based.contains_key(&v.buf)
+        && !cx.prog.occurs.iter().any(|o| o.buf == v.buf)
+    {
+        let ty = param_ty(v.dtype)?;
+        used.push(format!(
+            "layout {name} {} {} {:?} table current stride {} dim {}",
+            v.buf, v.off, v.dtype, v.stride, v.dim
+        ));
+        return Some(ir::Operand::Var {
+            name: name.clone(),
+            buf: v.buf,
+            off: v.off,
+            ty,
+            local: false,
+            index: Some(Box::new(ir::Index {
+                of: ir::Operand::Num { m: 1, s: 0 },
+                stride: v.stride,
+                dim: v.dim,
+                vary: None,
+                outer: None,
+                next: false,
+                table: Some(name.clone()),
+            })),
+            based: None,
+        });
+    }
     let elem = match args.as_deref() {
         None if v.dim == 0 => None,
         // A varying-dimension array's element is checked at run time
@@ -3071,6 +3122,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
                 vary,
                 outer: None,
                 next: false,
+                table: None,
             }));
             Some(1)
         }
@@ -3097,6 +3149,7 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
             vary: None,
             outer: None,
             next: false,
+            table: None,
         }));
     }
     let off = match elem {
@@ -3353,6 +3406,7 @@ fn ds_array_field_of(
             vary: None,
             outer: index,
             next: false,
+            table: None,
         }));
     }
     used.push(format!(
@@ -4198,6 +4252,7 @@ fn target_var(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Opera
             vary: Some((name, auto)),
             outer: None,
             next: true,
+            table: None,
         })),
         based: None,
     })

@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.149: compile-time tables and LOOKUP (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native149.txt -f tools/golden/native149
+n149_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN149TB) SRCSTMF('@HOME@/gld/gn149tb.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n149_tables|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN149TB)"; cat gn1.out; rm -f gn1.out
