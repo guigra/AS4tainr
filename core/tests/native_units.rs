@@ -3725,3 +3725,99 @@ async fn native_unit_lowered_string_op_constants() {
     )
     .await;
 }
+
+// Stage 2, S2.171: READ(E) of database files, a READ(E) loop and READ(E)
+// of a file that is not open.
+// Source: golden capture tools/golden/native171 n171_reade (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_read_e() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    // As the capture's GN164F: the rows 1 'aa', 2 'bb', 3 'cc'.
+    let _ = job.run("DLTF FILE(QGPL/GN164F)").await;
+    job.run_sql_script(
+        "CREATE TABLE QGPL.GN164F (N INT, S CHAR(2)); \
+         INSERT INTO QGPL.GN164F VALUES (1, 'aa'), (2, 'bb'), (3, 'cc');",
+        "native unit NREADE",
+        10,
+        None,
+        true,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    // The capture is "3 0 1 1 1211": READ(E) of the USROPN file that is not
+    // open sets %ERROR and status 01211 on IBM i, where the interpreter
+    // (and so the native engine) raises CPF4135 past E, which the MONITOR
+    // group catches ("caught 1211"; fidelity.md, "READ(E) of a file that
+    // is not open"). The test checks the three fields where both agree.
+    let got = shown("NREADE", include_str!("native/NREADE.rpgle")).await;
+    let [line] = got.as_slice() else {
+        panic!("NREADE: {got:?}");
+    };
+    let f: Vec<&str> = line.split_whitespace().collect();
+    assert_eq!(f.get(..3), Some(&["3", "0", "1"][..]), "NREADE: {line}");
+}
+
+// Stage 2, S2.172: WRITE(E) of database files, a new key and a duplicate.
+// Source: golden capture tools/golden/native172 n172_writee (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_write_e() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    // As the capture's GN172F: the primary key K, the row 1 'aa'.
+    let _ = job.run("DLTF FILE(QGPL/GN172F)").await;
+    job.run_sql_script(
+        "CREATE TABLE QGPL.GN172F (K INT NOT NULL PRIMARY KEY, S CHAR(2)); \
+         INSERT INTO QGPL.GN172F VALUES (1, 'aa');",
+        "native unit NWRITEE",
+        10,
+        None,
+        true,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    expect(
+        "NWRITEE",
+        include_str!("native/NWRITEE.rpgle"),
+        &["0 0 1 1021"],
+    )
+    .await;
+}
