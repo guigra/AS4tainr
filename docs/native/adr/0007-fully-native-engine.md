@@ -1721,3 +1721,18 @@ There is no IBM i value for the batch case. On IBM i a DSPLY with a response in 
 **Verified by** native units already captured on PUB400, whose statements the WHY pass gave as not lowered and which are native now:
 - NBASARR (S2.96): `p = %addr(real)` and `pc = %addr(creal)`;
 - NRETPTR (S2.99): `return %addr(buf) + n`.
+
+## S2.142: calls of procedures with their own *PSSR
+
+A call of a procedure with its own *PSSR is lowered. For such a procedure, the runtime's call_body runs the calculations as call_proc's guarded does:
+- from `start`, an error goes to the interpreter's own errors.rs `recover`, which notes it and runs the subroutine;
+- the subroutine's RETURN ends the call with its value;
+- its GOTO goes on at the TAG;
+- anything else lets the error go on.
+
+A procedure with no *PSSR keeps the path it had. There recover would do the same as call_body already does, note the error and pass it on.
+
+**Verified by** the native unit NPSSRPR, under both engines, as captured on PUB400 (tools/golden/native142.txt n142_pssr: `5 -1 102 3`):
+- a division by zero caught by the procedure's *PSSR, which returns -1;
+- one whose *PSSR returns %STATUS, 00102;
+- calls with no error.

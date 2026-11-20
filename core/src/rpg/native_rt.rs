@@ -572,6 +572,36 @@ impl<'a> Rt<'_, 'a> {
             }
         }
         let detail = &pi.routines.detail;
+        // A procedure with its own *PSSR (S2.142): call_proc's guarded, the
+        // calculations from `start`, an error to errors.rs recover (the
+        // subroutine; its RETURN ends the procedure, its GOTO goes on at
+        // the TAG, else the error goes on).
+        if pi.routines.subroutines.contains_key("*PSSR") {
+            let mut start = 0;
+            loop {
+                let r = match dispatch(self.m, detail, start) {
+                    Some(r) => r,
+                    None => self.m.run_code_at(detail, start),
+                };
+                let err = match r {
+                    Ok(Flow::Return(v)) => return Ok(v),
+                    Ok(_) => return Ok(None),
+                    Err(e) => e,
+                };
+                match self.m.recover(err)? {
+                    errors::Recovery::Return(v) => return Ok(v),
+                    errors::Recovery::Goto(t) => {
+                        match detail
+                            .iter()
+                            .position(|x| matches!(&x.ins, Ins::Label(l) if *l == t))
+                        {
+                            Some(at) => start = at,
+                            None => return Err(super::GotoSignal(t).into()),
+                        }
+                    }
+                }
+            }
+        }
         let r = match dispatch(self.m, detail, 0) {
             Some(r) => r,
             // AS4TAINR_RPG_ENGINE=auto and no generated code for the

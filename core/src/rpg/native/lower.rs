@@ -3469,8 +3469,9 @@ fn call_of(
     };
     if let Some(pi) = local {
         // ON-EXIT (S2.90) and the procedure's own files (S2.117): the
-        // runtime's call_frame opens and closes them as call_proc.
-        if pi.routines.subroutines.contains_key("*PSSR") || !pi.ptr_inz.is_empty() {
+        // runtime's call_frame opens and closes them as call_proc; its
+        // *PSSR (S2.142): call_body as call_proc's guarded.
+        if !pi.ptr_inz.is_empty() {
             return None;
         }
     }

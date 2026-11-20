@@ -3211,3 +3211,16 @@ async fn native_unit_lowered_infds() {
     )
     .await;
 }
+
+// Stage 2, S2.142: procedures with their own *PSSR.
+// Source: golden capture tools/golden/native142 n142_pssr (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_procedure_pssr() {
+    let _ = require_db!();
+    expect(
+        "NPSSRPR",
+        include_str!("native/NPSSRPR.rpgle"),
+        &["5 -1 102 3"],
+    )
+    .await;
+}
