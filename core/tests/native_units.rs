@@ -3591,3 +3591,91 @@ async fn native_unit_lowered_xml_into() {
     )
     .await;
 }
+
+// Stage 2, S2.166: SET RESULT SETS ARRAY of a procedure's local data
+// structure array, seen by the SQL procedure's caller. The capture is
+// Qshell db2's listing: columns NAME, QTY, NOTE; rows "ab", 7.50, "one"
+// and "cd", -8.00, "" (2 records); here as sql::run_as gives them, the
+// character column with its blanks, the numbers as their text.
+// Source: golden capture tools/golden/native166 n166_resultset (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_set_result_sets() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    use as4tainr_core::source;
+    use as4tainr_core::sql::Outcome as SqlOut;
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    let _ = source::create_file(&client, "QGPL", "QRPGLESRC", "").await;
+    source::put_member(
+        &client,
+        &source::Member {
+            library: "QGPL".into(),
+            file: "QRPGLESRC".into(),
+            name: "NRSLTST".into(),
+            srctype: "SQLRPGLE".into(),
+            source: include_str!("native/NRSLTST.rpgle").into(),
+            ..Default::default()
+        },
+        true,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    for c in [
+        "CRTSQLRPGI OBJ(QGPL/NRSLTST) OBJTYPE(*MODULE)",
+        "CRTSRVPGM SRVPGM(QGPL/NRSLTSS) MODULE(QGPL/NRSLTST) EXPORT(*ALL)",
+    ] {
+        let _ = job.run("DLTSRVPGM SRVPGM(QGPL/NRSLTSS)").await;
+        job.run(c).await.unwrap_or_else(|e| panic!("{c}: {e:#}"));
+    }
+    let libl = vec!["QGPL".to_string()];
+    as4tainr_core::ddl::try_run(
+        &url,
+        "QSECOFR",
+        &libl,
+        Some("QGPL".into()),
+        &mut None,
+        "CREATE OR REPLACE PROCEDURE QGPL.NRSLTSP (IN N INT) DYNAMIC RESULT SETS 1 \
+         LANGUAGE RPGLE EXTERNAL NAME 'QGPL/NRSLTSS(LISTARR)' PARAMETER STYLE GENERAL",
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let r = as4tainr_core::sql::run_as(
+        &client,
+        &url,
+        &libl,
+        "QSECOFR",
+        Some("QGPL".into()),
+        None,
+        "CALL QGPL.NRSLTSP(2)",
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    let SqlOut::Rows { columns, rows, .. } = r else {
+        panic!("NRSLTST: no result set: {r:?}");
+    };
+    assert_eq!(columns, ["NAME", "QTY", "NOTE"], "NRSLTST");
+    assert_eq!(
+        rows,
+        [["ab   ", "7.50", "one"], ["cd   ", "-8.00", ""]],
+        "NRSLTST"
+    );
+}

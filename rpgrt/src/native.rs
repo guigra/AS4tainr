@@ -349,6 +349,17 @@ pub trait Runtime {
         host: &str,
         fields: Vec<SqlRowSlot>,
     ) -> NResult<SqlResult>;
+    /// Stage 2 (S2.166): SET RESULT SETS ARRAY at `pc` (exec_sql.rs
+    /// sql_set_result_sets): the first `count` elements (at most `dim`)
+    /// of the structure as rows of its subfields' text, the result sets.
+    fn sql_set_result(
+        &mut self,
+        pc: usize,
+        count: Dec,
+        dim: u32,
+        columns: Vec<String>,
+        fields: Vec<SqlRowSlot>,
+    ) -> NResult<SqlResult>;
     /// Stage 2 (S2.75): CALL the SQL procedure `name` with `exprs`
     /// (exec_sql.rs sql_call), each OUT or INOUT parameter's value into
     /// its `outs` field; the outcome.
@@ -646,6 +657,8 @@ pub struct SqlRowSlot {
     pub stride: usize,
     pub ty: DType,
     pub numeric: bool,
+    /// A procedure's local (S2.166): placed in the frame.
+    pub local: bool,
 }
 
 /// A dynamic SQL statement (S2.71).

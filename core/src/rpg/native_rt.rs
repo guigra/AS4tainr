@@ -1276,6 +1276,18 @@ impl Runtime for Rt<'_, '_> {
         Ok(sql_result(o))
     }
 
+    fn sql_set_result(
+        &mut self,
+        pc: usize,
+        count: Dec,
+        dim: u32,
+        columns: Vec<String>,
+        fields: Vec<rpgrt::native::SqlRowSlot>,
+    ) -> NResult<rpgrt::native::SqlResult> {
+        let o = self.sql_cursor_n(pc, |rt| rt.sql_set_result_n(&count, dim, columns, &fields))?;
+        Ok(sql_result(o))
+    }
+
     fn sql_call(
         &mut self,
         pc: usize,
@@ -3617,11 +3629,8 @@ impl Rt<'_, '_> {
         for i in 0..want {
             let mut parts = Vec::new();
             for f in fields {
-                let off = i
-                    .checked_mul(f.stride)
-                    .and_then(|d| f.off.checked_add(d))
-                    .ok_or_else(|| anyhow!("native: an element's place"))?;
-                let v = rpgrt::native::load(&self.m.bufs, f.buf, off, f.ty)?;
+                let (b, off) = self.row_place_n(f, i)?;
+                let v = rpgrt::native::load(&self.m.bufs, b, off, f.ty)?;
                 let lit = rpgrt::native::sql_literal(&v, None)?;
                 match (f.ty, &v) {
                     (super::data::DType::Char(len), Value::Char(_)) => {
@@ -3634,6 +3643,55 @@ impl Rt<'_, '_> {
         }
         let text = format!("{target} VALUES {}", rows.join(", "));
         self.sql_change_n(&text)
+    }
+
+    /// Where element `i` (from 0) of a host structure array's subfield is
+    /// (S2.74, S2.166): its first element's place plus i strides, in the
+    /// frame for a procedure's local (as Machine::sym places one).
+    fn row_place_n(&mut self, f: &rpgrt::native::SqlRowSlot, i: usize) -> NResult<(usize, usize)> {
+        let off = i
+            .checked_mul(f.stride)
+            .and_then(|d| f.off.checked_add(d))
+            .ok_or_else(|| anyhow!("native: an element's place"))?;
+        if f.local {
+            rpgrt::native::Runtime::local(self, f.buf, off)
+        } else {
+            Ok((f.buf, off))
+        }
+    }
+
+    /// exec_sql.rs sql_set_result_sets (S2.166): n elements (the count, at
+    /// least 0, at most the dimension), each a row of its subfields' text:
+    /// characters as they are (`a`), a number's text; the result sets
+    /// RESULT_SETS keeps for the procedure's caller; SQLCODE 0.
+    fn sql_set_result_n(
+        &mut self,
+        count: &Dec,
+        dim: u32,
+        columns: Vec<String>,
+        fields: &[rpgrt::native::SqlRowSlot],
+    ) -> NResult<SqlOut> {
+        let n = sql_row_count(count)?.min(usize::try_from(dim.max(1))?);
+        let mut rows = Vec::with_capacity(n);
+        for i in 0..n {
+            let mut row = Vec::with_capacity(fields.len());
+            for f in fields {
+                let (b, off) = self.row_place_n(f, i)?;
+                let v = rpgrt::native::load(&self.m.bufs, b, off, f.ty)?;
+                row.push(Some(match v {
+                    Value::Char(c) => a(&c),
+                    other => other.num().map(|d| d.to_string()).unwrap_or_default(),
+                }));
+            }
+            rows.push(row);
+        }
+        super::exec_sql::RESULT_SETS.with(|r| -> NResult<()> {
+            *r.try_borrow_mut()
+                .map_err(|_| anyhow!("native: the result sets are in use"))? =
+                vec![(columns, rows)];
+            Ok(())
+        })?;
+        Ok(sql_ok(0))
     }
 
     /// exec_sql.rs positioned_change (S2.73): -501 when the cursor is

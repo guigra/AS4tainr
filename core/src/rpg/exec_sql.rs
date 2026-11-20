@@ -45,7 +45,7 @@ type Key = (String, String, String);
 thread_local! {
     /// The result sets SET RESULT SETS named, returned to the caller of
     /// the procedure (an external SQL procedure) when it ends.
-    static RESULT_SETS: std::cell::RefCell<Vec<crate::sqlpl::ResultSet>> =
+    pub(super) static RESULT_SETS: std::cell::RefCell<Vec<crate::sqlpl::ResultSet>> =
         const { std::cell::RefCell::new(Vec::new()) };
 }
 
