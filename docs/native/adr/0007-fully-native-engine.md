@@ -1748,3 +1748,15 @@ It follows bifs.rs bif_override's DEC arm, which comes before the numeric %DEC:
 **Verified by** the native unit NDECTMP, under both engines, as captured on PUB400 (tools/golden/native143.txt n143_dectmp: `20260131 1312026 91500 20260131235959123456 20260201`):
 - a date into a packed field, and a date with *USA;
 - a time, a timestamp, and a date plus days.
+
+## S2.144: indicator subfields by their path
+
+An indicator subfield of a data structure array element, by its path (`l.ev(1).expected.isNull`), is an indicator field of lowered code (`ind_field_ok`, `ind_field`). It is placed as ds_array_field places any path subfield (`ds_array_field_of` with indicators allowed), with its literal or field indexes. So it can be used:
+- in a concatenation, as its '1' or '0';
+- as a condition;
+- as an EVAL target with *ON, *OFF or a condition;
+- compared.
+
+ds_array_field still gives no indicator to the other contexts.
+
+**Verified by** the native unit NINDPATH, under both engines, as captured on PUB400 (tools/golden/native144.txt n144_indpath: `110yn`). It covers a concatenation, an assignment, and IF and NOT, with literal and field indexes. rla_test.rs INZLDS's `l.ev(1).expected.isNull + ...` is native now too.

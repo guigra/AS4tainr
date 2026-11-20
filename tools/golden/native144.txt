@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.144: indicator subfields by path (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native144.txt -f tools/golden/native144
+n144_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN144IP) SRCSTMF('@HOME@/gld/gn144ip.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n144_indpath|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN144IP)"; cat gn1.out; rm -f gn1.out

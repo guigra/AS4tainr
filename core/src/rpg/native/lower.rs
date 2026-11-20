@@ -1582,7 +1582,7 @@ fn cat_part(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
             Some(ir::CharExpr::Ind(n.clone()))
         }
         // An indicator field (S2.104), the same value as *INxx.
-        Expr::Name { args: None, .. } if ind_field_ok(cx, e) => {
+        Expr::Name { args: None, .. } | Expr::Path { args: None, .. } if ind_field_ok(cx, e) => {
             Some(ir::CharExpr::IndVar(ind_field(cx, e, used)?))
         }
         _ => char_expr(cx, e, used, path),
@@ -2505,7 +2505,7 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
     match e {
         Expr::Ind(n) => return Some(ir::Cond::Ind(n.clone())),
         // An indicator field (S2.100): eval's Value::Ind, its truth.
-        Expr::Name { args: None, .. } if ind_field_ok(cx, e) => {
+        Expr::Name { args: None, .. } | Expr::Path { args: None, .. } if ind_field_ok(cx, e) => {
             return Some(ir::Cond::IndVar(ind_field(cx, e, used)?));
         }
         // %EOF, %FOUND, %EQUAL (S2.58): interp.rs bif's file_status, of
@@ -3201,6 +3201,17 @@ fn local_array_ok(cx: &Cx<'_>, v: &super::super::program::VarInfo) -> bool {
 /// index check as an array element's (RNQ0121), so it is an element with
 /// the data structure's size as its stride.
 fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    ds_array_field_of(cx, e, used, false)
+}
+
+/// ds_array_field, with an indicator subfield allowed when `ind` (S2.144:
+/// ind_field's contexts, which take its Value::Ind).
+fn ds_array_field_of(
+    cx: &Cx<'_>,
+    e: &Expr,
+    used: &mut Vec<String>,
+    ind: bool,
+) -> Option<ir::Operand> {
     let Expr::Path {
         parts,
         idx,
@@ -3262,6 +3273,7 @@ fn ds_array_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::O
         DType::Uns(n) => ir::Ty::Uns(n),
         DType::Char(n) => ir::Ty::Char(n),
         DType::Varchar(n) => ir::Ty::Varchar(n),
+        DType::Ind if ind => ir::Ty::Ind,
         _ => return None,
     };
     let mut index: Option<Box<ir::Index>> = None;
@@ -4307,6 +4319,13 @@ fn float_target(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Ope
 /// forms that take it as an indicator (an EVAL's target, a condition)
 /// use it; `variable` leaves indicator fields out.
 fn ind_field_ok(cx: &Cx<'_>, e: &Expr) -> bool {
+    // A subfield of a data structure array element (S2.144,
+    // `l.ev(1).expected.isNull`): an indicator subfield by its path, as
+    // ds_array_field places it.
+    if let Expr::Path { parts, .. } = e {
+        return matches!(sym(cx, &parts.join(".")), Some(Sym::Var(v)) if v.dtype == DType::Ind && v.dim == 0)
+            && ds_array_field_of(cx, e, &mut Vec::new(), true).is_some();
+    }
     let Expr::Name { parts, args: None } = e else {
         return false;
     };
@@ -4326,6 +4345,9 @@ fn ind_field_ok(cx: &Cx<'_>, e: &Expr) -> bool {
 fn ind_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
     if !ind_field_ok(cx, e) {
         return None;
+    }
+    if matches!(e, Expr::Path { .. }) {
+        return ds_array_field_of(cx, e, used, true);
     }
     let Expr::Name { parts, .. } = e else {
         return None;
