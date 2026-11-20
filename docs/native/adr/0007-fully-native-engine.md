@@ -1706,3 +1706,18 @@ A date or time field as the message stays with the interpreter.
 **Verified by parity only**, against rla_test.rs rpg_data_area_in_lock_out's DTALOCK under native-diff. Its `dsply 'Next order?' '' r` runs with a simulated operator, who answers on the DSPLYR screen while another job waits on the data area's lock. That is the interactive case, and the test expects `1005` after it.
 
 There is no IBM i value for the batch case. On IBM i a DSPLY with a response in batch sends an inquiry to QSYSOPR and waits, and as4tainr gives a batch call no operator, by design. Native code runs the interpreter's own functions for both cases.
+
+## S2.141: %ADDR of a whole array, RETURN of a pointer
+
+**%ADDR of a whole array**, or of a whole data structure array, is lowered (`whole_array_place`). Its place is the one interp.rs loc_of gives a name with no index: the variable's own buffer and offset, that is, its first element. The operand carries the element's type, but %ADDR takes only its place. Based and multiple-occurrence ones stay with the interpreter, and a procedure's own only in a procedure.
+
+**A RETURN in a procedure that returns a pointer** is lowered (`Lowered::ReturnPtr`). The value is eval's pointer, as ptr_val makes it:
+- an address;
+- pointer arithmetic;
+- a pointer field;
+- a call;
+- *NULL.
+
+**Verified by** native units already captured on PUB400, whose statements the WHY pass gave as not lowered and which are native now:
+- NBASARR (S2.96): `p = %addr(real)` and `pc = %addr(creal)`;
+- NRETPTR (S2.99): `return %addr(buf) + n`.
