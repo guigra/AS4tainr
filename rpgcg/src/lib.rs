@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.166");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.168");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -1636,6 +1636,19 @@ fn place_of(o: &ir::Operand) -> Option<(String, String, String)> {
             buf, off, local, ..
         } => Some(place(*buf, *off, *local)),
         _ => None,
+    }
+}
+
+/// A temporal format as rpgrt's TemporalFmt (S2.168).
+fn temporal_fmt_code(fmt: &ir::TemporalFmt) -> String {
+    match fmt {
+        ir::TemporalFmt::Date(n, sep) => format!(
+            "rpgrt::native::TemporalFmt::Date(rpgrt::rpg::dates::DateFmt {{ name: {n:?}, sep: {sep:?} }})"
+        ),
+        ir::TemporalFmt::Time(n, sep) => format!(
+            "rpgrt::native::TemporalFmt::Time(rpgrt::rpg::dates::TimeFmt {{ name: {n:?}, sep: {sep:?} }})"
+        ),
+        ir::TemporalFmt::Ts { iso0 } => format!("rpgrt::native::TemporalFmt::Ts {{ iso0: {iso0} }}"),
     }
 }
 
@@ -4858,7 +4871,16 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             json_str(name)
         ),
         ir::NumExpr::Status => "rpgrt::rpg::dec::Dec::from_i64(i64::from(rt.status()))".to_string(),
-        ir::NumExpr::TextDec(c) => format!("rpgrt::native::text_dec(&{})?", char_expr(pc, c, helpers)),
+        // A field's value (S2.168): temporal_dec, the generic %DEC for a
+        // value that is not one; an expression's value is always one.
+        ir::NumExpr::TextDec(c) => match c.as_ref() {
+            ir::CharExpr::TemporalChar { of, fmt } => format!(
+                "rpgrt::native::temporal_dec(&{}, {})?",
+                value(of),
+                temporal_fmt_code(fmt)
+            ),
+            _ => format!("rpgrt::native::text_dec(&{})?", char_expr(pc, c, helpers)),
+        },
         ir::NumExpr::Parms => "rpgrt::rpg::dec::Dec::from_i64(rt.parms()?)".to_string(),
         ir::NumExpr::FileCode(f) => format!(
             "rpgrt::rpg::dec::Dec::from_i64(i64::from(rt.file_code({})?))",
@@ -4876,12 +4898,22 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             format!("rpgrt::native::uns_bif(&{v}, {half}, {name:?})?")
         }
         ir::NumExpr::Bit { op, first, rest } => {
+            // bif_more's order: each argument evaluated, then made an
+            // integer, before the next (the review of 2026-11-20).
             let f = num_expr(pc, first, helpers);
-            let r: Vec<String> = rest.iter().map(|x| num_expr(pc, x, helpers)).collect();
-            format!(
-                "rpgrt::native::bit_num(rpgrt::native::BitFn::{op:?}, &{f}, &[{}])?",
-                r.join(", ")
-            )
+            let m = if rest.is_empty() { "" } else { "mut " };
+            let mut code = format!(
+                "{{\n    let {m}acc = rpgrt::native::bit_start(rpgrt::native::BitFn::{op:?}, &{f})?;\n"
+            );
+            for x in rest {
+                let x = num_expr(pc, x, helpers);
+                let _ = writeln!(
+                    code,
+                    "    acc = rpgrt::native::bit_step(rpgrt::native::BitFn::{op:?}, acc, &{x})?;"
+                );
+            }
+            code.push_str("    rpgrt::native::bit_end(acc)\n    }");
+            code
         }
         ir::NumExpr::CharDec(c) => format!("rpgrt::native::char_dec(&{})?", char_expr(pc, c, helpers)),
         ir::NumExpr::LenOf(c) => format!(

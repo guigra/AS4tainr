@@ -2297,7 +2297,7 @@ pub fn float_of_chars(v: &Value) -> NResult<Value> {
 /// Stage 2 (S2.107, ADR 0008): %CHAR of a float field of `bytes` bytes,
 /// as interp.rs bif's CHAR arm for a float: data::float_text of its
 /// float_value.
-/// Stage 2 (S2.153): the bit built-in function of `bit_num`.
+/// Stage 2 (S2.153): the bit built-in function of `bit_start` and `bit_step`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BitFn {
     And,
@@ -2307,23 +2307,29 @@ pub enum BitFn {
 }
 
 /// Stage 2 (S2.153): %BITAND, %BITOR, %BITXOR or %BITNOT of numbers, as
-/// bifs.rs bif_more's numeric arm: the first value as an integer
-/// (negated for %BITNOT), each other one's integer combined with it, the
-/// result an integer.
-pub fn bit_num(op: BitFn, first: &Dec, rest: &[Dec]) -> NResult<Dec> {
-    let mut acc = first.to_i128()?;
-    if op == BitFn::Not {
-        acc = !acc;
-    }
-    for x in rest {
-        let x = x.to_i128()?;
-        acc = match op {
-            BitFn::And => acc & x,
-            BitFn::Or => acc | x,
-            _ => acc ^ x,
-        };
-    }
-    Ok(Dec::new(acc, 0))
+/// bifs.rs bif_more's numeric arm, one argument at a time in its order
+/// (the review of 2026-11-20: each is evaluated, then made an integer,
+/// before the next is evaluated): `bit_start` takes the first value as an
+/// integer (negated for %BITNOT), `bit_step` combines each other one with
+/// it, `bit_end` gives the result an integer.
+pub fn bit_start(op: BitFn, first: &Dec) -> NResult<i128> {
+    let acc = first.to_i128()?;
+    Ok(if op == BitFn::Not { !acc } else { acc })
+}
+
+/// Stage 2 (S2.153): see `bit_start`.
+pub fn bit_step(op: BitFn, acc: i128, x: &Dec) -> NResult<i128> {
+    let x = x.to_i128()?;
+    Ok(match op {
+        BitFn::And => acc & x,
+        BitFn::Or => acc | x,
+        _ => acc ^ x,
+    })
+}
+
+/// Stage 2 (S2.153): see `bit_start`.
+pub fn bit_end(acc: i128) -> Dec {
+    Dec::new(acc, 0)
 }
 
 pub fn float_char(v: &Value, bytes: u32) -> NResult<Value> {
@@ -2413,9 +2419,33 @@ pub fn text_dec(v: &Value) -> NResult<Dec> {
 }
 
 pub fn temporal_char(v: &Value, f: TemporalFmt) -> NResult<Value> {
+    Ok(match temporal_char_opt(v, f)? {
+        Some(t) => t,
+        None => Value::Char(v.chars()?),
+    })
+}
+
+/// Stage 2 (S2.143, the review of 2026-11-20): %DEC of a date, time or
+/// timestamp field, as bifs.rs bif_override's DEC arm: a value `temporal`
+/// recognizes is its text in `f` (no separators) parsed; one it does not
+/// (blanks, bytes that are not a date) is the generic %DEC's, char_number
+/// of its characters (RNQ0105 for blanks), a number as it is.
+pub fn temporal_dec(v: &Value, f: TemporalFmt) -> NResult<Dec> {
+    match temporal_char_opt(v, f)? {
+        Some(t) => text_dec(&t),
+        None => match v {
+            Value::Char(c) => char_number(&data::a(c)),
+            other => Ok(other.num()?),
+        },
+    }
+}
+
+/// `temporal_char`'s text, None when bifs.rs `temporal` does not
+/// recognize the value (S2.168).
+fn temporal_char_opt(v: &Value, f: TemporalFmt) -> NResult<Option<Value>> {
     use crate::rpg::dates::{self, DateFmt, TimeFmt};
     let Value::Char(c) = v else {
-        return Ok(Value::Char(v.chars()?));
+        return Ok(None);
     };
     let t = data::a(c);
     let b = t.as_bytes();
@@ -2437,7 +2467,7 @@ pub fn temporal_char(v: &Value, f: TemporalFmt) -> NResult<Value> {
         }
         _ => None,
     };
-    Ok(match (kind, f) {
+    Ok(Some(match (kind, f) {
         (Some(K::Date(d)), TemporalFmt::Date(f)) => Value::str(&dates::format_date(d, &f)),
         (Some(K::Time(h)), TemporalFmt::Time(f)) => Value::str(&dates::format_time(h, &f)),
         (Some(K::Ts), TemporalFmt::Ts { iso0 }) => {
@@ -2456,8 +2486,8 @@ pub fn temporal_char(v: &Value, f: TemporalFmt) -> NResult<Value> {
         // A value of another kind than its field's: not one lowering
         // makes (a field's value is of its own kind, or does not parse).
         (Some(_), _) => anyhow::bail!("native: %CHAR of a value of another kind than its field"),
-        (None, _) => Value::Char(c.clone()),
-    })
+        (None, _) => return Ok(None),
+    }))
 }
 
 /// Stage 2 (S2.54): which of %DATE, %TIME and %TIMESTAMP.

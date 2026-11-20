@@ -94,6 +94,8 @@ The backend follows each fix since the rebase on upstream dd47e28 (2026-11-13). 
 
 - **OPEN of a file that is already open.** On IBM i, a second OPEN(E) of a printer file, or of a database file, sets %ERROR and status 01215 (tools/golden/native161.txt n161_opene and n161_dblopen, PUB400 IBM i 7.5, 2026-11-20: `1 1215`). In the interpreter, the printer's second OPEN only writes the lines it keeps (%ERROR 0, %STATUS 0). The database file's raises CPF4161 even with E, because stmt_e does not take a file statement, so the program ends. The native engine (S2.161) does as the interpreter does. The fix belongs upstream, in printer.rs printer_op and in errors.rs (E for file statements).
 
+- **%DEC of a date field that holds blanks.** On IBM i, `%dec(d)` of a date field whose bytes are blanks (overlaid in a data structure) ends with status 00112, a date that is not valid (tools/golden/native168.txt n168_decbad, PUB400 IBM i 7.5, 2026-11-20: `112 20260131`). In the interpreter, bif_override's DEC arm does not recognize the value and leaves it to the generic %DEC, whose char_number gives 00105. The native engine (S2.168) does as the interpreter does.
+
 - **A time plus a date compiles.** IBM i's compiler refuses `t0 = t + d` (a time plus a date): RNF7421 severity 30, "Operands are not compatible with the type of operator", and RNF7416 (tools/golden/native157.txt n157_crt, first run, PUB400 IBM i 7.5, 2026-11-20). as4tainr's compiler accepts it, and the interpreter makes the timestamp as for a date plus a time. The native engine lowers only the date-first form; the check belongs in the front end, upstream.
 
 - **A panic in `rpgrt/src/rpg/data.rs:184`** (code moved unchanged from upstream). Fixed-form MOVE with a float field (OpenRPG's test corpus, `tests/test194_fixed_cspec_err_move_float.rpgle`) panics with "zero fits" in both engines, where the RPG error path is expected. Found by `scripts/native-corpus.sh` on 2026-11-12. On IBM i the program does not compile: RNF7547, severity 30, on the MOVE (golden capture tools/golden/native10.txt n10_crt_mvf, PUB400, IBM i 7.5, 2026-11-12).
@@ -115,6 +117,10 @@ When a number gives a length, start position or count, the two engines differ on
 IBM i rejects such a length or start: the operation's error, as for a length past the string. No capture has been made of the CAT blanks or the `%STR` maximum yet.
 
 These were found by an independent review (codex, read-only) of native_rt.rs against the interpreter. They are left as they are until a PUB400 capture says which behavior is right. Fields of such a size are not seen in practice.
+
+The review of S2.140 to S2.166 (codex, read-only, 2026-11-20) found two more of this kind:
+- **SET RESULT SETS's row count** (S2.166). exec_sql.rs sql_set_result_sets converts the count `as usize`, so 2^64 rows wraps to 0, and no row is returned. The native runtime's sql_row_count gives a count that does not fit as the most there can be, so every element is returned.
+- **A MOVEA index field below 1** (S2.86, reached by S2.154's literal source index too). ops.rs movea_parts converts the index `as usize` before its range check, so RNQ0121's message shows -1 as 18446744073709551615. The native runtime checks the signed value and shows -1. The status, 00121, is the same.
 
 ## EXCEPT and a printer's INFDS (found 2026-11-18)
 
