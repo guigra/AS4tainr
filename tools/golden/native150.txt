@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.150: *OMIT arguments to CEE APIs (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native150.txt -f tools/golden/native150
+n150_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN150OM) SRCSTMF('@HOME@/gld/gn150om.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n150_omit|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN150OM)"; cat gn1.out; rm -f gn1.out

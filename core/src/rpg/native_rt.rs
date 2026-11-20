@@ -239,6 +239,10 @@ impl<'a> Rt<'_, 'a> {
                         alias.insert(b, (buf, off));
                     }
                 }
+                // Lowering passes *OMIT to no procedure of this module (S2.150).
+                CallArg::Omit => {
+                    anyhow::bail!("native: *OMIT for {proc}'s parameter {}", p.name)
+                }
                 CallArg::Val(v) => {
                     let len = match &v {
                         Value::Char(c) => Some(c.len()),
@@ -373,6 +377,10 @@ impl<'a> Rt<'_, 'a> {
                         size: dtype.size(),
                         dtype,
                     }),
+                    // Lowering passes *OMIT to no program (S2.150).
+                    CallArg::Omit => {
+                        anyhow::bail!("native: *OMIT for program {pgm}'s parameter {}", p.name)
+                    }
                     CallArg::Val(v) => {
                         let mut b = p.dtype.initial();
                         data::store(
@@ -466,6 +474,8 @@ impl<'a> Rt<'_, 'a> {
                 dtype,
             }),
             CallArg::Val(v) => super::Arg::Val(v),
+            // args_for's Arg::Omit (S2.150).
+            CallArg::Omit => super::Arg::Omit,
         };
         if let Some(t) = bound {
             fits(args.len())?;
@@ -5941,6 +5951,8 @@ impl Rt<'_, '_> {
                         dtype,
                     }),
                     CallArg::Val(v) => super::Arg::Val(v),
+                    // args_for's Arg::Omit (S2.150).
+                    CallArg::Omit => super::Arg::Omit,
                 })
                 .collect()
         };

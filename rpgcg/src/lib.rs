@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.149");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.150");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -1204,6 +1204,8 @@ pub mod ir {
         /// A condition's truth for an indicator parameter passed by value
         /// (S2.101): eval's Value::Ind.
         Ind(Box<Cond>),
+        /// *OMIT for an OPTIONS(*OMIT) parameter (S2.150).
+        Omit,
     }
 
     /// The instruction kinds of `code::Ins`, with the targets the
@@ -4061,6 +4063,9 @@ fn call_fn(pc: usize, c: &ir::Call, helpers: &mut String) -> String {
                     );
                 }
             },
+            ir::CallArg::Omit => {
+                let _ = writeln!(body, "    let {an} = rpgrt::native::CallArg::Omit;");
+            }
             ir::CallArg::Num(e) => {
                 let x = num_expr(pc, e, helpers);
                 let _ = writeln!(

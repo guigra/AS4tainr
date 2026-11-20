@@ -779,6 +779,8 @@ pub enum CallArg {
         dtype: crate::rpg::data::DType,
     },
     Val(Value),
+    /// *OMIT (S2.150): args_for's Arg::Omit.
+    Omit,
 }
 
 /// A sum, difference or product with the decimal places the precision

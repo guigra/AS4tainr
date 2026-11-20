@@ -3297,3 +3297,16 @@ async fn native_unit_lowered_tables() {
     )
     .await;
 }
+
+// Stage 2, S2.150: *OMIT arguments to CEE APIs.
+// Source: golden capture tools/golden/native150 n150_omit (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_omit_arguments() {
+    let _ = require_db!();
+    expect(
+        "NOMITCE",
+        include_str!("native/NOMITCE.rpgle"),
+        &["161912 7 2026-02-01"],
+    )
+    .await;
+}
