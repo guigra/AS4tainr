@@ -1197,8 +1197,8 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
         }
         // OPEN and CLOSE of a database file (S2.128): errors.rs file_op
         // around file_op_inner's OPEN (CPF4161 when open, then
-        // open_file) and CLOSE (close_open_file of the open file). No
-        // INFDS: open_file writes it, file_end_n does not again.
+        // open_file) and CLOSE (close_open_file of the open file). An
+        // INFDS: open_file writes it, and file_end_n again (S2.139).
         Ins::Stmt(Stmt::File {
             op: op @ (FileOp::Open | FileOp::Close),
             file,
@@ -3696,120 +3696,153 @@ fn note_why(cx: &Cx<'_>, i: &Ins, at: usize) {
     let Ok(path) = std::env::var("AS4TAINR_NATIVE_WHY") else {
         return;
     };
-    let line =
-        match i {
-            Ins::Stmt(Stmt::Eval { target, value, .. }) => {
+    let line = match i {
+        Ins::Stmt(Stmt::Eval { target, value, .. }) => {
+            let mut nodes = Vec::new();
+            shape(cx, value, &mut nodes, 0);
+            nodes.sort();
+            nodes.dedup();
+            format!(
+                "target={} value={}\n",
+                target_shape(cx, target),
+                nodes.join(",")
+            )
+        }
+        // A call not lowered: a procedure of this module (and what keeps
+        // it out), or a prototype of something else (a program, a
+        // service program's procedure).
+        Ins::Stmt(Stmt::CallP(Expr::Name { parts, args })) => {
+            let name = parts.join(".");
+            // Each argument's shape against its parameter's type and
+            // passing (S2.60's diagnostic).
+            let params = match cx.prog.procs.get(&name) {
+                Some(pi) => Some(&pi.params),
+                None => proto(cx, &name).map(|pr| &pr.params),
+            };
+            let mut detail = Vec::new();
+            for (k, a) in args.as_deref().unwrap_or(&[]).iter().enumerate() {
                 let mut nodes = Vec::new();
-                shape(cx, value, &mut nodes, 0);
+                shape(cx, a, &mut nodes, 0);
                 nodes.sort();
                 nodes.dedup();
-                format!(
-                    "target={} value={}\n",
-                    target_shape(cx, target),
-                    nodes.join(",")
-                )
-            }
-            // A call not lowered: a procedure of this module (and what keeps
-            // it out), or a prototype of something else (a program, a
-            // service program's procedure).
-            Ins::Stmt(Stmt::CallP(Expr::Name { parts, args })) => {
-                let name = parts.join(".");
-                // Each argument's shape against its parameter's type and
-                // passing (S2.60's diagnostic).
-                let params = match cx.prog.procs.get(&name) {
-                    Some(pi) => Some(&pi.params),
-                    None => proto(cx, &name).map(|pr| &pr.params),
+                let pd = match params.and_then(|ps| ps.get(k)) {
+                    Some(p) => format!(
+                        "{}{}",
+                        type_name(p.dtype),
+                        if p.by_value {
+                            "/value"
+                        } else if p.konst {
+                            "/const"
+                        } else {
+                            "/ref"
+                        }
+                    ),
+                    None => "extra".to_string(),
                 };
-                let mut detail = Vec::new();
-                for (k, a) in args.as_deref().unwrap_or(&[]).iter().enumerate() {
-                    let mut nodes = Vec::new();
-                    shape(cx, a, &mut nodes, 0);
-                    nodes.sort();
-                    nodes.dedup();
-                    let pd = match params.and_then(|ps| ps.get(k)) {
-                        Some(p) => format!(
-                            "{}{}",
-                            type_name(p.dtype),
-                            if p.by_value {
-                                "/value"
-                            } else if p.konst {
-                                "/const"
-                            } else {
-                                "/ref"
-                            }
-                        ),
-                        None => "extra".to_string(),
-                    };
-                    detail.push(format!("{pd}<-{}", nodes.join("&")));
-                }
-                let detail = detail.join(" ");
-                match cx.prog.procs.get(&name) {
-                    Some(pi) => {
-                        let mut why = Vec::new();
-                        if pi.routines.subroutines.contains_key("*PSSR") {
-                            why.push("pssr");
-                        }
-                        if pi.on_exit.is_some() {
-                            why.push("on-exit");
-                        }
-                        if !pi.ptr_inz.is_empty() {
-                            why.push("ptr-inz");
-                        }
-                        if pi.params.iter().any(|p| {
-                            p.file || p.omit || p.string || p.varsize || p.trim || p.convert
-                        }) {
-                            why.push("options");
-                        }
-                        if pi.params.iter().any(|p| param_ty(p.dtype).is_none()) {
-                            why.push("param-type");
-                        }
-                        if pi
-                            .params
-                            .iter()
-                            .any(|p| !matches!(pi.syms.get(&p.name), Some(Sym::Var(_))))
-                        {
-                            why.push("ds-param");
-                        }
-                        if why.is_empty() {
-                            why.push("arguments");
-                        }
-                        format!("callp=local why={} args={detail}\n", why.join(","))
+                detail.push(format!("{pd}<-{}", nodes.join("&")));
+            }
+            let detail = detail.join(" ");
+            match cx.prog.procs.get(&name) {
+                Some(pi) => {
+                    let mut why = Vec::new();
+                    if pi.routines.subroutines.contains_key("*PSSR") {
+                        why.push("pssr");
                     }
-                    None => format!("callp=proto why={} args={detail}\n", proto_why(cx, &name)),
+                    if pi.on_exit.is_some() {
+                        why.push("on-exit");
+                    }
+                    if !pi.ptr_inz.is_empty() {
+                        why.push("ptr-inz");
+                    }
+                    if pi
+                        .params
+                        .iter()
+                        .any(|p| p.file || p.omit || p.string || p.varsize || p.trim || p.convert)
+                    {
+                        why.push("options");
+                    }
+                    if pi.params.iter().any(|p| param_ty(p.dtype).is_none()) {
+                        why.push("param-type");
+                    }
+                    if pi
+                        .params
+                        .iter()
+                        .any(|p| !matches!(pi.syms.get(&p.name), Some(Sym::Var(_))))
+                    {
+                        why.push("ds-param");
+                    }
+                    if why.is_empty() {
+                        why.push("arguments");
+                    }
+                    format!("callp=local why={} args={detail}\n", why.join(","))
                 }
+                None => format!("callp=proto why={} args={detail}\n", proto_why(cx, &name)),
             }
-            Ins::Stmt(Stmt::Dsply { message, response }) => {
-                let mut nodes = Vec::new();
-                if let Some(m) = message {
-                    shape(cx, m, &mut nodes, 0);
-                }
-                nodes.sort();
-                nodes.dedup();
-                format!(
-                    "dsply response={} value={}\n",
-                    response.is_some(),
-                    nodes.join(",")
+        }
+        Ins::Stmt(Stmt::Dsply { message, response }) => {
+            let mut nodes = Vec::new();
+            if let Some(m) = message {
+                shape(cx, m, &mut nodes, 0);
+            }
+            nodes.sort();
+            nodes.dedup();
+            format!(
+                "dsply response={} value={}\n",
+                response.is_some(),
+                nodes.join(",")
+            )
+        }
+        // A file operation not lowered (S2.139): the file's device and
+        // what file_of finds, the result data structure, %FIELDS, the
+        // extenders and resulting indicators, and an INFDS.
+        Ins::Stmt(Stmt::File {
+            op,
+            file,
+            key,
+            ds,
+            fields,
+            ext,
+            ind,
+        }) => {
+            let f = file_of(cx, file).and_then(|i| cx.prog.files.get(i));
+            format!(
+                    "file op={op:?} device={} local={} infds={} key={} ds={} fields={} ext={}{}{} ind={}{}{}\n",
+                    f.map(|f| f.decl.device.as_str()).unwrap_or("none"),
+                    f.is_some_and(|f| f.decl.proc.is_some()),
+                    f.is_some_and(has_infds),
+                    match key.as_deref() {
+                        None => "none".to_string(),
+                        Some(k) => format!("{}", k.len()),
+                    },
+                    ds.is_some(),
+                    fields.is_some(),
+                    if ext.error { "E" } else { "" },
+                    if ext.no_lock { "N" } else { "" },
+                    ext.other,
+                    if ind.hi.is_some() { "hi" } else { "" },
+                    if ind.lo.is_some() { "lo" } else { "" },
+                    if ind.eq.is_some() { "eq" } else { "" },
                 )
-            }
-            // A RETURN not lowered (S2.129): its value's nodes.
-            Ins::Return(Some(x)) => {
-                let mut nodes = Vec::new();
-                shape(cx, x, &mut nodes, 0);
-                nodes.sort();
-                nodes.dedup();
-                format!("return={}\n", nodes.join(","))
-            }
-            // An IF, DOW, DOU or WHEN condition not lowered (S2.126): its
-            // nodes, as an EVAL's value.
-            Ins::JumpIfNot(c, _) => {
-                let mut nodes = Vec::new();
-                shape(cx, c, &mut nodes, 0);
-                nodes.sort();
-                nodes.dedup();
-                format!("cond={}\n", nodes.join(","))
-            }
-            _ => return,
-        };
+        }
+        // A RETURN not lowered (S2.129): its value's nodes.
+        Ins::Return(Some(x)) => {
+            let mut nodes = Vec::new();
+            shape(cx, x, &mut nodes, 0);
+            nodes.sort();
+            nodes.dedup();
+            format!("return={}\n", nodes.join(","))
+        }
+        // An IF, DOW, DOU or WHEN condition not lowered (S2.126): its
+        // nodes, as an EVAL's value.
+        Ins::JumpIfNot(c, _) => {
+            let mut nodes = Vec::new();
+            shape(cx, c, &mut nodes, 0);
+            nodes.sort();
+            nodes.dedup();
+            format!("cond={}\n", nodes.join(","))
+        }
+        _ => return,
+    };
     if LINES.fetch_add(1, Ordering::Relaxed) >= 100_000 {
         return;
     }
@@ -4776,9 +4809,9 @@ fn temporal_value(
 
 /// A read of a database file (S2.58, ADR 0007): CHAIN, READ, READE,
 /// READP, READPE, SETLL or SETGT of an externally described DISK file of
-/// the main program (no file declared in a procedure or passed with
-/// LIKEFILE, so the name finds the same file wherever it runs), with no
-/// INFDS, no input specifications for it, and a key of fields and
+/// the program or a procedure's own (file_of, S2.118; no LIKEFILE
+/// parameter anywhere), with no input specifications for it (an INFDS
+/// since S2.139, written by file_end_n), and a key of fields and
 /// literals (or a KLIST of them, or *LOVAL, *HIVAL, *START, *END alone).
 /// The fields of its record format go into the program fields of the
 /// same names as fill_fields moves them: a number, characters or
@@ -4824,15 +4857,9 @@ fn file_read(
     let i = file_of(cx, file)?;
     let fi = prog.files.get(i)?;
     let fref = fi.fref.as_ref()?;
-    if fi.decl.device != "DISK"
-        || fi.program_described
-        || !fi.inputs.is_empty()
-        || fi
-            .decl
-            .keywords
-            .iter()
-            .any(|k| k.name.eq_ignore_ascii_case("INFDS"))
-    {
+    // An INFDS is written at the operation's end (file_end_n's
+    // infds_update, S2.139).
+    if fi.decl.device != "DISK" || fi.program_described || !fi.inputs.is_empty() {
         return None;
     }
     // The key: *LOVAL/*HIVAL/*START/*END alone (no values), a KLIST's
@@ -6273,7 +6300,7 @@ fn printer_format<'p>(
     // not a procedure's own: printers are kept by file name).
     let i = file_of(cx, fmt)?;
     let fi = prog.files.get(i)?;
-    if fi.decl.proc.is_some() || fi.decl.device != "PRINTER" || has_infds(fi) {
+    if fi.decl.proc.is_some() || fi.decl.device != "PRINTER" {
         return None;
     }
     let rec = fi.printer.as_ref()?.record(fmt)?;
@@ -6343,7 +6370,8 @@ fn printer_fields(
 /// A display file of the program by its name or one of its formats
 /// (S2.114), as file_idx finds it: no file of a procedure and no LIKEFILE
 /// parameter anywhere, a WORKSTN file with its display description, no
-/// INFDS (file_end_n does not write infds_update again).
+/// INFDS (its attention key; database and printer files' INFDS are
+/// written by file_end_n since S2.139).
 fn workstn_file<'p>(cx: &Cx<'p>, file: &str) -> Option<&'p super::super::program::FileInfo> {
     let prog = cx.prog;
     let i = file_of(cx, file)?;
@@ -6421,7 +6449,7 @@ fn printer_file(cx: &Cx<'_>, file: &str) -> bool {
     let prog = cx.prog;
     file_of(cx, file)
         .and_then(|i| prog.files.get(i))
-        .is_some_and(|f| f.decl.proc.is_none() && f.decl.device == "PRINTER" && !has_infds(f))
+        .is_some_and(|f| f.decl.proc.is_none() && f.decl.device == "PRINTER")
 }
 
 /// The file a name in the calculations refers to (S2.118), as
@@ -6490,13 +6518,13 @@ fn disk_file(cx: &Cx<'_>, file: &str) -> bool {
     let prog = cx.prog;
     file_of(cx, file)
         .and_then(|i| prog.files.get(i))
-        .is_some_and(|f| f.decl.device == "DISK" && !has_infds(f))
+        .is_some_and(|f| f.decl.device == "DISK")
 }
 
-/// A file with an INFDS: errors.rs file_op ends each operation with
-/// infds_update, which the native runtime's file_end_n does not write
-/// again, so its WRITE, OPEN, CLOSE and FEOD stay with the interpreter
-/// (found by the review of 2026-11-18, as the database reads exclude it).
+/// A file with an INFDS. errors.rs file_op ends each operation with
+/// infds_update, which the native runtime's file_end_n does too since
+/// S2.139 for database and printer files; a display file's (the AID, the
+/// review of 2026-11-18) stays with the interpreter.
 fn has_infds(f: &super::super::program::FileInfo) -> bool {
     f.decl
         .keywords

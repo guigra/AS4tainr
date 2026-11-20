@@ -269,3 +269,17 @@ A TEST(D), TEST(T) or TEST(Z) with neither the E extender nor an error indicator
 - **The interpreter:** it compiles. ops.rs's TEST arm raises RNX0112 at run time for a value that is not valid.
 
 This is an upstream compiler-check defect, held for Kyle. Native code follows the interpreter. The unit NTESTDT uses TEST with E only.
+
+## A database file's INFDS (found 2026-11-20)
+
+Source: tools/golden/native139 n139_infds (PUB400, IBM i 7.5, 2026-11-20). The program reads GN120F's two records, then reads at the end of file, printing the INFDS after each READ.
+
+IBM i and the interpreter agree on the file name, the open and end-of-file flags, the status, the operation, and the record format and relative record number of a record read. Three fields differ:
+
+| Field | IBM i | Interpreter |
+| --- | --- | --- |
+| Read count (247-250) | stays 1 over the three READs (blocked input) | counts every READ: 1, 2, 3 |
+| Record format (38-45) after the end of file | blank | REC120 |
+| Relative record number (397-400) after the end of file | keeps the last record's, 2 | 0 |
+
+These are upstream interpreter defects, held for Kyle with the capture. Native code writes the INFDS with the interpreter's own infds_update (S2.139), so it follows the interpreter. The unit NINFDS leaves those fields out.

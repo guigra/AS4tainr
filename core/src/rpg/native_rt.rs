@@ -2511,8 +2511,8 @@ impl Rt<'_, '_> {
     /// errors.rs file_op after file_op_inner: the savepoint released (or
     /// rolled back to), the counters, the status code (00011 end of file,
     /// 00012 not found) or the error's (file_failed), the operation and
-    /// record names. The file has no INFDS (lowering), so infds_update
-    /// has nothing to do.
+    /// record names, then infds_update (S2.139; it does nothing for a file
+    /// with no INFDS).
     fn file_end_n(
         &mut self,
         i: usize,
@@ -2607,6 +2607,10 @@ impl Rt<'_, '_> {
             if by_name { 'F' } else { 'R' }
         );
         st.record = record;
+        // errors.rs file_op's last step (S2.139): the file information
+        // data structure, if the file has one, from the status just made,
+        // the routine and the statement (rt.line keeps it).
+        self.m.infds_update(i);
         Ok(())
     }
 }
