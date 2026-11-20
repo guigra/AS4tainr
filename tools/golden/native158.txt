@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.158: %STR as a target (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native158.txt -f tools/golden/native158
+n158_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN158ST) SRCSTMF('@HOME@/gld/gn158st.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n158_strset|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN158ST)"; cat gn1.out; rm -f gn1.out

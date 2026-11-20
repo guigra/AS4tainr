@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.157");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.158");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -653,6 +653,13 @@ pub mod ir {
         PrinterOp,
         /// OPEN or CLOSE of a database file (S2.128).
         DiskOpenClose,
+        /// EVAL of %STR(p : max) (S2.158): the pointer, the maximum, the
+        /// character value.
+        EvalStr {
+            ptr: Box<PtrVal>,
+            max: usize,
+            value: Box<CharExpr>,
+        },
         /// WRITE of a program-described printer file from a data structure
         /// or field, its bytes the line (S2.156).
         PrinterWriteDs(Operand),
@@ -3462,6 +3469,18 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("pd{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::EvalStr { ptr, max, value }) => {
+            let v = char_expr(pc, value, helpers);
+            let pv = ptr_val(pc, ptr, helpers).ok_or_else(bad)?;
+            let _ = writeln!(
+                helpers,
+                "\nfn es{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let v = {v};\n    let p = {pv};\n    rt.store_str(&p, {max}, &v)\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("es{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::DiskOpenClose) => guarded(
