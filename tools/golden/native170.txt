@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.170: named constants in string operations (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native170.txt -f tools/golden/native170
+n170_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN170SC) SRCSTMF('@HOME@/gld/gn170sc.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n170_strconst|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN170SC)"; cat gn1.out; rm -f gn1.out

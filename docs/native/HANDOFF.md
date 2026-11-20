@@ -1,8 +1,42 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-20 12:00 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
+Last update: 2026-11-20 16:30 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
 
-## Now (2026-11-20, 12:00 UTC)
+## Now (2026-11-20, 16:30 UTC)
+
+**Committed up to S2.165** (8007b1a). The x86_64 run s7f-s2165 gives level 2 rust 776 of 776 as under the interpreter, and coverage is 98.5%.
+
+The S2.165 commit message wrongly says it adds the evidence manifests for S2.149 to S2.164. They come with the S2.169 snapshot instead, and the next commit message must say so (as4tainr-up-logs/errata-pending.txt).
+
+**Decisions of the user (2026-11-20):**
+- **No upstream touch for LIKEFILE inside procedures, nor for SQL timestamp host variables.** Both stay with the interpreter.
+- **Two behavior-preserving touches are authorized, listed in CLAUDE.native.md section 3:** splitting xmlinto.rs's xml_into (xml_into_doc), and `pub(super)` on exec_sql.rs RESULT_SETS.
+- **The order of the work:**
+  1. Finish the native engine.
+  2. Fix in the fork every interpreter defect in fidelity.md and every codex finding, with evidence and an audit.
+  3. Notify Kyle last (memory: kyle-notify-last).
+
+**Validating:**
+
+| Snapshot | What | Where |
+| --- | --- | --- |
+| s2166 | SET RESULT SETS ARRAY (a procedure's local structure array too) | ARM |
+| s2168 | S2.167 (the bit functions' order, from the codex review) and S2.168 (%DEC of a temporal value that is not one; *OMIT for a LIKEFILE parameter) | jsr-test-2 |
+| s2169 | a data structure array for a CONST LIKEDS DIM parameter, and its elements in the callee; the manifests for S2.149-S2.164 | jsr-test-2, after s2168 |
+
+**The codex review of S2.140-S2.166** ran in four groups (target/evidence: as4tainr-ev-x86/codex-s2142-s2166), and each finding was checked against the code. ADR 0007's S2.167 heading records what was fixed, what was recorded, and what was not a difference.
+
+**What is left:** about 85 instructions.
+- OCCURS structures in SET RESULT SETS (LISTMOD's LISTOCC);
+- XML-INTO with %HANDLER, and XML-SAX;
+- EVAL-CORR;
+- IMQPATH's path arguments and returns;
+- RUNITF's data structure returns;
+- UCS-2;
+- LIKEFILE inside procedures, and SQL timestamp host variables, which the user chose to leave;
+- the parts left on purpose (ADR 0007).
+
+## Before (2026-11-20, 12:00 UTC)
 
 **Committed up to S2.161** (7eba985). The aarch64 run s7f-s2161 gives level 2 rust 772 of 772 as under the interpreter, and coverage is 98.4%. The full WHY pass on the s2162 tree leaves 89 instructions in the interpreter, out of 5599.
 
