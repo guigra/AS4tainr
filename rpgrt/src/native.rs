@@ -209,6 +209,10 @@ pub trait Runtime {
     /// pointer addresses up to the first null, at most `max` (or 16 MB),
     /// and no further than its storage (ptrs.rs str_at).
     fn str_at(&mut self, p: &Value, max: Option<Dec>) -> NResult<Value>;
+    /// Stage 2 (S2.158): `%STR(p : max) = v`, ptrs.rs store_str: the value
+    /// cut to max - 1 characters with a null after it, at the place `p`
+    /// addresses (room for them checked).
+    fn store_str(&mut self, p: &Value, max: usize, v: &Value) -> NResult<()>;
     /// Stage 2 (S2.50): %REALLOC and REALLOC: the heap storage `p`
     /// addresses made `n` bytes, its bytes kept (RNQ0426 for a pointer
     /// that is not to the start of heap storage).

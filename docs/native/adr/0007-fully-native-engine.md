@@ -1873,3 +1873,13 @@ WRITE of a program-described printer file from a global data structure is lowere
 A date plus a time is lowered as a timestamp value (`CharExpr::DatePlusTime`, `rpgrt::native::date_plus_time`), as eval's arm builds it: the text `date-time.000000`, with the time's colons as periods, checked by parse_ts. Both sides are evaluated in their written order. Only the date-first form is lowered: IBM i refuses a time plus a date (RNF7421 and RNF7416, first run of the capture), which the interpreter takes (fidelity.md).
 
 **Verified by** the native unit NDATTIM, under both engines, as captured on PUB400 (tools/golden/native157.txt n157_datetime: `2024-09-16-11.22.33.000000 2026-01-31-23.59.58.000000 2026-01-31-23.59.58`). It adds %DATE to %TIME and a date field to a time field, into timestamps of 6 and 0 fractional digits. rla_test.rs TSPREC's `%date(...) + %time(...)` is native now.
+
+## S2.158: %STR as an assignment's target
+
+`%STR(p : max) = value` is lowered (`Lowered::EvalStr`, `Runtime::store_str`). As eval and assign_value's "STR" arm do it:
+- the value is evaluated first, then the pointer;
+- then ptrs.rs store_str runs: the value is cut to max - 1 characters, and a null goes after them at the place the pointer addresses, whose room for them is checked.
+
+Only a constant maximum of at least 1 is lowered: a literal, a named constant or %SIZE. The arm converts the maximum `as usize`, which would wrap a negative one.
+
+**Verified by** the native unit NSTRSET, under both engines, as captured on PUB400 (tools/golden/native158.txt n158_strset: `Hello 5 xxxxxx Heab zzz`). It covers a literal maximum and a %SIZE one, a pointer moved on, and the bytes left after the null. rla_test.rs PTRS's `%str(...) = ...` is native now.

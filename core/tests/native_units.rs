@@ -3402,3 +3402,16 @@ async fn native_unit_lowered_date_plus_time() {
     )
     .await;
 }
+
+// Stage 2, S2.158: %STR as a target.
+// Source: golden capture tools/golden/native158 n158_strset (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_str_target() {
+    let _ = require_db!();
+    expect(
+        "NSTRSET",
+        include_str!("native/NSTRSET.rpgle"),
+        &["Hello 5 xxxxxx Heab zzz"],
+    )
+    .await;
+}

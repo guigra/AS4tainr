@@ -436,6 +436,34 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 value: Box::new(num_expr(cx, value, &mut used, Vec::new())?),
             }
         }
+        // EVAL with %STR(p : max) as its target (S2.158): the value (eval's,
+        // first), then assign_value's "STR" arm: the pointer, the maximum,
+        // ptrs.rs store_str. A constant maximum of at least 1 (a literal, a
+        // named constant, %SIZE): the arm converts it `as usize`, which a
+        // negative value would wrap; a character value.
+        Ins::Stmt(Stmt::Eval {
+            target: Expr::Bif(b, args),
+            value,
+            ext,
+            ..
+        }) if b == "STR" && !ext.error && !ext.no_lock && ext.other.is_empty() => {
+            let [p, m] = args.as_slice() else {
+                return None;
+            };
+            let max = match any_operand(cx, m, &mut used)? {
+                ir::Operand::Num { m, s: 0 } if m >= 1 => usize::try_from(m).ok()?,
+                _ => return None,
+            };
+            let tp = rpgrt::native::TARGET_PATH;
+            let v = char_expr(cx, value, &mut used, Vec::new())?;
+            let ptr = ptr_val(cx, p, &mut used, vec![tp, 0])?;
+            used.push(format!("eval str max {max}"));
+            ir::Lowered::EvalStr {
+                ptr: Box::new(ptr),
+                max,
+                value: Box::new(v),
+            }
+        }
         // EVAL with %SUBST as its target (S2.44): assign_value's "SUBST"
         // arm, on an eligible character field, with a character value.
         Ins::Stmt(Stmt::Eval {

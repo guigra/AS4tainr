@@ -1456,6 +1456,34 @@ impl Runtime for Rt<'_, '_> {
         Ok(Value::Char(s.get(..n).unwrap_or(&[]).to_vec()))
     }
 
+    fn store_str(&mut self, p: &Value, max: usize, v: &Value) -> NResult<()> {
+        // ptrs.rs store_str: max at least 1, the value's characters cut to
+        // max - 1, the place for them and a null (addr), then the bytes.
+        if max < 1 {
+            anyhow::bail!("the %STR maximum must be at least 1");
+        }
+        let text = v.chars()?;
+        let n = text.len().min(max.saturating_sub(1));
+        let need = n
+            .checked_add(1)
+            .ok_or_else(|| anyhow!("native: %STR's length"))?;
+        let (buf, off) = self.addr_n(p, need)?;
+        let b = self
+            .m
+            .bufs
+            .get_mut(buf)
+            .ok_or_else(|| anyhow!("native: %STR's storage"))?;
+        let end = off
+            .checked_add(n)
+            .ok_or_else(|| anyhow!("native: %STR's place"))?;
+        b.get_mut(off..end)
+            .ok_or_else(|| anyhow!("native: %STR's place"))?
+            .copy_from_slice(text.get(..n).unwrap_or(&[]));
+        *b.get_mut(end)
+            .ok_or_else(|| anyhow!("native: %STR's place"))? = 0;
+        Ok(())
+    }
+
     fn paddr(&mut self, name: &str) -> NResult<Value> {
         self.paddr_n(name)
     }
