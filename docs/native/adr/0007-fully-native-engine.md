@@ -1736,3 +1736,15 @@ A procedure with no *PSSR keeps the path it had. There recover would do the same
 - a division by zero caught by the procedure's *PSSR, which returns -1;
 - one whose *PSSR returns %STATUS, 00102;
 - calls with no error.
+
+## S2.143: %DEC of a date, time or timestamp
+
+%DEC of a date, time or timestamp is lowered (`NumExpr::TextDec`, `rpgrt::native::text_dec`). The argument is a field, as in S2.53, or an expression, as in S2.134, with a special value as its format or none.
+
+It follows bifs.rs bif_override's DEC arm, which comes before the numeric %DEC:
+- %CHAR's text in that format with no separators, and a timestamp always *ISO0;
+- then Dec::parse.
+
+**Verified by** the native unit NDECTMP, under both engines, as captured on PUB400 (tools/golden/native143.txt n143_dectmp: `20260131 1312026 91500 20260131235959123456 20260201`):
+- a date into a packed field, and a date with *USA;
+- a time, a timestamp, and a date plus days.

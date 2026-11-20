@@ -2318,6 +2318,43 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 path,
             })
         }
+        // %DEC of a date, time or timestamp field or expression, with a
+        // format or none (S2.143): bifs.rs bif_override's DEC arm, %CHAR's
+        // text in the format with no separators (a timestamp *ISO0),
+        // parsed (Dec::parse).
+        Expr::Bif(b, args)
+            if b == "DEC"
+                && matches!(args.len(), 1 | 2)
+                && args.first().is_some_and(|a| {
+                    is_temporal_name(cx, a)
+                        || (!matches!(a, Expr::Name { .. }) && temporal_kind(cx, a).is_some())
+                }) =>
+        {
+            let x = args.first()?;
+            let c = if is_temporal_name(cx, x) {
+                temporal_char(cx, args, used)?
+            } else {
+                temporal_char_of(cx, args, used, path)?
+            };
+            let nosep = |f: ir::TemporalFmt| match f {
+                ir::TemporalFmt::Date(n, _) => ir::TemporalFmt::Date(n, None),
+                ir::TemporalFmt::Time(n, _) => ir::TemporalFmt::Time(n, None),
+                ir::TemporalFmt::Ts { .. } => ir::TemporalFmt::Ts { iso0: true },
+            };
+            let c = match c {
+                ir::CharExpr::TemporalChar { of, fmt } => ir::CharExpr::TemporalChar {
+                    of,
+                    fmt: nosep(fmt),
+                },
+                ir::CharExpr::TemporalCharOf { of, fmt } => ir::CharExpr::TemporalCharOf {
+                    of,
+                    fmt: nosep(fmt),
+                },
+                _ => return None,
+            };
+            used.push("temporal dec".to_string());
+            Some(ir::NumExpr::TextDec(Box::new(c)))
+        }
         // %DEC, %DECH of a numeric expression, with digits and decimal
         // places that are literals, or none (S2.14).
         Expr::Bif(b, args) if matches!(b.as_str(), "DEC" | "DECH") => {

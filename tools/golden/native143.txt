@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.143: %DEC of dates, times and timestamps (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native143.txt -f tools/golden/native143
+n143_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN143DT) SRCSTMF('@HOME@/gld/gn143dt.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n143_dectmp|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN143DT)"; cat gn1.out; rm -f gn1.out

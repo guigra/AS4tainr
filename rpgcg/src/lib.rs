@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.142");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.143");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -1011,6 +1011,9 @@ pub mod ir {
         LenOf(Box<CharExpr>),
         /// %STATUS with no file (S2.31): the most recent status code.
         Status,
+        /// A character value's text parsed as a number (S2.143: %DEC of a
+        /// date, time or timestamp, Dec::parse).
+        TextDec(Box<CharExpr>),
         /// %PARMS (S2.129): the arguments passed to the running procedure
         /// or program.
         Parms,
@@ -4614,6 +4617,7 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             json_str(name)
         ),
         ir::NumExpr::Status => "rpgrt::rpg::dec::Dec::from_i64(i64::from(rt.status()))".to_string(),
+        ir::NumExpr::TextDec(c) => format!("rpgrt::native::text_dec(&{})?", char_expr(pc, c, helpers)),
         ir::NumExpr::Parms => "rpgrt::rpg::dec::Dec::from_i64(rt.parms()?)".to_string(),
         ir::NumExpr::FileCode(f) => format!(
             "rpgrt::rpg::dec::Dec::from_i64(i64::from(rt.file_code({})?))",

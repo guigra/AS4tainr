@@ -3224,3 +3224,16 @@ async fn native_unit_lowered_procedure_pssr() {
     )
     .await;
 }
+
+// Stage 2, S2.143: %DEC of dates, times and timestamps.
+// Source: golden capture tools/golden/native143 n143_dectmp (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_dec_of_temporal() {
+    let _ = require_db!();
+    expect(
+        "NDECTMP",
+        include_str!("native/NDECTMP.rpgle"),
+        &["20260131 1312026 91500 20260131235959123456 20260201"],
+    )
+    .await;
+}
