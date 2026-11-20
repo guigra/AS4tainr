@@ -6967,6 +6967,60 @@ fn sql_set_result(
         return None;
     };
     let columns: Vec<String> = d.subfields.to_vec();
+    // A structure of multiple occurrences (S2.178): sql_set_result_sets
+    // sets each occurrence from the first, reads each subfield (`HOST.SF`,
+    // else `SF`) where Machine::sym places it in that occurrence (the
+    // occurrence's size times one less than it on), and gives the current
+    // occurrence back: an array of the occurrence's size as stride.
+    if let Some(o) = cx.prog.occurs.iter().find(|o| o.name == host) {
+        if d.local || cx.prog.based.contains_key(&d.buf) {
+            return None;
+        }
+        let mut fields = Vec::new();
+        for sf in d.subfields.iter() {
+            let q = format!("{host}.{sf}");
+            let v = match sym(cx, &q) {
+                Some(Sym::Var(v)) => v,
+                _ => match sym(cx, sf) {
+                    Some(Sym::Var(v)) => v,
+                    _ => return None,
+                },
+            };
+            if v.local || v.dim != 0 || v.buf != o.buf || cx.prog.varying.contains_key(sf) {
+                return None;
+            }
+            let (ty, numeric) = match v.dtype {
+                DType::Packed(p, q) => (ir::Ty::Packed(p, q), true),
+                DType::Zoned(p, q) => (ir::Ty::Zoned(p, q), true),
+                DType::Binary(p, q) => (ir::Ty::Binary(p, q), true),
+                DType::Int(n) => (ir::Ty::Int(n), true),
+                DType::Uns(n) => (ir::Ty::Uns(n), true),
+                DType::Char(n) => (ir::Ty::Char(n), false),
+                DType::Varchar(n) => (ir::Ty::Varchar(n), false),
+                _ => return None,
+            };
+            used.push(format!(
+                "layout {sf} {} {} {:?} occurrence size {} count {}",
+                v.buf, v.off, v.dtype, o.size, o.count
+            ));
+            fields.push(ir::SqlRowField {
+                buf: v.buf,
+                off: v.off,
+                stride: o.size,
+                ty,
+                numeric,
+                local: false,
+            });
+        }
+        used.push(format!("sql set result sets occurs {host}"));
+        return Some(ir::Lowered::SqlSetResult {
+            sqlca: Box::new(sqlca),
+            count,
+            dim: o.count,
+            columns,
+            fields,
+        });
+    }
     let (dim, fields) = sql_row_fields_at(cx, &host, true, used)?;
     used.push(format!("sql set result sets {host}"));
     Some(ir::Lowered::SqlSetResult {
