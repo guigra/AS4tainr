@@ -2047,3 +2047,15 @@ The pairs run in that order. A structure on one side only, a based or multiple-o
 SET RESULT SETS ARRAY of a global data structure of multiple occurrences is lowered with S2.166's runtime. sql_set_result_sets sets each occurrence from the first, reads each subfield (`HOST.SF`, else `SF`), and gives the current occurrence back. Machine::sym places a subfield of occurrence i at its place plus (i - 1) times the occurrence's size. So the rows are read as an array's: the occurrence's size is the stride, and the number of occurrences is the dimension. The current occurrence is not changed.
 
 **Verified by** the native unit NRSLTOC, under both engines, as captured on PUB400 (tools/golden/native178.txt n178_resultocc). Qshell db2 lists the columns LINE and QTY and the rows `first` 5 and `second` -7, three occurrences set and a count of 2. rla_test.rs LISTMOD's LISTOCC is native now.
+
+## S2.179: an array assigned %SPLIT
+
+EVAL of a global character or varying array, not based nor of multiple occurrences, with a %SPLIT value is lowered (`Lowered::EvalSplit`, `rpgrt::native::split_pieces`, `Runtime::assign_list`):
+- First, bifs.rs's "SPLIT" arm, which takes the string, the separators unless the argument is a special value, and *ALLSEP.
+- Then assign_value's list into an array, as the interpreter does it:
+  - each piece goes into its element;
+  - the elements after the last piece are initialized;
+  - more pieces than elements is RNQ0121;
+  - a varying-dimension array's elements in use become the pieces.
+
+**Verified by** the native unit NSPLITA, under both engines, against the PUB400 capture (tools/golden/native179.txt n179_split: `the/fox/old|a   b   c   [    ]|a   [    ]b   |2y`), on the parts where IBM i and the interpreter agree. IBM i leaves a fixed array's elements after the pieces as they were, which the interpreter initializes (fidelity.md). rla_test.rs FREEFORM's `words = %split(...)` is native now.

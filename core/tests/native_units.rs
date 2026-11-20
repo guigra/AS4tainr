@@ -4004,3 +4004,31 @@ async fn native_unit_lowered_set_result_sets_occurs() {
     assert_eq!(columns, ["LINE", "QTY"], "NRSLTOC");
     assert_eq!(rows, [["first ", "5"], ["second", "-7"]], "NRSLTOC");
 }
+
+// Stage 2, S2.179: arrays assigned %SPLIT. The capture is
+// "the/fox/old|a   b   c   [    ]|a   [    ]b   |2y": IBM i leaves a fixed
+// array's elements after the pieces as they were (W(5) stays 'old'), where
+// the interpreter (and so the native engine) initializes them
+// (fidelity.md, "%SPLIT into an array"). The test checks the parts where
+// both agree: the pieces, the CHAR array's (which IBM i shows initialized
+// too here) and the DIM(*AUTO) array's elements in use.
+// Source: golden capture tools/golden/native179 n179_split (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_split_into_array() {
+    let _ = require_db!();
+    let got = shown("NSPLITA", include_str!("native/NSPLITA.rpgle")).await;
+    let [line] = got.as_slice() else {
+        panic!("NSPLITA: {got:?}");
+    };
+    let parts: Vec<&str> = line.split('|').collect();
+    assert_eq!(parts.len(), 4, "NSPLITA: {line}");
+    assert!(
+        parts.first().is_some_and(|p| p.starts_with("the/fox/")),
+        "NSPLITA: {line}"
+    );
+    assert_eq!(
+        parts.get(1..),
+        Some(&["a   b   c   [    ]", "a   [    ]b   ", "2y"][..]),
+        "NSPLITA: {line}"
+    );
+}

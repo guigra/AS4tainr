@@ -408,6 +408,19 @@ pub trait Runtime {
     /// Stage 2 (S2.128): OPEN or CLOSE of a database file (errors.rs
     /// file_op around file_op_inner's OPEN and CLOSE).
     fn disk_open_close(&mut self, pc: usize) -> NResult<()>;
+    /// Stage 2 (S2.179): a list into an array, as assign_value takes it:
+    /// each value into its element, the elements after it initialized,
+    /// RNQ0121 for more values than elements, a varying-dimension array's
+    /// elements in use the values'.
+    fn assign_list(
+        &mut self,
+        arr: ArrPlace,
+        name: &str,
+        varying: bool,
+        items: Vec<Value>,
+        fit: Fit,
+        right: bool,
+    ) -> NResult<()>;
     /// Stage 2 (S2.175): SND-MSG of type `kind`: %MSG's arguments' values
     /// (`msg`), else the text's; the job log, or *ESCAPE's error.
     fn snd_msg(&mut self, kind: &str, msg: bool, parts: Vec<Value>) -> NResult<()>;
@@ -2276,6 +2289,21 @@ pub fn date_plus_time(d: &Value, t: &Value) -> NResult<Value> {
     let ts = format!("{}-{}.000000", d.trim(), t.trim().replace(':', "."));
     crate::rpg::dates::parse_ts(&ts)?;
     Ok(Value::str(&ts))
+}
+
+/// Stage 2 (S2.179): %SPLIT's pieces, as bifs.rs's "SPLIT" arm: the
+/// string's characters split at any of the separators (a blank with
+/// none), the empty pieces left out unless *ALLSEP.
+pub fn split_pieces(s: &Value, seps: Option<&Value>, allsep: bool) -> NResult<Vec<Value>> {
+    let s = data::a(&s.chars()?);
+    let seps: Vec<char> = match seps {
+        Some(v) => data::a(&v.chars()?).chars().collect(),
+        None => vec![' '],
+    };
+    Ok(s.split(|c| seps.contains(&c))
+        .filter(|p| allsep || !p.is_empty())
+        .map(Value::str)
+        .collect())
 }
 
 pub fn sqrt_bif(x: &Dec) -> NResult<Dec> {

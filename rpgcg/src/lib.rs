@@ -657,6 +657,19 @@ pub mod ir {
         PrinterOp,
         /// OPEN or CLOSE of a database file (S2.128).
         DiskOpenClose,
+        /// An array assigned %SPLIT (S2.179): the array (buffer, offset,
+        /// stride, dimension, element type), its name when of varying
+        /// dimension, the string, the separators, *ALLSEP, (H), EVALR.
+        EvalSplit {
+            arr: (usize, usize, usize, u32, Ty),
+            name: String,
+            varying: bool,
+            text: Box<CharExpr>,
+            seps: Option<Box<CharExpr>>,
+            allsep: bool,
+            half: bool,
+            right: bool,
+        },
         /// EVAL-CORR (S2.177): the pairs of target and source fields, in
         /// order, and (H).
         EvalCorr {
@@ -4109,6 +4122,37 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("ec{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::EvalSplit {
+                arr: (b, o, st, d, t),
+                name,
+                varying,
+                text,
+                seps,
+                allsep,
+                half,
+                right,
+            },
+        ) => {
+            // The bif's order: the string, then the separators; then the
+            // runtime's assign of the pieces.
+            let x = char_expr(pc, text, helpers);
+            let sp = match seps {
+                Some(c) => format!("Some({})", char_expr(pc, c, helpers)),
+                None => "None".to_string(),
+            };
+            let vary = json_str(name);
+            let _ = writeln!(
+                helpers,
+                "\nfn sp{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let s = {x};\n    let p = {sp};\n    let pieces = rpgrt::native::split_pieces(&s, p.as_ref(), {allsep})?;\n    let arr = rpgrt::native::ArrPlace {{ buf: {b}, off: {o}, stride: {st}, dim: {d}, ty: {}, lead: 0 }};\n    rt.assign_list(arr, {vary}, {varying}, pieces, rpgrt::rpg::data::Fit::Strict {{ half_adjust: {half} }}, {right})\n}}",
+                ty(t)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("sp{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::CallE(c)) => {
