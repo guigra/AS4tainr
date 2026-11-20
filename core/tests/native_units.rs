@@ -3834,3 +3834,48 @@ async fn native_unit_lowered_callp_e() {
     )
     .await;
 }
+
+// Stage 2, S2.174: UPDATE with %FIELDS.
+// Source: golden capture tools/golden/native174 n174_updfld (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_update_fields() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    // As the capture's GN174F: the row 1 'aa' 'xx'.
+    let _ = job.run("DLTF FILE(QGPL/GN174F)").await;
+    job.run_sql_script(
+        "CREATE TABLE QGPL.GN174F (N INT, S CHAR(2), T CHAR(2)); \
+         INSERT INTO QGPL.GN174F VALUES (1, 'aa', 'xx');",
+        "native unit NUPDFLD",
+        10,
+        None,
+        true,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    expect(
+        "NUPDFLD",
+        include_str!("native/NUPDFLD.rpgle"),
+        &["1 aa yy"],
+    )
+    .await;
+}

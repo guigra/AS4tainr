@@ -2992,6 +2992,38 @@ impl Rt<'_, '_> {
             }),
         };
         let made = rec.and_then(|cols| self.record_n(i, op, cols, from_ds));
+        // UPDATE %FIELDS (S2.174): file_op_inner's io_fields, only the
+        // fields named by their program or database names kept (the null
+        // values' entry too goes, as retain takes it).
+        let only = match &at(self.code, pc)?.ins {
+            Ins::Stmt(super::super::ast::Stmt::File {
+                fields: Some(f), ..
+            }) => Some(f.clone()),
+            _ => None,
+        };
+        let made = made.and_then(|mut rec| {
+            if let Some(only) = &only {
+                let prog: &super::super::program::Program = self.m.prog;
+                let fi = prog
+                    .files
+                    .get(i)
+                    .ok_or_else(|| anyhow!("native: no file {i}"))?;
+                let fref = fi
+                    .fref
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("{} is not a database file", fi.decl.name))?;
+                let keep: Vec<String> = fref
+                    .file
+                    .fields
+                    .iter()
+                    .zip(&fi.fields)
+                    .filter(|(fd, p)| only.contains(p) || only.contains(&fd.name))
+                    .map(|(fd, _)| fd.name.clone())
+                    .collect();
+                rec.retain(|k, _| keep.contains(k));
+            }
+            Ok(rec)
+        });
         let made = match made {
             Ok(m) => m,
             Err(err) => {

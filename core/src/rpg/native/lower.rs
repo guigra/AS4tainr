@@ -1523,6 +1523,20 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             let _ = ind;
             file_read(cx, *op, file, key.as_deref(), None, &mut used)?
         }
+        // UPDATE with %FIELDS (S2.174): file_read's change, the runtime
+        // keeping only the fields named (file_op_inner's io_fields).
+        Ins::Stmt(Stmt::File {
+            op: op @ FileOp::Update,
+            file,
+            key,
+            ds: None,
+            fields: Some(_),
+            ext,
+            ind,
+        }) if file_e_ok(ext) => {
+            let _ = ind;
+            file_read(cx, *op, file, key.as_deref(), None, &mut used)?
+        }
         // DSPLY with no response field (S2.36): Stmt::Dsply's batch path.
         // A float, date or time message is not an eligible expression.
         // DSPLY with a response field (S2.140): the message as below, then

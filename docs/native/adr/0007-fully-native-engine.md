@@ -2003,3 +2003,9 @@ CALLP(E), or CALLP with an error indicator in positions 73-74, of a call native 
 - An error that is not a signal and does not pass this program by (passes_by) is noted (note_error), and the error indicator is turned on. The program goes on.
 
 **Verified by** the native unit NCALLPE, under both engines, as captured on PUB400 (tools/golden/native173.txt n173_callpe: `1 202 0 0 0 5`). A procedure that divides by zero leaves status 00202, the called procedure failed. A call that does not fail gives 0 0.
+
+## S2.174: UPDATE with %FIELDS
+
+UPDATE with %FIELDS is lowered as file_read's change, and the runtime keeps only the fields named, as file_op_inner's io_fields does. The record is made, then the fields are kept whose program or database name is in the list. That also drops the null values' entry, as `retain` drops it. Then record_change runs.
+
+**Verified by** the native unit NUPDFLD, under both engines, as captured on PUB400 (tools/golden/native174.txt n174_updfld: `1 aa yy`). A record is read, two fields are changed, and only one is named in %FIELDS. rla_test.rs DSIO's `update custrec %fields(cusbal)` is native now.
