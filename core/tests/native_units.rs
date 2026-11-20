@@ -3237,3 +3237,16 @@ async fn native_unit_lowered_dec_of_temporal() {
     )
     .await;
 }
+
+// Stage 2, S2.144: indicator subfields by path.
+// Source: golden capture tools/golden/native144 n144_indpath (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_indicator_paths() {
+    let _ = require_db!();
+    expect(
+        "NINDPATH",
+        include_str!("native/NINDPATH.rpgle"),
+        &["110yn"],
+    )
+    .await;
+}
