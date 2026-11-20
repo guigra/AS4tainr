@@ -5791,10 +5791,19 @@ impl Rt<'_, '_> {
     fn movea_parts_n(&self, side: &rpgrt::native::MoveaSide) -> NResult<Vec<MoveaPart>> {
         use rpgrt::native::MoveaSide;
         Ok(match side {
-            MoveaSide::Array { arr, index } => {
+            MoveaSide::Array { arr, index, at } => {
                 let dim = usize::try_from(arr.dim)?;
-                let first = match index {
-                    Some(ix) => {
+                let first = match (index, at) {
+                    // A literal index (S2.154): movea_parts's num_of of it.
+                    (_, Some(i)) => {
+                        if *i < 1 || *i > i128::try_from(dim)? {
+                            return Err(anyhow!(
+                                "RNQ0121: An array index is out of range (index {i}, {dim} elements)."
+                            ));
+                        }
+                        usize::try_from(*i)?
+                    }
+                    (Some(ix), None) => {
                         let i = rpgrt::native::load(&self.m.bufs, ix.buf, ix.off, ix.ty)?
                             .num()?
                             .to_i128()?;
@@ -5805,7 +5814,7 @@ impl Rt<'_, '_> {
                         }
                         usize::try_from(i)?
                     }
-                    None => 1,
+                    (None, None) => 1,
                 };
                 let mut out = Vec::new();
                 for k in first..=dim {

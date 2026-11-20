@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.152");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.154");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -975,6 +975,14 @@ pub mod ir {
         FileCode(String),
         /// %SQRT of a numeric expression (S2.113).
         Sqrt(Box<NumExpr>),
+        /// %BITAND, %BITOR, %BITXOR or %BITNOT of numbers (S2.153): the
+        /// first argument, then the others (a hexadecimal one as its
+        /// unsigned value).
+        Bit {
+            op: BitFn,
+            first: Box<NumExpr>,
+            rest: Vec<NumExpr>,
+        },
         /// Character data read as a number, as %INT and %DEC take it
         /// (S2.112): char_number.
         CharDec(Box<CharExpr>),
@@ -1175,6 +1183,15 @@ pub mod ir {
         Off,
         /// Boxed (S2.52): a condition is large (clippy::large_enum_variant).
         Cond(Box<Cond>),
+    }
+
+    /// The bit built-in function of a `NumExpr::Bit` (S2.153).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum BitFn {
+        And,
+        Or,
+        Xor,
+        Not,
     }
 
     /// A numeric or a character expression: a DSPLY message (S2.36), a
@@ -3079,9 +3096,10 @@ fn lowered_step(
                         arr: (b, o, st, d, t),
                         index,
                     } => format!(
-                        "rpgrt::native::MoveaSide::Array {{ arr: rpgrt::native::ArrPlace {{ buf: {b}, off: {o}, stride: {st}, dim: {d}, ty: {}, lead: 0 }}, index: {} }}",
+                        "rpgrt::native::MoveaSide::Array {{ arr: rpgrt::native::ArrPlace {{ buf: {b}, off: {o}, stride: {st}, dim: {d}, ty: {}, lead: 0 }}, index: {}, at: {} }}",
                         ty(t),
                         match index {
+                            Some(ir::Operand::Num { .. }) | None => "None".to_string(),
                             Some(i) => {
                                 let ir::Operand::Var { ty: it, .. } = i else {
                                     return Err(bad());
@@ -3092,7 +3110,11 @@ fn lowered_step(
                                     ty(it)
                                 )
                             }
-                            None => "None".to_string(),
+                        },
+                        // A literal index (S2.154).
+                        match index {
+                            Some(ir::Operand::Num { m, .. }) => format!("Some({m})"),
+                            _ => "None".to_string(),
                         }
                     ),
                     ir::MoveaOp::Bytes(b) => format!("rpgrt::native::MoveaSide::Bytes(vec!{b:?})"),
@@ -4687,6 +4709,14 @@ fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
             json_str(f)
         ),
         ir::NumExpr::Sqrt(x) => format!("rpgrt::native::sqrt_bif(&{})?", num_expr(pc, x, helpers)),
+        ir::NumExpr::Bit { op, first, rest } => {
+            let f = num_expr(pc, first, helpers);
+            let r: Vec<String> = rest.iter().map(|x| num_expr(pc, x, helpers)).collect();
+            format!(
+                "rpgrt::native::bit_num(rpgrt::native::BitFn::{op:?}, &{f}, &[{}])?",
+                r.join(", ")
+            )
+        }
         ir::NumExpr::CharDec(c) => format!("rpgrt::native::char_dec(&{})?", char_expr(pc, c, helpers)),
         ir::NumExpr::LenOf(c) => format!(
             "rpgrt::rpg::dec::Dec::from_i64(i64::try_from({}.chars()?.len())?)",

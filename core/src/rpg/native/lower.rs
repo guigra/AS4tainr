@@ -2235,6 +2235,42 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
         // %PARMS (S2.129): interp.rs bif's PARMS arm, the running
         // procedure's frame's arguments passed, or the program's.
         Expr::Bif(b, args) if b == "PARMS" && args.is_empty() => Some(ir::NumExpr::Parms),
+        // %BITAND, %BITOR, %BITXOR and %BITNOT of numbers (S2.153):
+        // bif_more's numeric arm, its first argument a numeric expression
+        // (its value as an integer, negated for %BITNOT), then each other
+        // argument's int_arg, a number or a hexadecimal literal or constant
+        // of 1 to 8 bytes as its unsigned value (data::hex_unsigned, worked
+        // out here from its bytes).
+        Expr::Bif(b, args)
+            if matches!(b.as_str(), "BITAND" | "BITOR" | "BITXOR" | "BITNOT")
+                && !args.is_empty()
+                && (b == "BITNOT") == (args.len() == 1) =>
+        {
+            let op = match b.as_str() {
+                "BITAND" => ir::BitFn::And,
+                "BITOR" => ir::BitFn::Or,
+                "BITXOR" => ir::BitFn::Xor,
+                _ => ir::BitFn::Not,
+            };
+            let mut ip = path.clone();
+            ip.push(0);
+            let first = num_expr(cx, args.first()?, used, ip)?;
+            let mut rest = Vec::with_capacity(args.len().saturating_sub(1));
+            for (k, a) in args.iter().enumerate().skip(1) {
+                if let Some(n) = hex_number(cx, a, used) {
+                    rest.push(ir::NumExpr::Leaf(ir::Operand::Num { m: n, s: 0 }));
+                    continue;
+                }
+                let mut ap = path.clone();
+                ap.push(u8::try_from(k).ok()?);
+                rest.push(num_expr(cx, a, used, ap)?);
+            }
+            Some(ir::NumExpr::Bit {
+                op,
+                first: Box::new(first),
+                rest,
+            })
+        }
         // %SQRT (S2.113): bifs.rs's "SQRT" arm, of a numeric expression.
         Expr::Bif(b, args) if b == "SQRT" && args.len() == 1 => {
             let mut ip = path.clone();
@@ -2790,7 +2826,46 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
         (&a, &b),
         (ir::CmpSide::Num(_), ir::CmpSide::Num(_)) | (ir::CmpSide::Char(_), ir::CmpSide::Char(_))
     );
-    same.then(|| ir::Cond::CmpExpr(cmp, Box::new(a), Box::new(b)))
+    // A number compared with a hexadecimal literal or constant of 1 to 8
+    // bytes (S2.153): eval's data::compare takes its bytes as an unsigned
+    // integer (fig_num, hex_unsigned), so the character side is kept and
+    // the runtime's cmp (data::compare) does the same.
+    let hex_side = |e: &Expr, s: &ir::CmpSide, o: &ir::CmpSide| {
+        matches!(s, ir::CmpSide::Char(_))
+            && matches!(o, ir::CmpSide::Num(_))
+            && hex_number(cx, e, &mut Vec::new()).is_some()
+    };
+    let mixed = hex_side(l, &a, &b) || hex_side(r, &b, &a);
+    (same || mixed).then(|| ir::Cond::CmpExpr(cmp, Box::new(a), Box::new(b)))
+}
+
+/// A hexadecimal literal, or a named constant of character data, of 1 to
+/// 8 bytes, as data::hex_unsigned reads it where a number is expected
+/// (S2.153): its bytes as an unsigned integer. The constant's value goes
+/// into the layout lines, as any_operand's does.
+fn hex_number(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<i128> {
+    let bytes = match e {
+        Expr::Hex(b) => b.clone(),
+        Expr::Name { parts, args: None } => {
+            let name = parts.join(".");
+            match sym(cx, &name) {
+                Some(Sym::Const(Value::Char(b))) => {
+                    used.push(format!("const {name} hex {b:?}"));
+                    b.clone()
+                }
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    if bytes.is_empty() || bytes.len() > 8 {
+        return None;
+    }
+    Some(
+        bytes
+            .iter()
+            .fold(0i128, |acc, &x| acc.wrapping_shl(8) | i128::from(x)),
+    )
 }
 
 /// Whether an expression is a literal or a name (an operand, as S2.1
@@ -7097,6 +7172,17 @@ fn movea_side(cx: &Cx<'_>, e: &Expr, source: bool, used: &mut Vec<String>) -> Op
                     };
                     let index = match args.as_deref() {
                         None => None,
+                        // A literal index (S2.154): movea_parts's num_of of
+                        // it, a whole number from 1 to the dimension (IBM i
+                        // refuses a literal out of range when it compiles),
+                        // so no range error to reproduce.
+                        Some([Expr::Num(d)])
+                            if d.scale() == 0
+                                && d.to_i128().is_ok_and(|k| k >= 1 && k <= i128::from(v.dim)) =>
+                        {
+                            let m = d.to_i128().ok()?;
+                            Some(ir::Operand::Num { m, s: 0 })
+                        }
                         Some([i]) => Some(
                             str_num(cx, i, used)
                                 .filter(|o| matches!(o, ir::Operand::Var { .. }))?,
