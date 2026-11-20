@@ -2905,6 +2905,19 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
         let ok = !both_figs && (fig(&a) || fig(&b) || is_char(&a) == is_char(&b));
         return ok.then_some(ir::Cond::Cmp(cmp, a, b));
     }
+    // Pointer expressions (S2.160): pointer arithmetic, %ADDR and the
+    // like on a side, eval's values compared by data::compare (address
+    // order, *NULL first), the left side evaluated first.
+    if !(operand_only(l) && operand_only(r)) && (ptr_expr(cx, l) || ptr_expr(cx, r)) {
+        // *NULL: eval's Value::Fig(Null) (PtrVal::Null's value).
+        let mut side_ptr = |e: &Expr, at: Vec<u8>| match e {
+            Expr::Fig(Fig::Null) => Some(ir::PtrVal::Null),
+            _ => ptr_val(cx, e, used, at),
+        };
+        let a = side_ptr(l, child(0))?;
+        let b = side_ptr(r, child(1))?;
+        return Some(ir::Cond::PtrCmp(cmp, Box::new(a), Box::new(b)));
+    }
     // An expression on either side (S2.13).
     let (a, b) = (side(cx, l, used, child(0))?, side(cx, r, used, child(1))?);
     let same = matches!(
@@ -2951,6 +2964,16 @@ fn hex_number(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<i128> {
             .iter()
             .fold(0i128, |acc, &x| acc.wrapping_shl(8) | i128::from(x)),
     )
+}
+
+/// Whether an expression gives a pointer (S2.160): a pointer field, %ADDR,
+/// %ALLOC, %REALLOC, %PADDR, or a pointer plus or minus a number.
+fn ptr_expr(cx: &Cx<'_>, e: &Expr) -> bool {
+    match e {
+        Expr::Bif(b, _) => matches!(b.as_str(), "ADDR" | "ALLOC" | "REALLOC" | "PADDR"),
+        Expr::Bin(BinOp::Add | BinOp::Sub, l, _) => ptr_expr(cx, l),
+        e => is_pointer_name(cx, e),
+    }
 }
 
 /// Whether an expression is a literal or a name (an operand, as S2.1
@@ -4744,8 +4767,8 @@ fn ptr_val(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
             // A global field, or (S2.65) a procedure's local one: ptr_to of
             // the place Machine::sym gives it, the frame's buffer (or the
             // caller's storage for a parameter passed by reference), which
-            // generated code asks `rt.local` for. Not a based field. A
-            // float field's place too (S2.110): only its place is taken.
+            // generated code asks `rt.local` for. A float field's place
+            // too (S2.110): only its place is taken.
             let of = if float_target_ok(cx, of) {
                 float_target(cx, of, used)?
             } else if let Some(w) = whole_array_place(cx, of, used) {
@@ -4755,11 +4778,21 @@ fn ptr_val(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
             } else {
                 variable(cx, of, used)?
             };
-            let ir::Operand::Var {
-                based: None, ty, ..
-            } = &of
-            else {
-                return None;
+            // A field based on a pointer (S2.159): loc_of's place, which
+            // Machine::sym gives it through based_place (the pointer's
+            // storage checked for the field's size, check_buf), generated
+            // code's based_at. Not an element of a based array.
+            let ty = match &of {
+                ir::Operand::Var {
+                    based: None, ty, ..
+                } => ty,
+                ir::Operand::Var {
+                    based: Some(_),
+                    index: None,
+                    ty,
+                    ..
+                } => ty,
+                _ => return None,
             };
             let skip = match (data, ty) {
                 (true, ir::Ty::Varchar(n)) => rpgrt::rpg::data::var_prefix(*n),

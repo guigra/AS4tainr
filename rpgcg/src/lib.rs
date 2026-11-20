@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.158");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.160");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -217,6 +217,8 @@ pub mod ir {
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum Cond {
         Cmp(CmpOp, Operand, Operand),
+        /// Two pointer values compared (S2.160), by data::compare.
+        PtrCmp(CmpOp, Box<PtrVal>, Box<PtrVal>),
         /// A comparison with an expression on either side (S2.13):
         /// %SCAN, %SUBST, %TRIM, %XLATE, concatenation.
         CmpExpr(CmpOp, Box<CmpSide>, Box<CmpSide>),
@@ -2085,6 +2087,28 @@ fn cond_fns_in(pc: usize, c: &ir::Cond, id: &str, out: &mut String, n: &mut usiz
                 }
                 let _ = writeln!(out, "    Ok(false)\n}}");
             }
+            out.push_str(&extra);
+        }
+        ir::Cond::PtrCmp(op, a, b) => {
+            let op = match op {
+                ir::CmpOp::Eq => "Eq",
+                ir::CmpOp::Ne => "Ne",
+                ir::CmpOp::Lt => "Lt",
+                ir::CmpOp::Le => "Le",
+                ir::CmpOp::Gt => "Gt",
+                ir::CmpOp::Ge => "Ge",
+            };
+            let mut extra = String::new();
+            let missing = "return Err(anyhow::anyhow!(\"native: a pointer with no place\"))";
+            let x = ptr_val(pc, a, &mut extra).unwrap_or_else(|| missing.to_string());
+            let y = ptr_val(pc, b, &mut extra).unwrap_or_else(|| missing.to_string());
+            let _ = writeln!(out, "    // a pointer {op} a pointer");
+            let _ = writeln!(out, "    let x = {x};");
+            let _ = writeln!(out, "    let y = {y};");
+            let _ = writeln!(
+                out,
+                "    rpgrt::native::cmp(rpgrt::native::CmpOp::{op}, &x, &y)\n}}"
+            );
             out.push_str(&extra);
         }
         ir::Cond::CmpExpr(op, a, b) => {
