@@ -1562,6 +1562,21 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
         Expr::Bif(b, args) if b == "CHAR" && temporal_arg(cx, args) => {
             temporal_char(cx, args, used)
         }
+        // %CHAR of a date, time or timestamp expression (S2.134): %DATE,
+        // %TIME, %TIMESTAMP, or arithmetic with a duration. bif_override's
+        // format then comes from temporal_type, the control
+        // specification's DATFMT or TIMFMT for a date or a time (not a
+        // field's), or the explicit special value.
+        Expr::Bif(b, args)
+            if b == "CHAR"
+                && matches!(args.len(), 1 | 2)
+                && args
+                    .first()
+                    .is_some_and(|a| !matches!(a, Expr::Name { .. }))
+                && args.first().is_some_and(|a| temporal_kind(cx, a).is_some()) =>
+        {
+            temporal_char_of(cx, args, used, path)
+        }
         // %CHAR of a numeric expression (S2.14). The program's DECEDIT is
         // part of the code, so it goes into the fingerprint's layout.
         // %STR(p[: max]) (S2.88): a pointer value (ptr_val) and a number;
@@ -4417,6 +4432,94 @@ fn temporal_char(cx: &Cx<'_>, args: &[Expr], used: &mut Vec<String>) -> Option<i
     };
     used.push(format!("temporal char {fmt:?}"));
     Some(ir::CharExpr::TemporalChar { of, fmt })
+}
+
+/// bifs.rs temporal_type for an expression (S2.134): %DATE, %TIME and
+/// %TIMESTAMP, and + or - of a duration, whose kind is its base's: 'D'
+/// a date, 'T' a time, 'Z' a timestamp. A date plus a time, and anything
+/// else, is none.
+fn temporal_kind(cx: &Cx<'_>, e: &Expr) -> Option<char> {
+    temporal_kind_at(cx, e, 0)
+}
+
+fn temporal_kind_at(cx: &Cx<'_>, e: &Expr, depth: usize) -> Option<char> {
+    if depth > MAX_NESTING {
+        return None;
+    }
+    match e {
+        Expr::Bif(b, _) => match b.as_str() {
+            "DATE" => Some('D'),
+            "TIME" => Some('T'),
+            "TIMESTAMP" => Some('Z'),
+            _ => None,
+        },
+        Expr::Name { parts, args: None } => match sym(cx, &parts.join(".")) {
+            Some(Sym::Var(v)) => match v.dtype {
+                DType::Date(_) => Some('D'),
+                DType::Time(_) => Some('T'),
+                DType::Timestamp(_) => Some('Z'),
+                _ => None,
+            },
+            _ => None,
+        },
+        Expr::Bin(BinOp::Add | BinOp::Sub, l, r) => match (duration(l), duration(r)) {
+            (None, Some(_)) => temporal_kind_at(cx, l, depth.saturating_add(1)),
+            (Some(_), None) => temporal_kind_at(cx, r, depth.saturating_add(1)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// %CHAR of a temporal expression (S2.134), as bif_override: the value
+/// (temporal_value), the explicit format or the control specification's
+/// (temporal_type gives an expression the default type, whose format is
+/// that one); a timestamp only *ISO0 or not.
+fn temporal_char_of(
+    cx: &Cx<'_>,
+    args: &[Expr],
+    used: &mut Vec<String>,
+    path: Vec<u8>,
+) -> Option<ir::CharExpr> {
+    use rpgrt::rpg::dates::{DateFmt, TimeFmt};
+    let (x, explicit) = match args {
+        [x] => (x, None),
+        [x, Expr::Name { parts, args: None }] if parts.len() == 1 => {
+            let f = parts.first()?;
+            if !f.starts_with('*') {
+                return None;
+            }
+            (x, Some(f.clone()))
+        }
+        _ => return None,
+    };
+    let fmt = match temporal_kind(cx, x)? {
+        'D' => {
+            let f = match &explicit {
+                Some(e) => DateFmt::parse(e).ok()?,
+                None => cx.prog.datfmt().ok()?,
+            };
+            ir::TemporalFmt::Date(f.name, f.sep)
+        }
+        'T' => {
+            let f = match &explicit {
+                Some(e) => TimeFmt::parse(e).ok()?,
+                None => cx.prog.timfmt().ok()?,
+            };
+            ir::TemporalFmt::Time(f.name, f.sep)
+        }
+        _ => ir::TemporalFmt::Ts {
+            iso0: explicit.as_deref() == Some("*ISO0"),
+        },
+    };
+    let mut p = path;
+    p.push(0);
+    let of = temporal_value(cx, x, used, p)?;
+    used.push(format!("temporal char of {fmt:?}"));
+    Some(ir::CharExpr::TemporalCharOf {
+        of: Box::new(of),
+        fmt,
+    })
 }
 
 /// %DATE, %TIME or %TIMESTAMP (S2.54), as bifs.rs bif_more takes them:

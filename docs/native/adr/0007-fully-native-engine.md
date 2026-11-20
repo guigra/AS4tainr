@@ -1614,3 +1614,13 @@ A call of a procedure that returns an indicator is a condition now (`Cond::Call`
 **Verified by** the native unit NINDCALL, under both engines, as captured on PUB400 (tools/golden/native133.txt n133_indcall: `ab61`). It covers IF, NOT, AND, a DOW loop until the call is true, and %CHAR. NRETFIG's `%char(isbig(7)) + %char(isbig(2))` (S2.132) is native now too.
 
 A RETURN of a comparison, AND, OR or NOT is lowered too (`Lowered::ReturnInd`, NINDCALL's `return x > 5`). It gives eval's Value::Ind of the condition, the value the interpreter's RETURN passes back, not a character.
+
+## S2.134: %CHAR of a date, time or timestamp expression
+
+%CHAR of a date, time or timestamp expression is lowered (`CharExpr::TemporalCharOf`). The expression is %DATE, %TIME or %TIMESTAMP, or + or - of a duration, whose kind is its base's (`temporal_kind`, bifs.rs temporal_type).
+
+It follows bif_override. The value is temporal_value's, and the format is the explicit special value, else the control specification's DATFMT or TIMFMT. temporal_type gives an expression the default type, so a field's own format does not count. A timestamp is *ISO0 or not.
+
+That default format is the interpreter's, and IBM i differs from it under DATFMT or TIMFMT other than *ISO: IBM i gives *ISO (fidelity.md). Native code follows the interpreter.
+
+**Verified by** the native unit NTCHREX, under both engines, as captured on PUB400 with the default formats (tools/golden/native134.txt n134_tchariso: `10.00.00`, `2026-02-01-11.59.59.000000`, `2026-10-20`, `02/01/2026`, `2025-12-31`). It covers a time and a timestamp plus a duration, %DATE of characters with *MDY, a date plus days with *USA, and a date minus months.
