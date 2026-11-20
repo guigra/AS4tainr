@@ -1760,3 +1760,24 @@ An indicator subfield of a data structure array element, by its path (`l.ev(1).e
 ds_array_field still gives no indicator to the other contexts.
 
 **Verified by** the native unit NINDPATH, under both engines, as captured on PUB400 (tools/golden/native144.txt n144_indpath: `110yn`). It covers a concatenation, an assignment, and IF and NOT, with literal and field indexes. rla_test.rs INZLDS's `l.ev(1).expected.isNull + ...` is native now too.
+
+## S2.145: arithmetic in conditions
+
+A side of a comparison may now hold arithmetic, + - * /, in IF, DOW, DOU, WHEN, IN %RANGE and IN %LIST, and in %CHAR of a condition.
+
+S2.13 had kept arithmetic out because it took precision to come from an EVAL's target. It does not: interp.rs eval gives each operation the precision of its own node (to_rule_scale and divide, num_precision of the operation). The runtime's `precision` finds that node from the condition at the instruction, as it does from an EVAL's value. FOR limits follow in S2.146.
+
+**Verified by** the native unit NCMPAR, under both engines, as captured on PUB400 (tools/golden/native145.txt n145_cmparith: `abdef5`). It covers a product, a quotient against fewer places, a sum and difference, IN %LIST of a product, a product of a difference, and a DOW on a difference.
+
+The capture also shows a quotient compared with a 28-place literal, where IBM i and the interpreter differ (fidelity.md), so the unit leaves that test out. NINLIST's `n * 2 in %list(3 : 14)` (S2.131) is native now.
+
+## S2.146: arithmetic in FOR limits
+
+A FOR limit is now a numeric expression (`LoopTest::limit`), as in `for i = 0 to len - 1`. The interpreter's LoopTest arm evaluates it after the index, on every turn, and compares the two as decimals. Its operations take their own nodes' precision, as in S2.145, and the runtime's `precision` now also starts from a LoopTest's limit. BY values are still operands.
+
+**Verified by** the native unit NFORLIM, under both engines, as captured on PUB400 (tools/golden/native146.txt n146_forlim: `abcd876543012`):
+- %LEN minus one;
+- a product down to a difference;
+- a difference of a product.
+
+A limit that is not whole (`10 / 4`) does not compile on IBM i (RNF7569), while the interpreter takes it (fidelity.md).

@@ -3250,3 +3250,24 @@ async fn native_unit_lowered_indicator_paths() {
     )
     .await;
 }
+
+// Stage 2, S2.145: arithmetic in conditions.
+// Source: golden capture tools/golden/native145 n145_cmparith (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_arithmetic_in_conditions() {
+    let _ = require_db!();
+    expect("NCMPAR", include_str!("native/NCMPAR.rpgle"), &["abdef5"]).await;
+}
+
+// Stage 2, S2.146: FOR limits with arithmetic.
+// Source: golden capture tools/golden/native146 n146_forlim (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_for_limits() {
+    let _ = require_db!();
+    expect(
+        "NFORLIM",
+        include_str!("native/NFORLIM.rpgle"),
+        &["abcd876543012"],
+    )
+    .await;
+}

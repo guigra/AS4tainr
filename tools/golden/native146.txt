@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.146: FOR limits with arithmetic (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native146.txt -f tools/golden/native146
+n146_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN146FL) SRCSTMF('@HOME@/gld/gn146fl.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n146_forlim|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN146FL)"; cat gn1.out; rm -f gn1.out

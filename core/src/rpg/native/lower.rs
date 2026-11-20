@@ -242,8 +242,11 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             var, limit, down, ..
         } => ir::Lowered::LoopTest {
             var: num_variable(cx, var, &mut used)?,
+            // The limit: an operand, or since S2.146 a numeric expression
+            // (`for i = 0 to len - 1`), its operations' precision their own
+            // nodes' (the runtime's `precision` from the LoopTest).
             limit: match limit {
-                Some(l) => Some(operand(cx, l, &mut used)?),
+                Some(l) => Some(num_expr(cx, l, &mut used, Vec::new())?),
                 None => None,
             },
             down: *down,
@@ -2738,17 +2741,16 @@ fn fig_op(f: &Fig) -> Option<ir::FigOp> {
     })
 }
 
-/// A side of a comparison: a character expression, or a numeric one with
-/// no arithmetic (`+`, `-`, `*` take their precision from an EVAL's
-/// expression, which a condition has not).
+/// A side of a comparison: a character expression, or a numeric one.
+/// Since S2.145 with arithmetic too: interp.rs eval gives +, -, * and /
+/// the precision of their own node (to_rule_scale, divide:
+/// num_precision of the operation), not a target's, and the runtime's
+/// `precision` finds that node from the condition at the instruction.
 fn side(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::CmpSide> {
     if let Some(c) = char_expr(cx, e, used, path.clone()) {
         return Some(ir::CmpSide::Char(c));
     }
-    match num_expr(cx, e, used, path)? {
-        ir::NumExpr::Bin { .. } => None,
-        n => Some(ir::CmpSide::Num(n)),
-    }
+    Some(ir::CmpSide::Num(num_expr(cx, e, used, path)?))
 }
 
 /// A literal or an eligible field, of either class.
@@ -3903,6 +3905,16 @@ fn note_why(cx: &Cx<'_>, i: &Ins, at: usize) {
                     if ind.lo.is_some() { "lo" } else { "" },
                     if ind.eq.is_some() { "eq" } else { "" },
                 )
+        }
+        // An EXEC SQL not lowered (S2.145): its first two words, and
+        // whether it has host variables.
+        Ins::Stmt(Stmt::Sql(text)) => {
+            let words: Vec<String> = text
+                .split_whitespace()
+                .take(2)
+                .map(|w| w.to_ascii_uppercase())
+                .collect();
+            format!("sql={} host={}\n", words.join("_"), text.contains(':'))
         }
         // A RETURN not lowered (S2.129): its value's nodes.
         Ins::Return(Some(x)) => {
