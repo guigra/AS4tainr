@@ -1339,6 +1339,10 @@ impl Runtime for Rt<'_, '_> {
         self.disk_open_close_n(pc)
     }
 
+    fn printer_write_ds(&mut self, pc: usize, ds: rpgrt::native::OutSlot) -> NResult<()> {
+        self.printer_write_ds_n(pc, &ds)
+    }
+
     fn commit_op(&mut self, rollback: bool) -> NResult<()> {
         // The op arm's "COMMIT" | "ROLBK": the commitment definition of
         // the job and activation group, then its commit or rollback.
@@ -4691,6 +4695,74 @@ impl Rt<'_, '_> {
             })?;
         }
         let r = self.printer_write_inner_n(i, &file, fields, indds);
+        self.file_end_n(i, op, &file, cmt.as_deref(), r.as_ref().map(|_| ()))?;
+        r
+    }
+
+    /// errors.rs file_op around printer.rs printer_write's arm for a
+    /// program-described printer file (S2.156): the data structure's
+    /// bytes, printed as an output record with that one literal field and
+    /// no spacing (print_line), as printer_write_n does around the
+    /// externally described arm.
+    fn printer_write_ds_n(&mut self, pc: usize, ds: &rpgrt::native::OutSlot) -> NResult<()> {
+        let (op, file, _, _, _) = self.file_stmt(pc)?;
+        let file = file.to_string();
+        if op != FileOp::Write {
+            return Err(mismatch(pc, "a WRITE"));
+        }
+        let i = self
+            .file_idx_n(&file)
+            .ok_or_else(|| anyhow!("{file} is not a file of this program"))?;
+        self.file_n(i)?.status.error = false;
+        let cmt = self.file_n(i)?.cmt.clone();
+        if let Some(d) = &cmt {
+            self.m.block(async {
+                d.client
+                    .batch_execute("SAVEPOINT as4tainr_rla")
+                    .await
+                    .map_err(anyhow::Error::from)
+            })?;
+        }
+        let r = (|| -> NResult<()> {
+            let fi = self
+                .m
+                .prog
+                .files
+                .get(i)
+                .ok_or_else(|| anyhow!("native: no file {i}"))?;
+            if fi.printer.is_some() {
+                return Err(mismatch(pc, "a program-described printer file"));
+            }
+            let name = fi.decl.name.clone();
+            let bytes = rpgrt::native::load(&self.m.bufs, ds.buf, ds.off, ds.ty)?.chars()?;
+            let end = u32::try_from(bytes.len())?;
+            let rec = super::super::ast::OutRec {
+                file: name,
+                kind: 'E',
+                fetch_overflow: false,
+                add: false,
+                del: false,
+                cond: Vec::new(),
+                name: None,
+                space_before: None,
+                space_after: None,
+                skip_before: None,
+                skip_after: None,
+                fields: vec![super::super::ast::OutField {
+                    cond: Vec::new(),
+                    name: None,
+                    edit_code: None,
+                    blank_after: false,
+                    end: Some(end),
+                    relative: None,
+                    edit_word: None,
+                    format: ' ',
+                    literal: Some(bytes),
+                }],
+                line: 0,
+            };
+            self.print_line_n(&rec, &[])
+        })();
         self.file_end_n(i, op, &file, cmt.as_deref(), r.as_ref().map(|_| ()))?;
         r
     }

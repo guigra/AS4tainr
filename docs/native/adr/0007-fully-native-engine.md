@@ -1861,3 +1861,9 @@ A MOVEA side that is an array element named by a literal index (`MOVEA 'XY' CH(2
 - RNQ0103 is raised when the result is negative.
 
 **Verified by** the native unit NUNSBIF, under both engines, as captured on PUB400 (tools/golden/native155.txt n155_uns: `42 8 9 10 13 103 103`). It covers character and numeric arguments, a sum of a %UNS, a negative value, and a value too large for UNS(3), each in a MONITOR group. rla_test.rs IMQINT's `u3 = %uns('300')` is native now.
+
+## S2.156: WRITE of a program-described printer file from a data structure
+
+WRITE of a program-described printer file from a global data structure is lowered (`Lowered::PrinterWriteDs`, `Runtime::printer_write_ds`). It follows errors.rs file_op around printer.rs printer_write's program-described arm: the structure's bytes are printed as one line, an output record with that one literal field and no spacing (print_line_n). IBM i accepts only a data structure there (RNF5191 for a field, first run of the capture); the interpreter also takes a field.
+
+**Verified by** the native unit NPRTDS, under both engines, as captured on PUB400 (tools/golden/native156.txt n156_prtds: PASE system's output of the spooled file, `first line           00042` and `second line          00007`, then PUB400's banner). rla_test.rs WRTPRT's two WRITEs are native now.

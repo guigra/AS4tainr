@@ -1305,6 +1305,45 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             used.push(format!("disk {op:?} {file}"));
             ir::Lowered::DiskOpenClose
         }
+        // WRITE of a program-described printer file from a data structure
+        // (S2.156): errors.rs file_op and printer.rs
+        // printer_write's program-described arm, the structure's bytes
+        // printed as one line (print_line of an output record of them).
+        // A global data structure the routine can place; IBM i refuses a
+        // field there (RNF5191, tools/golden/native156 first run).
+        Ins::Stmt(Stmt::File {
+            op: FileOp::Write,
+            file,
+            key: None,
+            ds: Some(d),
+            fields: None,
+            ext,
+            ind,
+        }) if !ext.error
+            && ext.other.is_empty()
+            && ind.is_empty()
+            && matches!(sym(cx, d), Some(Sym::Ds(_)))
+            && printer_file(cx, file)
+            && file_of(cx, file)
+                .and_then(|i| cx.prog.files.get(i))
+                .is_some_and(|f| f.printer.is_none()) =>
+        {
+            let o = variable(cx, &Expr::name(d), &mut used)?;
+            if !matches!(
+                o,
+                ir::Operand::Var {
+                    ty: ir::Ty::Char(_),
+                    local: false,
+                    index: None,
+                    based: None,
+                    ..
+                }
+            ) {
+                return None;
+            }
+            used.push(format!("printer write {file} from {d}"));
+            ir::Lowered::PrinterWriteDs(o)
+        }
         // WRITE of an externally described printer file's record format
         // (S2.79): errors.rs file_op and printer.rs printer_write, with
         // the fields the format prints and the INDDS structure placed.
