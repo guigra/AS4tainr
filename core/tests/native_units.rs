@@ -3908,3 +3908,16 @@ async fn native_unit_lowered_xml_into_e() {
     )
     .await;
 }
+
+// Stage 2, S2.177: EVAL-CORR.
+// Source: golden capture tools/golden/native177 n177_evalcorr (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_eval_corr() {
+    let _ = require_db!();
+    expect(
+        "NEVCORR",
+        include_str!("native/NEVCORR.rpgle"),
+        &["[Alice     ] 30 7 Paris     75001 T1T2 O"],
+    )
+    .await;
+}

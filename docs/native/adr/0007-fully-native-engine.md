@@ -2030,3 +2030,14 @@ XML-INTO with the E extender is lowered. It runs inside errors.rs stmt_e's start
 - a document that is not well formed gives 00351;
 - a value that does not fit its subfield's type gives 00353;
 - a good document gives no error.
+
+## S2.177: EVAL-CORR
+
+EVAL-CORR of two data structures named with no index is lowered (`Lowered::EvalCorr`): ops.rs eval_corr's walk is made when lowering. The target's subfields are taken in order, each with the source's subfield of its short name and its type class (eval_corr's `class`):
+- data structures in both: their own subfields, recursively;
+- arrays in both: element by element, up to the smaller dimension;
+- scalars: eval's value assigned with Strict, or half adjust with (H).
+
+The pairs run in that order. A structure on one side only, a based or multiple-occurrence one, and a field `variable` does not place stay with the interpreter.
+
+**Verified by** the native unit NEVCORR, under both engines, as captured on PUB400 (tools/golden/native177.txt n177_evalcorr: `[Alice     ] 30 7 Paris     75001 T1T2 O`). It covers character into varying, packed into zoned, a LIKEDS subfield in both, arrays of 3 and 2 elements, character against packed (kept), and a target-only subfield. rla_test.rs EVALCORR is native now.

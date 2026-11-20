@@ -1183,6 +1183,36 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 parts: parts.1,
             }
         }
+        // EVAL-CORR (S2.177): ops.rs eval_corr walked here, the target's
+        // subfields in order, each with a source subfield of its name and
+        // class (as eval_corr's `class`): data structures in both, their
+        // own (recursively); arrays in both, element by element up to the
+        // smaller dimension; scalars, eval's value assigned with Strict
+        // (H for half adjust). The pairs run in that order.
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1: Some(t @ Expr::Name { args: None, .. }),
+            f2: Some(src @ Expr::Name { args: None, .. }),
+            result: None,
+            ext,
+            ind,
+        }) if code == "EVAL-CORR"
+            && !ext.error
+            && !ext.no_lock
+            && ext.other.chars().all(|c| c == 'H')
+            && ind.is_empty() =>
+        {
+            let (Expr::Name { parts: tp, .. }, Expr::Name { parts: sp, .. }) = (t, src) else {
+                return None;
+            };
+            let mut pairs = Vec::new();
+            eval_corr_pairs(cx, tp, sp, &mut pairs, &mut used, 0)?;
+            used.push(format!("eval-corr {} pairs", pairs.len()));
+            ir::Lowered::EvalCorr {
+                pairs,
+                half: ext.half_adjust,
+            }
+        }
         // IN and OUT of data areas (S2.80): interp.rs data_area for the
         // field or, for *DTAARA, every data area of the program in name
         // order; the fields (and *VAR: name fields) placed.
@@ -3117,6 +3147,120 @@ fn hex_number(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<i128> {
 /// the runtime's (file_read_n, file_done_n), as file_op_inner takes them.
 fn file_e_ok(ext: &super::super::ast::Ext) -> bool {
     ext.other.chars().all(|c| c == 'E') && ext.error == !ext.other.is_empty()
+}
+
+/// ops.rs eval_corr's walk (S2.177): the target's and source's
+/// subfields as eval_corr names them (`sub`: qualified, the structure's
+/// name and the subfield's; else the subfield's alone), the pairs of
+/// fields to assign in order. None for what is not lowered: a structure
+/// on one side only, a based or multiple-occurrence one, a field
+/// `variable` does not place.
+fn eval_corr_pairs(
+    cx: &Cx<'_>,
+    tp: &[String],
+    sp: &[String],
+    out: &mut Vec<(ir::Operand, ir::Operand)>,
+    used: &mut Vec<String>,
+    depth: usize,
+) -> Option<()> {
+    if depth > MAX_NESTING {
+        return None;
+    }
+    let ds_of = |parts: &[String]| match sym(cx, &parts.join(".")) {
+        Some(Sym::Ds(d)) => Some(d),
+        _ => None,
+    };
+    let td = ds_of(tp)?;
+    let sd = ds_of(sp)?;
+    let prog = cx.prog;
+    for d in [td, sd] {
+        if prog.based.contains_key(&d.buf) || prog.occurs.iter().any(|o| o.buf == d.buf) {
+            return None;
+        }
+        if d.local && !local_ds_ok(cx, d.buf) {
+            return None;
+        }
+    }
+    let short = |n: &str| n.rsplit('.').next().unwrap_or(n).to_string();
+    let sub = |parts: &[String], d: &super::super::program::DsInfo, name: &str| -> Vec<String> {
+        if !d.qualified && parts.len() == 1 {
+            vec![name.to_string()]
+        } else {
+            let mut p = parts.to_vec();
+            p.push(name.to_string());
+            p
+        }
+    };
+    let class = |t: &DType| match t {
+        DType::Char(_) | DType::Varchar(_) => 1,
+        DType::Ucs2(_) | DType::VarUcs2(_) => 2,
+        DType::Date(_) => 3,
+        DType::Time(_) => 4,
+        DType::Timestamp(_) => 5,
+        DType::Ind => 6,
+        DType::Pointer => 7,
+        _ => 0,
+    };
+    for name in td.subfields.iter() {
+        let sh = short(name);
+        if !sd.subfields.iter().any(|x| short(x) == sh) {
+            continue;
+        }
+        let te = sub(tp, td, &sh);
+        let se = sub(sp, sd, &sh);
+        let (tds, sds) = (ds_of(&te).is_some(), ds_of(&se).is_some());
+        if tds && sds {
+            eval_corr_pairs(cx, &te, &se, out, used, depth.saturating_add(1))?;
+            continue;
+        }
+        if tds || sds {
+            return None;
+        }
+        let (Some(Sym::Var(tv)), Some(Sym::Var(sv))) =
+            (sym(cx, &te.join(".")), sym(cx, &se.join(".")))
+        else {
+            continue;
+        };
+        if class(&tv.dtype) != class(&sv.dtype) {
+            continue;
+        }
+        match (tv.dim > 0, sv.dim > 0) {
+            (true, true) => {
+                for k in 1..=tv.dim.min(sv.dim) {
+                    let at = |parts: &[String]| Expr::Name {
+                        parts: parts.to_vec(),
+                        args: Some(vec![Expr::Num(super::super::dec::Dec::from_i64(
+                            i64::from(k),
+                        ))]),
+                    };
+                    let t = variable(cx, &at(&te), used)?;
+                    let s = variable(cx, &at(&se), used)?;
+                    out.push((t, s));
+                }
+            }
+            (false, false) => {
+                let t = variable(
+                    cx,
+                    &Expr::Name {
+                        parts: te,
+                        args: None,
+                    },
+                    used,
+                )?;
+                let s = variable(
+                    cx,
+                    &Expr::Name {
+                        parts: se,
+                        args: None,
+                    },
+                    used,
+                )?;
+                out.push((t, s));
+            }
+            _ => {}
+        }
+    }
+    Some(())
 }
 
 /// %ABS of a float expression (S2.162), which float_expr lowers though
