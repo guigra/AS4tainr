@@ -3538,3 +3538,43 @@ async fn native_unit_lowered_table_cat() {
     )
     .await;
 }
+
+// Stage 2, S2.164: file operations beside a LIKEFILE parameter.
+// Source: golden capture tools/golden/native164 n164_likef (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_likefile_neighbours() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    // As the capture's GN164F: the rows 1 'aa', 2 'bb', 3 'cc'.
+    let _ = job.run("DLTF FILE(QGPL/GN164F)").await;
+    job.run_sql_script(
+        "CREATE TABLE QGPL.GN164F (N INT, S CHAR(2)); \
+         INSERT INTO QGPL.GN164F VALUES (1, 'aa'), (2, 'bb'), (3, 'cc');",
+        "native unit NLIKEF",
+        10,
+        None,
+        true,
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    expect("NLIKEF", include_str!("native/NLIKEF.rpgle"), &["3 3cc"]).await;
+}

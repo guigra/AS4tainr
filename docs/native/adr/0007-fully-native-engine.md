@@ -1920,3 +1920,9 @@ OPEN, CLOSE and FEOD of a printer file, and OPEN and CLOSE of a database file, a
 A character factor of a fixed-form string operation (SCAN, CHECK, CHECKR, XLATE, CAT) may now be a table named with no index. That is its current element, as eval's table_index gives it, with S2.149's index. RPG3TEST's and RPG3FREE's `MSG CAT TABN:1 OUT` after a LOOKUP is native now.
 
 **Verified by** the native unit NTABCAT, under both engines, as captured on PUB400 (tools/golden/native163.txt n163_tabcat: `IS: oneBt|AoneBt`). It uses a table as factor 2 and as factor 1, with (P).
+
+## S2.164: file operations beside a LIKEFILE parameter
+
+A LIKEFILE parameter no longer keeps every file operation of the program in the interpreter. errors.rs file_idx, and the runtime's file_idx_n, look first at the frame's files, and a frame holds only its own procedure's file parameters. So only a name that is a file parameter of the routine's own procedure stays with the interpreter. Every other name is resolved as file_idx resolves it after that step.
+
+**Verified by** the native unit NLIKEF, under both engines, as captured on PUB400 (tools/golden/native164.txt n164_likef: `3 3cc`). In the main procedure it runs OPEN, SETLL *HIVAL, READP into a data structure and CLOSE on a LIKEFILE file with EXTFILE, while a procedure reads the file through a LIKEFILE parameter. That procedure's own operations, and the call that passes the file, stay with the interpreter. IBM i requires BLOCK on the template file (RNF2590) and refuses SETLL *LOVAL on a file with no key (RNF7055); both were found on the capture's first run.
