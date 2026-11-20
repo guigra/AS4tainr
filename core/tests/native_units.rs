@@ -3271,3 +3271,16 @@ async fn native_unit_lowered_for_limits() {
     )
     .await;
 }
+
+// Stage 2, S2.148: the SQRT operation.
+// Source: golden capture tools/golden/native148 n148_sqrtop (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_sqrt_op() {
+    let _ = require_db!();
+    expect(
+        "NSQRTOP",
+        include_str!("native/NSQRTOP.rpgle"),
+        &["3.16 1.4142 4 4"],
+    )
+    .await;
+}

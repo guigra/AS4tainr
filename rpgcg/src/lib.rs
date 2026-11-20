@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.147");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.148");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -648,6 +648,14 @@ pub mod ir {
         PrinterOp,
         /// OPEN or CLOSE of a database file (S2.128).
         DiskOpenClose,
+        /// The SQRT operation (S2.148): factor 2, the result field, its
+        /// decimal places, (H).
+        SqrtOp {
+            value: NumExpr,
+            target: Operand,
+            decs: u8,
+            half: bool,
+        },
         /// TEST(D/T/Z) (S2.138): the field, factor 1's format, the kind
         /// ('D', 'T' or 'Z'), the E extender and the indicator.
         TestTemporal {
@@ -3354,6 +3362,30 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("tt{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::SqrtOp {
+                value,
+                target,
+                decs,
+                half,
+            },
+        ) => {
+            let ir::Operand::Var { ty: t, .. } = target else {
+                return Err(bad());
+            };
+            let (prelude, sb, so) = place_of(target).ok_or_else(bad)?;
+            let x = num_expr(pc, value, helpers);
+            let _ = writeln!(
+                helpers,
+                "\nfn sq{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let x = {x};\n    let v = rpgrt::rpg::data::Value::Num(rpgrt::native::sqrt_op(&x, {decs})?);\n{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        {},\n        &v,\n        rpgrt::rpg::data::Fit::Truncate {{ half_adjust: {half} }},\n        false,\n    )\n}}",
+                ty(t)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("sq{pc}(rt).map(|()| {next})"),
             )
         }
         (ir::Kind::Stmt, ir::Lowered::DiskOpenClose) => guarded(
