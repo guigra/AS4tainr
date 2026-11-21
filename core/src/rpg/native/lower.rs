@@ -1193,8 +1193,11 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             result: None,
             ext,
             ind,
-        }) if code == "XML-INTO"
-            && (matches!(target, Expr::Name { args: None, .. }) || handler_ok(cx, target))
+        }) if (code == "XML-INTO"
+            && (matches!(target, Expr::Name { args: None, .. }) || handler_ok(cx, target)))
+            // XML-SAX (S2.181): xml_sax's checks of %HANDLER(procedure :
+            // area), which cannot fail with these, then xml_sax_doc.
+            || (code == "XML-SAX" && sax_handler_ok(target))
             && !ext.no_lock
             // E (S2.176): errors.rs stmt_e around it.
             && ext.other.chars().all(|c| c == 'E')
@@ -1215,7 +1218,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 Some(o) => Some(char_expr(cx, o, &mut used, vec![1])?),
                 None => None,
             };
-            used.push("xml-into".into());
+            used.push(code.to_ascii_lowercase());
             ir::Lowered::XmlInto {
                 doc: Box::new(doc),
                 opts: opts.map(Box::new),
@@ -3212,6 +3215,13 @@ fn hex_number(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<i128> {
             .iter()
             .fold(0i128, |acc, &x| acc.wrapping_shl(8) | i128::from(x)),
     )
+}
+
+/// XML-SAX's %HANDLER(procedure : communication area) (S2.181): as
+/// xml_sax checks it before the document, a procedure name and an area.
+fn sax_handler_ok(e: &Expr) -> bool {
+    matches!(e, Expr::Bif(b, hargs) if b == "HANDLER"
+        && matches!(hargs.as_slice(), [Expr::Name { args: None, .. }, _]))
 }
 
 /// XML-INTO's %HANDLER(procedure : communication area) (S2.180): a

@@ -2071,3 +2071,9 @@ XML-INTO %HANDLER(procedure : area) %XML(document [: options]) is lowered, with 
 Generated code evaluates the document and the options in order. The runtime then takes handler_items, and `xml_into_handler_doc` does the rest of xml_into_handler unchanged. That function is upstream's xml_into_handler split after its checks and evaluation, under the same authorization as S2.165's split; CLAUDE.native.md section 3 records it.
 
 **Verified by** the native unit NXMLHND, under both engines, against the PUB400 capture (tools/golden/native180.txt n180_handler: `9 2 abc|5 1 ab 1 351`), on the parts where IBM i and the interpreter agree. IBM i ends the operation with error 00351 when the handler returns non-zero; the interpreter ends it without an error (fidelity.md). rla_test.rs XMLHND is native now.
+
+## S2.181: XML-SAX %HANDLER
+
+XML-SAX %HANDLER(procedure : area) %XML(document [: options]) is lowered with S2.165's `Lowered::XmlInto`, with or without E. Lowering checks xml_sax's conditions before the document (a %HANDLER of a procedure name and an area), so they cannot fail at run time. Generated code evaluates the document and the options in order. The runtime then calls `xml_sax_doc`, which is upstream's xml_sax split after its checks and evaluation with no behavior change (authorized by the user on 2026-11-21; CLAUDE.native.md, section 3). The handler's calls go through the program's ordinary procedure calls, so a native handler runs natively.
+
+**Verified by** the native unit NXMLSAX, under both engines, against the PUB400 capture (tools/golden/native181.txt n181_sax: `<order<itempen<itemink & nib|id=7 14 1 351`), on the parts where IBM i and the interpreter agree. When the handler returns non-zero, IBM i ends the parsing with error 00351 and the interpreter ends it without an error (fidelity.md). rla_test.rs SAXT is native now.

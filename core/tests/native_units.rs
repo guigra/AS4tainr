@@ -4049,3 +4049,23 @@ async fn native_unit_lowered_xml_into_handler() {
     };
     assert!(line.starts_with("9 2 abc|5 1 ab "), "NXMLHND: {line}");
 }
+
+// Stage 2, S2.181: XML-SAX %HANDLER. The capture is
+// "<order<itempen<itemink & nib|id=7 14 1 351": the events up to <stop/>,
+// where the handler returns non-zero and the parsing ends. IBM i ends it
+// with an error (%ERROR on, status 00351), where the interpreter (and so
+// the native engine) ends it without one (fidelity.md, "XML-SAX handler
+// returning non-zero"). The test checks the parts where both agree.
+// Source: golden capture tools/golden/native181 n181_sax (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_xml_sax() {
+    let _ = require_db!();
+    let got = shown("NXMLSAX", include_str!("native/NXMLSAX.rpgle")).await;
+    let [line] = got.as_slice() else {
+        panic!("NXMLSAX: {got:?}");
+    };
+    assert!(
+        line.starts_with("<order<itempen<itemink & nib|id=7 14 "),
+        "NXMLSAX: {line}"
+    );
+}
