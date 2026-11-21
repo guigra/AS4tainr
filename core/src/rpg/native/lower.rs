@@ -7462,15 +7462,11 @@ fn except_fields(
         }
         for of in &r.fields {
             if let Some(w) = &of.edit_word {
-                // The runtime's out_text_n takes the module's constant: the
-                // name must be one, and the same one the interpreter's
-                // `sym` finds (a procedure's own constant of that name
-                // stays with the interpreter; the review of 2026-11-18).
+                // The runtime's out_text_n takes the constant the
+                // interpreter's `sym` finds where the EXCEPT runs: a
+                // procedure's own first (S2.187), then the module's.
                 if let Some(n) = w.strip_prefix('\u{1}') {
-                    let here = sym(cx, n);
-                    let global = prog.syms.get(n);
-                    let same = matches!((here, global), (Some(a), Some(b)) if std::ptr::eq(a, b));
-                    if !matches!(global, Some(Sym::Const(_))) || !same {
+                    if !matches!(sym(cx, n), Some(Sym::Const(_))) {
                         return None;
                     }
                 }

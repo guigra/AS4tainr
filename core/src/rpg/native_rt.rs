@@ -4915,7 +4915,9 @@ impl Rt<'_, '_> {
         };
         if let Some(w) = &f.edit_word {
             let word = match w.strip_prefix('\u{1}') {
-                Some(n) => match self.m.prog.syms.get(n) {
+                // out_text's `sym` (S2.187): a procedure's own constant
+                // first, as the frame finds it.
+                Some(n) => match self.m.sym(n) {
                     Some(super::super::program::Sym::Const(v)) => a(&v.chars()?),
                     _ => return Err(anyhow!("edit word {n} is not a named constant")),
                 },
