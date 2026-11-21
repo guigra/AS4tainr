@@ -612,9 +612,14 @@ impl Machine<'_> {
             "CONCAT" => {
                 // %CONCAT(separator : a : b ...): the values joined with
                 // the separator (*NONE: nothing between them).
-                let sep = match self.special_arg(args, 0).as_deref() {
-                    Some("*NONE") => vec![],
-                    Some("*BLANK") | Some("*BLANKS") => vec![data::BLANK],
+                // The parser gives *BLANK and *BLANKS as the figurative
+                // constant: one blank between the values (PUB400, IBM i 7.5,
+                // 2026-11-21: %CONCAT(*BLANK : 'a' : 'b') is 'a b').
+                let sep = match (self.special_arg(args, 0).as_deref(), args.first()) {
+                    (Some("*NONE"), _) => vec![],
+                    (Some("*BLANK") | Some("*BLANKS"), _) | (_, Some(Expr::Fig(Fig::Blanks))) => {
+                        vec![data::BLANK]
+                    }
                     _ => arg(self, 0)?.chars()?,
                 };
                 let mut out = Vec::new();

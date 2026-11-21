@@ -30030,3 +30030,41 @@ async fn constant_indexes_past_a_varying_dimension_do_not_compile() {
     )
     .await;
 }
+
+/// %CONCAT's separator: a literal, *NONE (nothing) and *BLANK (one
+/// blank); a fixed-length character operand keeps its trailing blanks.
+/// Expected values: PUB400, IBM i 7.5, 2026-11-21 (the program of
+/// tools/golden/native182 n182_inconcat in the native fork:
+/// "x, y, z|ab|a b|ab  -q-ab  |").
+#[tokio::test]
+async fn concat_separators_literal_none_and_blank() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s w char(4) inz('ab');
+dcl-s line varchar(200);
+line = %concat(', ' : 'x' : 'y' : 'z') + '|';
+line += %concat(*none : 'a' : 'b') + '|';
+line += %concat(*blank : 'a' : 'b') + '|';
+line += %concat('-' : w : 'q' : w) + '|';
+dsply line;
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "CONCATB".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["x, y, z|ab|a b|ab  -q-ab  |"]);
+}
