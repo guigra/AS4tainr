@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.205: a data structure array returned (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native205.txt -f tools/golden/native205
+n205_crt|!system -q "DLTPGM PGM(@LIB@/GN205DR)"; system "CRTSQLRPGI OBJ(@LIB@/GN205DR) SRCSTMF('@HOME@/gld/gn205dr.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n205_dsret|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN205DR)"; cat gn1.out; rm -f gn1.out

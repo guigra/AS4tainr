@@ -4459,3 +4459,16 @@ async fn native_unit_lowered_pointer_call_compare() {
     )
     .await;
 }
+
+// Stage 2, S2.205: a data structure array returned.
+// Source: golden capture tools/golden/native205 n205_dsret (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_ds_array_return() {
+    let _ = require_db!();
+    expect(
+        "NDSRET",
+        include_str!("native/NDSRET.rpgle"),
+        &["ONE 1|TWO 2"],
+    )
+    .await;
+}

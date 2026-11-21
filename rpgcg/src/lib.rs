@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.204");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.205");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -666,6 +666,17 @@ pub mod ir {
         DiskOpenClose,
         /// UNLOCK of a data area or *DTAARA (S2.192).
         DtaaraUnlock,
+        /// EVAL of a whole data structure array (DIM above 1) (S2.205):
+        /// its first element's place (`target`, of the element's size),
+        /// its dimension, the value, (H), EVALR.
+        EvalDsArr {
+            target: Operand,
+            size: usize,
+            dim: u32,
+            value: CharExpr,
+            half: bool,
+            right: bool,
+        },
         /// An array assigned %SPLIT (S2.179): the array (buffer, offset,
         /// stride, dimension, element type), its name when of varying
         /// dimension, the string, the separators, *ALLSEP, (H), EVALR.
@@ -2504,6 +2515,29 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("ec{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::EvalDsArr {
+                target,
+                size,
+                dim,
+                value,
+                half,
+                right,
+            },
+        ) => {
+            // assign_value: the value first, then the place.
+            let (prelude, sb, so) = place_of(target).ok_or_else(bad)?;
+            let v = char_expr(pc, value, helpers);
+            let _ = writeln!(
+                helpers,
+                "\nfn eda{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let v = {v};\n{prelude}    rpgrt::native::store_ds_array(rt.mem(), {sb}, {so}, {size}, {dim}, &v, rpgrt::rpg::data::Fit::Strict {{ half_adjust: {half} }}, {right})\n}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("eda{pc}(rt).map(|()| {next})"),
             )
         }
         (

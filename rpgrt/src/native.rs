@@ -2319,6 +2319,47 @@ pub fn split_pieces(s: &Value, seps: Option<&Value>, allsep: bool) -> NResult<Ve
         .collect())
 }
 
+/// Stage 2 (S2.205): interp.rs assign_value for a whole data structure
+/// array (DIM above 1): character data of all its elements' length goes
+/// into them all, byte for byte; any other value into its first element,
+/// stored as characters of the element's size.
+#[allow(clippy::too_many_arguments)] // assign_value's place and value, one by one.
+pub fn store_ds_array(
+    mem: &mut Mem,
+    buf: usize,
+    off: usize,
+    size: usize,
+    dim: u32,
+    v: &Value,
+    fit: Fit,
+    right: bool,
+) -> NResult<()> {
+    let total = size
+        .checked_mul(usize::try_from(dim)?)
+        .ok_or_else(|| anyhow::anyhow!("native: a data structure array's size"))?;
+    if let Value::Char(b) = v {
+        if b.len() == total {
+            let end = off
+                .checked_add(total)
+                .ok_or_else(|| anyhow::anyhow!("native: a data structure array's place"))?;
+            mem.get_mut(buf)
+                .and_then(|x| x.get_mut(off..end))
+                .ok_or_else(|| anyhow::anyhow!("native: a data structure array's storage"))?
+                .copy_from_slice(b);
+            return Ok(());
+        }
+    }
+    store(
+        mem,
+        buf,
+        off,
+        data::DType::Char(u32::try_from(size)?),
+        v,
+        fit,
+        right,
+    )
+}
+
 pub fn sqrt_bif(x: &Dec) -> NResult<Dec> {
     if x.is_negative() {
         anyhow::bail!("RNQ0101: %SQRT of a negative number.");
