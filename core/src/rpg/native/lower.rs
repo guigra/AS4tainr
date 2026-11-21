@@ -6163,6 +6163,43 @@ fn file_read(
                     Some(Sym::Klist(l)) => l.clone(),
                     _ => k.to_vec(),
                 },
+                // %KDS(ds [: n]) (S2.193): key_values's first n subfields
+                // of the data structure (bifs.rs ds_members' names, the
+                // structure's name before each when qualified), n a
+                // literal.
+                [Expr::Bif(b, args)] if b == "KDS" => {
+                    let Some(Expr::Name { parts, args: None }) = args.first() else {
+                        return None;
+                    };
+                    let dn = parts.join(".");
+                    let Some(Sym::Ds(d)) = sym(cx, &dn) else {
+                        return None;
+                    };
+                    let mut names: Vec<Expr> = d
+                        .subfields
+                        .iter()
+                        .map(|sf| {
+                            Expr::name(&if d.qualified {
+                                format!("{dn}.{sf}")
+                            } else {
+                                sf.clone()
+                            })
+                        })
+                        .collect();
+                    match args.get(1) {
+                        None => {}
+                        Some(Expr::Num(c)) if c.scale() == 0 => {
+                            let c = usize::try_from(c.to_i128().ok()?).ok()?;
+                            names.truncate(c);
+                        }
+                        Some(_) => return None,
+                    }
+                    if args.len() > 2 {
+                        return None;
+                    }
+                    used.push(format!("kds {dn} {}", names.len()));
+                    names
+                }
                 _ => k.to_vec(),
             };
             let mut vals = Vec::with_capacity(list.len());

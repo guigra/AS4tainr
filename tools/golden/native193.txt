@@ -1,0 +1,7 @@
+# Captures for stage 2, S2.193: CHAIN with %KDS (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native193.txt -f tools/golden/native193
+n193_src|!system -q "DLTF FILE(@LIB@/GN193PF)"; system -q "CRTSRCPF FILE(@LIB@/GN193SRC) RCDLEN(92)"; system -q "ADDPFM FILE(@LIB@/GN193SRC) MBR(GN193PF) SRCTYPE(PF)"; system "CPYFRMSTMF FROMSTMF('@HOME@/gld/gn193pf.pf') TOMBR('/QSYS.LIB/@LIB@.LIB/GN193SRC.FILE/GN193PF.MBR') MBROPT(*REPLACE)"
+n193_crtpf|!system -s "CRTPF FILE(@LIB@/GN193PF) SRCFILE(@LIB@/GN193SRC)"
+n193_rows|RUNSQL SQL('INSERT INTO @LIB@/GN193PF VALUES(1, 2, ''Beta''), (2, 1, ''Delta''), (1, 1, ''Alpha''), (3, 1, ''Echo''), (1, 3, ''Gamma'')') COMMIT(*NONE)
+n193_crt|!system -q "DLTPGM PGM(@LIB@/GN193KD)"; system "CRTSQLRPGI OBJ(@LIB@/GN193KD) SRCSTMF('@HOME@/gld/gn193kd.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n193_kds|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN193KD)"; cat gn1.out; rm -f gn1.out

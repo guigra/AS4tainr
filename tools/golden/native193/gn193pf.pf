@@ -1,0 +1,9 @@
+     A* Stage 2, S2.193: a keyed physical file for CHAIN with %KDS (native
+     A* unit NKDS).
+     A                                      UNIQUE
+     A          R GN193FMT
+     A            ORD            3S 0
+     A            LIN            3P 0
+     A            NAME          10A
+     A          K ORD
+     A          K LIN

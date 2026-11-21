@@ -2209,3 +2209,9 @@ UNLOCK of a data area's field, or of *DTAARA, with no extender or indicator, is 
 IN and OUT of data areas with E, or with an error indicator in positions 73-74, are lowered inside errors.rs stmt_e's start and catch (call_e_start, call_e_end), as CALLP(E) is (S2.173).
 
 **Verified by** the native unit NDTAUNL, under both engines, against the PUB400 capture (tools/golden/native192.txt n192_unlock), on the values read before any OUT. On IBM i, OUT(E) of a data area that is no longer locked is an error, status 00412; the interpreter writes the data area (fidelity.md). The capture's second UNLOCK names the data area, not *DTAARA, because as4tainr's free-form parser takes *DTAARA as the name DTAARA (fidelity.md). rla_test.rs LCKU's UNLOCK is native now.
+
+## S2.193: %KDS as a file operation's key
+
+A key `%KDS(ds [: n])` of a database file operation is lowered as interp.rs key_values takes it: the data structure's subfields, by bifs.rs ds_members' names (the structure's name before each when qualified), the first n when n is given, then as a list of key fields (S2.58). n must be a literal, because key_values evaluates it.
+
+**Verified by** the native unit NKDS, under both engines, as captured on PUB400 (tools/golden/native193.txt n193_kds: `Gamma 1 Delta 1 1 Delta 0 []`). It makes three CHAIN calls into a LIKEREC data structure: with both keys, with the first key only, and with a key not found; the program fields stay as they were. The WHY pass lists none of NKDS's statements. rla_test.rs DSIO's `chain %kds(key) custmast cust` is native now. A record format with a hexadecimal field still keeps a read into a data structure with the interpreter (S2.119); that is why the unit's file is not S2.58's GN58PF, whose format has one.
