@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.189: date, time and timestamp parameters (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native189.txt -f tools/golden/native189
+n189_crt|!system -q "DLTPGM PGM(@LIB@/GN189DP)"; system "CRTSQLRPGI OBJ(@LIB@/GN189DP) SRCSTMF('@HOME@/gld/gn189dp.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n189_dtparm|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN189DP)"; cat gn1.out; rm -f gn1.out
