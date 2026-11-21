@@ -2287,7 +2287,12 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
             };
             let mut ip = path.clone();
             ip.push(0);
-            let inner = num_expr(cx, inner, used, ip)?;
+            // A pointer difference (S2.199): %CHAR of its number, which
+            // has no precision of its own to matter here.
+            let inner = match ptr_diff_of(cx, inner, used, &ip) {
+                Some(d) => d,
+                None => num_expr(cx, inner, used, ip)?,
+            };
             let (point, zero) = cx.prog.decedit();
             used.push(format!("decedit {point} {zero}"));
             Some(ir::CharExpr::CharOfNum {
@@ -2534,6 +2539,9 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
     // only (an EVAL's or a RETURN's): eval gives ptr_arith's number, with
     // no precision of its own for an enclosing expression to use.
     if path.is_empty() {
+        if let Some(d) = ptr_diff_of(cx, e, used, &path) {
+            return Some(d);
+        }
         if let Expr::Bin(BinOp::Sub, l, r) = e {
             if is_pointer_name(cx, l) && is_pointer_name(cx, r) {
                 let a = variable(cx, l, used)?;
@@ -3565,6 +3573,25 @@ fn eval_corr_pairs(
 /// is_float does not take it as float.
 fn float_abs_of(cx: &Cx<'_>, e: &Expr) -> bool {
     matches!(e, Expr::Bif(b, args) if b == "ABS" && matches!(args.as_slice(), [x] if is_float_static(cx, x, 0)))
+}
+
+/// A pointer minus a pointer where either is not a pointer field (S2.199):
+/// eval's operands in order, then ptr_arith's Sub of two pointers. Two
+/// pointer fields keep S2.98's PtrDiff.
+fn ptr_diff_of(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: &[u8]) -> Option<ir::NumExpr> {
+    let Expr::Bin(BinOp::Sub, l, r) = e else {
+        return None;
+    };
+    if !(ptr_expr(cx, l) && ptr_expr(cx, r)) || (is_pointer_name(cx, l) && is_pointer_name(cx, r)) {
+        return None;
+    }
+    let mut lp = path.to_vec();
+    lp.push(0);
+    let mut rp = path.to_vec();
+    rp.push(1);
+    let a = ptr_val(cx, l, used, lp)?;
+    let b = ptr_val(cx, r, used, rp)?;
+    Some(ir::NumExpr::PtrDiffOf(Box::new(a), Box::new(b)))
 }
 
 /// Whether an expression gives a pointer (S2.160): a pointer field, %ADDR,

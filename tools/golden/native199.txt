@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.199: pointer differences in %CHAR (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native199.txt -f tools/golden/native199
+n199_crt|!system -q "DLTPGM PGM(@LIB@/GN199PD)"; system "CRTSQLRPGI OBJ(@LIB@/GN199PD) SRCSTMF('@HOME@/gld/gn199pd.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n199_ptrdiff|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN199PD)"; cat gn1.out; rm -f gn1.out
