@@ -4317,3 +4317,16 @@ async fn native_unit_lowered_omit_local() {
     )
     .await;
 }
+
+// Stage 2, S2.196: %LOOKUP of DSARR(*).SUBFIELD.
+// Source: golden capture tools/golden/native196 n196_lookds (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_lookup_ds_subfield() {
+    let _ = require_db!();
+    expect(
+        "NLOOKDS",
+        include_str!("native/NLOOKDS.rpgle"),
+        &["2 0 4 3"],
+    )
+    .await;
+}

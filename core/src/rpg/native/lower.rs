@@ -2780,23 +2780,63 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 [x, a, s, n] => (x, a, Some(s), Some(n)),
                 _ => return None,
             };
-            let Expr::Name { parts, args: None } = arr else {
-                return None;
-            };
-            let name = parts.join(".");
-            let Some(Sym::Var(v)) = sym(cx, &name) else {
-                return None;
-            };
             let prog = cx.prog;
-            if v.dim == 0
-                || v.local
-                || name.starts_with("TAB")
-                || prog.varying.contains_key(&name)
-                || prog.based.contains_key(&v.buf)
-                || prog.occurs.iter().any(|o| o.buf == v.buf)
-            {
-                return None;
-            }
+            // DSARR(*).SUBFIELD (S2.196): bifs.rs list_of's subfield of
+            // every element of a global array of data structures, that is
+            // the subfield's place in the first element (program.rs's
+            // DSARR.SUBFIELD), the structure's size apart, its dimension.
+            let (name, v, stride, dim) = match arr {
+                Expr::Name { parts, args: None } => {
+                    let name = parts.join(".");
+                    let Some(Sym::Var(v)) = sym(cx, &name) else {
+                        return None;
+                    };
+                    if v.dim == 0
+                        || v.local
+                        || name.starts_with("TAB")
+                        || prog.varying.contains_key(&name)
+                        || prog.based.contains_key(&v.buf)
+                        || prog.occurs.iter().any(|o| o.buf == v.buf)
+                    {
+                        return None;
+                    }
+                    (name, v, v.stride, v.dim)
+                }
+                Expr::Path {
+                    parts,
+                    idx,
+                    args: None,
+                } if parts.len() == 2
+                    // %LOOKUPxx needs a sequenced array (RNF0592 on IBM i
+                    // for a data structure array's subfield).
+                    && b == "LOOKUP"
+                    && matches!(idx.first(), Some(Some(x)) if matches!(x.as_ref(),
+                        Expr::Name { parts: p, args: None }
+                            if p.len() == 1 && p.first().is_some_and(|q| q == super::super::expr::ALL_ELEMENTS)))
+                    && idx.get(1).is_none_or(|x| x.is_none()) =>
+                {
+                    let dn = parts.first()?;
+                    let Some(Sym::Ds(d)) = sym(cx, dn) else {
+                        return None;
+                    };
+                    if d.dim == 0
+                        || d.local
+                        || prog.based.contains_key(&d.buf)
+                        || prog.occurs.iter().any(|o| o.buf == d.buf)
+                    {
+                        return None;
+                    }
+                    let name = parts.join(".");
+                    let Some(Sym::Var(v)) = sym(cx, &name) else {
+                        return None;
+                    };
+                    if v.dim != 0 || v.local || v.buf != d.buf || prog.varying.contains_key(&name) {
+                        return None;
+                    }
+                    (name, v, d.size, d.dim)
+                }
+                _ => return None,
+            };
             let ty = match v.dtype {
                 DType::Packed(d, s) => ir::Ty::Packed(d, s),
                 DType::Zoned(d, s) => ir::Ty::Zoned(d, s),
@@ -2812,15 +2852,15 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                 return None;
             }
             used.push(format!(
-                "lookup {name} {} {} {} {} {:?}",
-                v.buf, v.off, v.stride, v.dim, v.dtype
+                "lookup {name} {} {} {stride} {dim} {:?}",
+                v.buf, v.off, v.dtype
             ));
             Some(ir::NumExpr::Lookup {
                 x: Box::new(x),
                 buf: v.buf,
                 off: v.off,
-                stride: v.stride,
-                dim: v.dim,
+                stride,
+                dim,
                 ty,
                 start: match start {
                     Some(s) => Some(Box::new(operand(cx, s, used)?)),
