@@ -4511,3 +4511,60 @@ async fn native_unit_lowered_whole_array_const() {
     )
     .await;
 }
+
+// Stage 2, S2.209: a DS array subfield of a DS array element as a CONST
+// LIKEDS DIM argument.
+// Source: golden capture tools/golden/native209 n209_dspath (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_ds_array_path_argument() {
+    let _ = require_db!();
+    // The capture's "1 2 3 three|9 " as `shown` reads DSPLY's message
+    // (trimmed).
+    expect(
+        "NDSPATH",
+        include_str!("native/NDSPATH.rpgle"),
+        &["1 2 3 three|9"],
+    )
+    .await;
+}
+
+// Stage 2, S2.210: READ and UPDATE of a record with float and graphic
+// fields.
+// Source: golden capture tools/golden/native210 n210_floatgraphic (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_float_graphic_record() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    // As the capture made GN210T before its call.
+    let _ = job.run("DLTF FILE(QGPL/NFLTGRT)").await;
+    let script = "CREATE TABLE QGPL/NFLTGRT (ID INT NOT NULL, RATE DOUBLE NOT NULL, NOTE VARGRAPHIC(20) CCSID 1200 NOT NULL) RCDFMT NFLTGRR;
+        INSERT INTO QGPL/NFLTGRT VALUES (7, 123, 'Zurich');";
+    job.run_sql_script(script, "test", 10, None, true)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    expect(
+        "NFLTGRF",
+        include_str!("native/NFLTGRF.rpgle"),
+        &["7 +1.230000000000000E+002 Zurich|7 +3.075000000000000E+001 Bern"],
+    )
+    .await;
+}

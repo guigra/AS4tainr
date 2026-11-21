@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.209: a DS array subfield of a DS array element as a CONST argument (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native209.txt -f tools/golden/native209
+n209_crt|!system -q "DLTPGM PGM(@LIB@/GN209DP)"; system "CRTSQLRPGI OBJ(@LIB@/GN209DP) SRCSTMF('@HOME@/gld/gn209dp.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n209_dspath|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN209DP)"; cat gn1.out; rm -f gn1.out

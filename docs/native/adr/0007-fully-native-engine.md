@@ -2326,3 +2326,19 @@ rla_test.rs NESTED's `show(list.users(2))` is native now.
 A whole array given to a CONST parameter of its elements' type is lowered as args_for's branch for it, after its data structure array cases (whole_ds_array, ds_array_path), for any call. The argument is Arg::Ref(loc_of): the array's place and its elements' extent, `stride × (dim − 1) + element size`, as characters of that size. The array is not based, not of multiple occurrences, and a procedure's own one is placed through rt.local.
 
 **Verified by** the native unit NWHOLEA, under both engines, as captured on PUB400 (tools/golden/native208.txt n208_wholearr: `7 15 40`): arrays of 2 and 5 elements, and a procedure's own array of 1, given to `int(10) CONST DIM(5) OPTIONS(*VARSIZE)`. rla_test.rs RUNITF is native now (its WHY pass lists nothing). In the unit, the callee's `keys(i)` stays with the interpreter (the WHY pass lists line 35). It reads an element of the procedure's own OPTIONS(*VARSIZE) array parameter, which elem_off checks against the argument's storage (`reach`).
+
+## S2.209: a data structure array subfield of an element, as a CONST argument
+
+A data structure array subfield of a data structure array element, `gv(s).m`, given to a CONST parameter of a procedure of the module is lowered as args_for's ds_array_path branch (`ds_array_path_place`). Its place is path_sym's: each index on the outer structures checked and applied from the left, ds_array_field_of's chain. It is passed by reference with all its elements, as characters of their size. call_proc takes the alias and the descriptor from the Loc's place and size, and call_frame takes them from this operand's. Other calls pass the parameter's type on in the Loc, and stay with the interpreter.
+
+**Verified by** the native unit NDSPATH, under both engines, as captured on PUB400 (tools/golden/native209.txt n209_dspath: `1 2 3 three|9 `). rla_test.rs IMQPATH is native now (its WHY pass lists nothing).
+
+## S2.210: float and graphic fields in a record
+
+A read or a change of a database record whose program fields include float fields, or UCS-2 fields for graphic columns, is lowered. A float column is `MoveKind::Float`, with the program field float_target's operand:
+- **read:** the number's text parsed exactly, as fill_fields' numeric arm, then data::store into the float field;
+- **write:** record_of's float arm, the number's text as it is, not rescaled to the field's decimals.
+
+A graphic column is a character move, as fill_fields' and record_of's text arms; data::store and load convert UCS-2 (S2.206). Large objects stay out of the program's record, as before.
+
+**Verified by** the native unit NFLTGRF, under both engines, as captured on PUB400 (tools/golden/native210.txt n210_floatgraphic: `7 +1.230000000000000E+002 Zurich|7 +3.075000000000000E+001 Bern`): READ, a float halved twice over and a VARGRAPHIC changed, UPDATE, then a new read. rla_test.rs TYPES's READ and UPDATE are native now (its WHY pass lists nothing). With a CLOB column, IBM i failed where the interpreter goes on (fidelity.md); the capture leaves that column out.

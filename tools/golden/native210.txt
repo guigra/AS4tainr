@@ -1,0 +1,6 @@
+# Captures for stage 2, S2.210: READ and UPDATE of float, graphic and LOB fields (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native210.txt -f tools/golden/native210
+n210_tbl|!system -q "DLTF FILE(@LIB@/GN210T)"; system "RUNSQL SQL('CREATE TABLE @LIB@/GN210T (ID INT NOT NULL, RATE DOUBLE NOT NULL, NOTE VARGRAPHIC(20) CCSID 1200 NOT NULL) RCDFMT GN210R') COMMIT(*NONE)" && system "RUNSQL SQL('INSERT INTO @LIB@/GN210T VALUES (7, 123, ''Zurich'')') COMMIT(*NONE)" && echo created
+n210_crt|!system -q "DLTPGM PGM(@LIB@/GN210FF)"; system "CRTSQLRPGI OBJ(@LIB@/GN210FF) SRCSTMF('@HOME@/gld/gn210ff.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n210_floatgraphic|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN210FF)"; cat gn1.out; rm -f gn1.out
+n210_after|RUNSQL SQL('SELECT ID, RATE, NOTE FROM @LIB@/GN210T') COMMIT(*NONE)

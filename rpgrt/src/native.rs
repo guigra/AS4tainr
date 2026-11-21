@@ -788,6 +788,8 @@ pub enum MoveKind {
     Num,
     Char,
     Hex,
+    /// A float field of the record (S2.210).
+    Float,
 }
 
 /// A program field's value as the external text of a record field, as the
@@ -797,6 +799,12 @@ pub enum MoveKind {
 pub fn field_text(v: &Value, kind: MoveKind, decimals: u8) -> NResult<String> {
     Ok(match kind {
         MoveKind::Num => v.num()?.rescale(decimals, false)?.to_string(),
+        // record_of's float arm (S2.210): a number's text as it is; any
+        // other value as its characters.
+        MoveKind::Float => match v {
+            Value::Num(d) => d.to_string(),
+            other => data::a(&other.chars()?),
+        },
         MoveKind::Hex => v.chars()?.iter().map(|b| format!("{b:02X}")).collect(),
         MoveKind::Char => data::a(&v.chars()?),
     })
@@ -809,7 +817,7 @@ pub fn field_text(v: &Value, kind: MoveKind, decimals: u8) -> NResult<String> {
 /// out).
 pub fn field_value(text: &str, kind: MoveKind) -> NResult<Value> {
     Ok(match kind {
-        MoveKind::Num => Value::Num(Dec::parse(text)?),
+        MoveKind::Num | MoveKind::Float => Value::Num(Dec::parse(text)?),
         MoveKind::Char => Value::str(text),
         MoveKind::Hex => Value::Char(
             text.as_bytes()

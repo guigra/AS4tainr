@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.208");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.210");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -444,6 +444,9 @@ pub mod ir {
         Num,
         Char,
         Hex,
+        /// A float field of the record (S2.210): read as Num, written as
+        /// record_of writes a float (the number's text, not rescaled).
+        Float,
     }
 
     /// One side of a comparison: a numeric expression with no

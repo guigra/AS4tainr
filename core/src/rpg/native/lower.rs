@@ -4440,6 +4440,94 @@ fn ds_array_field_of(
     })
 }
 
+/// A data structure array subfield of a data structure array element as a
+/// whole, `gv(s).m` (S2.209), as interp.rs ds_array_path and loc_of take
+/// it: path_sym's place (each index on the outer structures checked and
+/// applied from the left, ds_array_field_of's chain), then all its
+/// elements, as characters of their size. A global array or a procedure's
+/// own, not based, not of multiple occurrences.
+fn ds_array_path_place(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    let Expr::Path {
+        parts,
+        idx,
+        args: None,
+    } = e
+    else {
+        return None;
+    };
+    let last = parts.len().checked_sub(1)?;
+    if parts.len() < 2
+        || idx
+            .iter()
+            .enumerate()
+            .any(|(k, x)| x.is_some() && k >= last)
+    {
+        return None;
+    }
+    let name = parts.join(".");
+    let Some(Sym::Ds(dd)) = sym(cx, &name) else {
+        return None;
+    };
+    if dd.dim <= 1 {
+        return None;
+    }
+    let first = idx.iter().position(Option::is_some)?;
+    let outer = parts.get(..=first)?.join(".");
+    let Some(Sym::Ds(d)) = sym(cx, &outer) else {
+        return None;
+    };
+    let prog = cx.prog;
+    let local_ok = !d.local || cx.based.is_some_and(|b| !b.contains_key(&d.buf));
+    if !local_ok
+        || d.dim == 0
+        || dd.buf != d.buf
+        || dd.local != d.local
+        || (!d.local && prog.based.contains_key(&d.buf))
+        || (!d.local && prog.occurs.iter().any(|o| o.buf == d.buf))
+    {
+        return None;
+    }
+    let mut index: Option<Box<ir::Index>> = None;
+    for (k, x) in idx.iter().enumerate() {
+        let Some(ix) = x else {
+            continue;
+        };
+        let at = parts.get(..=k)?.join(".");
+        let Some(Sym::Ds(dk)) = sym(cx, &at) else {
+            return None;
+        };
+        if dk.dim == 0 || dk.buf != d.buf || dk.local != d.local {
+            return None;
+        }
+        let of = operand(cx, ix, used)?;
+        index = Some(Box::new(ir::Index {
+            of,
+            stride: dk.size,
+            dim: dk.dim,
+            vary: None,
+            outer: index,
+            next: false,
+            table: None,
+        }));
+    }
+    let total = u32::try_from(dd.size.checked_mul(usize::try_from(dd.dim).ok()?)?).ok()?;
+    used.push(format!(
+        "ds array path {name} {} {} {total} {}",
+        dd.buf,
+        dd.off,
+        if dd.local { "local" } else { "global" }
+    ));
+    Some(ir::Operand::Var {
+        name,
+        buf: dd.buf,
+        off: dd.off,
+        ty: ir::Ty::Char(total),
+        local: dd.local,
+        index: Some(index?),
+        based: None,
+    })
+}
+
 fn kind(i: &Ins) -> (ir::Kind, String) {
     use ir::Kind as K;
     match i {
@@ -4925,6 +5013,19 @@ fn call_of(
                         continue;
                     }
                 }
+            }
+        }
+        // A data structure array subfield of an element (S2.209):
+        // args_for's ds_array_path branch, Arg::Ref of loc_of's place and
+        // size (the parameter's type on it). For this module's procedure:
+        // call_proc's alias and descriptor take the Loc's place and size,
+        // as call_frame takes this operand's (characters of that size);
+        // other calls pass the type on, and stay with the interpreter.
+        if p.konst && !p.by_value {
+            if let Some(o) = ds_array_path_place(cx, a, used) {
+                local?;
+                out.push(ir::CallArg::Ref(o));
+                continue;
             }
         }
         // A whole array for a CONST array parameter of its elements' type
@@ -6674,7 +6775,14 @@ fn file_read(
             if members.is_some() && fd.data_type == crate::dds::DataType::Hex {
                 return None;
             }
-            let target = variable(cx, &Expr::name(&tname), used)?;
+            // A float program field (S2.210): float_target's operand, which
+            // `variable` does not give.
+            let fe = Expr::name(&tname);
+            let target = if float_target_ok(cx, &fe) {
+                float_target(cx, &fe, used)?
+            } else {
+                variable(cx, &fe, used)?
+            };
             // record_to_ds and ds_to_record convert a date, time or
             // timestamp subfield as Value::str and chars; left to the
             // interpreter (S2.119, S2.120).
@@ -6708,11 +6816,19 @@ fn file_read(
                         | ir::Ty::Date(..)
                         | ir::Ty::Time(..)
                         | ir::Ty::Timestamp(_)
+                        // A float and a graphic field's program fields
+                        // (S2.210): data::store and load convert, as
+                        // fill_fields' assign and record_of's eval.
+                        | ir::Ty::Float(_)
+                        | ir::Ty::Ucs2(_)
+                        | ir::Ty::VarUcs2(_)
                 )
             {
                 return None;
             }
-            let kind = if fd.data_type.is_numeric() {
+            let kind = if fd.data_type == crate::dds::DataType::Float {
+                ir::MoveKind::Float
+            } else if fd.data_type.is_numeric() {
                 ir::MoveKind::Num
             } else if fd.data_type == crate::dds::DataType::Hex {
                 ir::MoveKind::Hex
@@ -6722,6 +6838,7 @@ fn file_read(
                     | crate::dds::DataType::Date
                     | crate::dds::DataType::Time
                     | crate::dds::DataType::Timestamp
+                    | crate::dds::DataType::Graphic
             ) {
                 ir::MoveKind::Char
             } else {
@@ -6730,7 +6847,7 @@ fn file_read(
             // A number into a character field, or characters into a
             // numeric one, is not a move fill_fields makes for fields of
             // the file's own definition.
-            if (kind == ir::MoveKind::Num) == is_char(&target) {
+            if matches!(kind, ir::MoveKind::Num | ir::MoveKind::Float) == is_char(&target) {
                 return None;
             }
             let decimals = u8::try_from(fd.decimals).ok()?;
