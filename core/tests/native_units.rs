@@ -4291,3 +4291,16 @@ async fn native_unit_lowered_chain_kds() {
     )
     .await;
 }
+
+// Stage 2, S2.194: OPTIONS(*CONVERT).
+// Source: golden capture tools/golden/native194 n194_convert (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_options_convert() {
+    let _ = require_db!();
+    expect(
+        "NCONVRT",
+        include_str!("native/NCONVRT.rpgle"),
+        &["[-42][1234.50][2026-07-04][ab    ]"],
+    )
+    .await;
+}

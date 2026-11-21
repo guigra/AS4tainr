@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.194: OPTIONS(*CONVERT) (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native194.txt -f tools/golden/native194
+n194_crt|!system -q "DLTPGM PGM(@LIB@/GN194CV)"; system "CRTSQLRPGI OBJ(@LIB@/GN194CV) SRCSTMF('@HOME@/gld/gn194cv.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n194_convert|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN194CV)"; cat gn1.out; rm -f gn1.out

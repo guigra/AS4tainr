@@ -2215,3 +2215,13 @@ IN and OUT of data areas with E, or with an error indicator in positions 73-74, 
 A key `%KDS(ds [: n])` of a database file operation is lowered as interp.rs key_values takes it: the data structure's subfields, by bifs.rs ds_members' names (the structure's name before each when qualified), the first n when n is given, then as a list of key fields (S2.58). n must be a literal, because key_values evaluates it.
 
 **Verified by** the native unit NKDS, under both engines, as captured on PUB400 (tools/golden/native193.txt n193_kds: `Gamma 1 Delta 1 1 Delta 0 []`). It makes three CHAIN calls into a LIKEREC data structure: with both keys, with the first key only, and with a key not found; the program fields stay as they were. The WHY pass lists none of NKDS's statements. rla_test.rs DSIO's `chain %kds(key) custmast cust` is native now. A record format with a hexadecimal field still keeps a read into a data structure with the interpreter (S2.119); that is why the unit's file is not S2.58's GN58PF, whose format has one.
+
+## S2.194: OPTIONS(*CONVERT)
+
+An argument for a VALUE or CONST character parameter with OPTIONS(*CONVERT) is lowered as args_for's value path gives it, when the argument is a field whose type is known when lowering:
+- a numeric, date, time or timestamp field goes as `%CHAR` of it (bif CHAR, as char_expr lowers %CHAR);
+- a character field goes as it is.
+
+Anything else stays with the interpreter. That covers an expression or a literal, whose type args_for asks type_of for at run time, and a parameter with *VARSIZE, *TRIM or *STRING too.
+
+**Verified by** the native unit NCONVRT, under both engines, as captured on PUB400 (tools/golden/native194.txt n194_convert: `[-42][1234.50][2026-07-04][ab    ]`): an integer, a packed field, a date and a character field. The WHY pass lists none of NCONVRT's statements. rla_test.rs SQLOVR's `show(n)` is native now.
