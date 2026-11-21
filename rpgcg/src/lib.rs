@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.191");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.192");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -656,11 +656,16 @@ pub mod ir {
             input: bool,
             lock: bool,
             fields: Vec<(String, Operand, Option<Operand>)>,
+            /// E or the error indicator (S2.192): errors.rs stmt_e
+            /// around it.
+            e: bool,
         },
         /// OPEN, CLOSE or FEOD of a printer file (S2.79).
         PrinterOp,
         /// OPEN or CLOSE of a database file (S2.128).
         DiskOpenClose,
+        /// UNLOCK of a data area or *DTAARA (S2.192).
+        DtaaraUnlock,
         /// An array assigned %SPLIT (S2.179): the array (buffer, offset,
         /// stride, dimension, element type), its name when of varying
         /// dimension, the string, the separators, *ALLSEP, (H), EVALR.
@@ -3537,6 +3542,7 @@ fn lowered_step(
                 input,
                 lock,
                 fields,
+                e,
             },
         ) => {
             // interp.rs data_area: the fields' places for this call, then
@@ -3574,10 +3580,18 @@ fn lowered_step(
                 helpers,
                 "\nfn da{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    Ok(())\n}}"
             );
-            guarded(
-                format!("rt.stmt({pc}).map(|()| {next})"),
-                format!("da{pc}(rt).map(|()| {next})"),
-            )
+            // E or the error indicator (S2.192): stmt_e's start and catch
+            // (call_e_start, call_e_end), as for CALLP(E).
+            let run = if *e {
+                let _ = writeln!(
+                    helpers,
+                    "\nfn dae{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    rt.call_e_start({pc})?;\n    let r = da{pc}(rt);\n    rt.call_e_end({pc}, r)\n}}"
+                );
+                format!("dae{pc}(rt).map(|()| {next})")
+            } else {
+                format!("da{pc}(rt).map(|()| {next})")
+            };
+            guarded(format!("rt.stmt({pc}).map(|()| {next})"), run)
         }
         (
             ir::Kind::Stmt,
@@ -3685,6 +3699,10 @@ fn lowered_step(
                 format!("xi{pc}(rt).map(|()| {next})"),
             )
         }
+        (ir::Kind::Stmt, ir::Lowered::DtaaraUnlock) => guarded(
+            format!("rt.stmt({pc}).map(|()| {next})"),
+            format!("rt.dtaara_unlock({pc}).map(|()| {next})"),
+        ),
         (ir::Kind::Stmt, ir::Lowered::DiskOpenClose) => guarded(
             format!("rt.stmt({pc}).map(|()| {next})"),
             format!("rt.disk_open_close({pc}).map(|()| {next})"),

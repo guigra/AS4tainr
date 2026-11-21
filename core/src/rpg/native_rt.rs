@@ -1378,6 +1378,28 @@ impl Runtime for Rt<'_, '_> {
         self.disk_open_close_n(pc)
     }
 
+    fn dtaara_unlock(&mut self, pc: usize) -> NResult<()> {
+        // interp.rs stmt's File arm for UNLOCK: *DTAARA releases every
+        // data area the program has locked; a data area's field its own.
+        let (op, file, _, _, _) = self.file_stmt(pc)?;
+        if op != FileOp::Unlock {
+            return Err(mismatch(pc, "an UNLOCK"));
+        }
+        if file.eq_ignore_ascii_case("*DTAARA") {
+            self.m.release_dtaaras();
+            return Ok(());
+        }
+        let f = self
+            .m
+            .prog
+            .dtaaras
+            .keys()
+            .find(|k| k.eq_ignore_ascii_case(file))
+            .cloned()
+            .ok_or_else(|| mismatch(pc, "an UNLOCK of a data area"))?;
+        self.m.unlock_dtaara(&f)
+    }
+
     fn sql_ts_literal(&mut self, v: &Value) -> NResult<String> {
         // host_literal's timestamp arm: iso_timestamp of the characters
         // without null bytes, trimmed, quotes doubled.

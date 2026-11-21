@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.192: UNLOCK of data areas (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native192.txt -f tools/golden/native192
+n192_crt|!system -q "DLTPGM PGM(@LIB@/GN192UL)"; system "CRTSQLRPGI OBJ(@LIB@/GN192UL) SRCSTMF('@HOME@/gld/gn192ul.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n192_unlock|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN192UL)"; cat gn1.out; rm -f gn1.out
