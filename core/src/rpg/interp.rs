@@ -2004,8 +2004,11 @@ impl<'a> Machine<'a> {
                     Some(Sym::Var(v)) => {
                         // A list (%LIST, %SPLIT, another array...) into an
                         // array: element by element; the elements after
-                        // it are cleared, or for a varying-dimension
-                        // array no longer in use.
+                        // it keep their values, or for a varying-dimension
+                        // array are no longer in use (PUB400, IBM i 7.5,
+                        // 2026-11-21: an array of five with its fourth and
+                        // fifth elements set, assigned %SPLIT and %LIST of
+                        // two values and an array of three, keeps them).
                         if let (Value::List(items), None, true) = (val, args, v.dim > 0) {
                             if items.len() > v.dim as usize {
                                 bail!(
@@ -2014,16 +2017,10 @@ impl<'a> Machine<'a> {
                                     v.dim
                                 );
                             }
-                            for k in 0..v.dim as usize {
+                            for (k, x) in items.iter().enumerate() {
                                 let off = v.off + k * v.stride;
-                                match items.get(k) {
-                                    Some(x) => {
-                                        let out = &mut self.bufs[v.buf][off..off + v.dtype.size()];
-                                        data::store(&v.dtype, x, out, fit, right)?;
-                                    }
-                                    None => self.bufs[v.buf][off..off + v.dtype.size()]
-                                        .copy_from_slice(&v.dtype.initial()),
-                                }
+                                let out = &mut self.bufs[v.buf][off..off + v.dtype.size()];
+                                data::store(&v.dtype, x, out, fit, right)?;
                             }
                             if self.prog.varying.contains_key(&name) {
                                 self.var_elems.insert(name.clone(), items.len() as u32);

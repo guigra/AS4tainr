@@ -30697,3 +30697,45 @@ dsply line;
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["2.67 -8 -7 1"]);
 }
+
+/// An array assigned fewer values than it has elements (%SPLIT, %LIST)
+/// keeps the values of the elements after them. Expected values: PUB400,
+/// IBM i 7.5, 2026-11-21 (tools/golden/native212 n212_listassign in the
+/// native fork: "ab[][four][five]|cd[][four][five]|", then the same for an
+/// array of three assigned to it, which as4tainr does not take yet).
+#[tokio::test]
+async fn an_array_assigned_fewer_values_keeps_the_elements_after_them() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s w varchar(10) dim(5);
+dcl-s line varchar(200);
+w(4) = 'four';
+w(5) = 'five';
+w = %split('a b');
+line = w(1) + w(2) + '[' + w(3) + '][' + w(4) + '][' + w(5) + ']|';
+w(4) = 'four';
+w(5) = 'five';
+w = %list('c' : 'd');
+line += w(1) + w(2) + '[' + w(3) + '][' + w(4) + '][' + w(5) + ']|';
+dsply line;
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "LISTREST".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["ab[][four][five]|cd[][four][five]|"]);
+}
