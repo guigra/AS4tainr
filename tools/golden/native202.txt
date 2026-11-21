@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.202: float expressions for C functions' float parameters (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native202.txt -f tools/golden/native202
+n202_crt|!system -q "DLTPGM PGM(@LIB@/GN202CF)"; system "CRTSQLRPGI OBJ(@LIB@/GN202CF) SRCSTMF('@HOME@/gld/gn202cf.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n202_cfloat|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN202CF)"; cat gn1.out; rm -f gn1.out

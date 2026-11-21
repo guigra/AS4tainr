@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.201");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.202");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -1324,6 +1324,10 @@ pub mod ir {
         /// A file for a LIKEFILE parameter of a procedure of the module
         /// (S2.185): the name args_for's file_idx resolves in the caller.
         File(String),
+        /// A float expression's value for a C function's float parameter
+        /// passed by value (S2.202): eval's value of it, as args_for gives
+        /// it.
+        Float(FloatExpr),
     }
 
     /// The instruction kinds of `code::Ins`, with the targets the
@@ -4480,6 +4484,10 @@ fn call_fn(pc: usize, c: &ir::Call, helpers: &mut String) -> String {
                     "    let {an} = rpgrt::native::CallArg::File({}.to_string());",
                     json_str(f)
                 );
+            }
+            ir::CallArg::Float(e) => {
+                let x = float_expr(pc, e, helpers);
+                let _ = writeln!(body, "    let {an} = rpgrt::native::CallArg::Val({x});");
             }
             ir::CallArg::Num(e) => {
                 let x = num_expr(pc, e, helpers);
