@@ -1682,6 +1682,12 @@ impl<'a> Machine<'a> {
                     match special {
                         Some("*ASTFILL") => out = format!("{}{}", "*".repeat(lead), &out[lead..]),
                         Some("*CURSYM") => out = format!("{}${}", &out[..lead], &out[lead..]),
+                        // An edited value that is all blanks (a zero under
+                        // an edit code that blanks it) gets no symbol, only
+                        // the extra position (PUB400, IBM i 7.5, 2026-11-18:
+                        // %EDITC(x : 'K' : '+') of a packed(7:2) field
+                        // holding 0 is eleven blanks).
+                        _ if lead == out.len() => out.push(' '),
                         _ => {
                             let sym = a(&arg(self, 2)?.chars()?);
                             out = format!("{}{}{}", &out[..lead], sym.trim_end(), &out[lead..]);

@@ -30310,3 +30310,59 @@ dsply line;
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["112 20260131"]);
 }
+
+/// %EDITC with a floating symbol (a one-character third argument): an
+/// edited value that is all blanks (zero under edit code K) gets no
+/// symbol, only the extra position. Expected values: PUB400, IBM i 7.5,
+/// 2026-11-18 (tools/golden/native81 n81_editc in the native fork:
+/// *ASTFILL, *CURSYM and '+' over 1234.5, -42 and 0 in a packed(7:2)).
+#[tokio::test]
+async fn editc_floating_symbol_on_an_all_blank_value() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s v packed(7:2) dim(3);
+dcl-s i int(10);
+dcl-s x packed(7:2);
+v(1) = 1234.5;
+v(2) = -42;
+v(3) = 0;
+for i = 1 to 3;
+  x = v(i);
+  dsply ('A|' + %editc(x: 'J': *astfill) + '|' + %editc(x: '1': *astfill) + '|');
+  dsply ('C|' + %editc(x: 'J': *cursym) + '|' + %editc(x: 'A': *cursym) + '|');
+  dsply ('L|' + %editc(x: '3': '+') + '|' + %editc(x: 'K': '+') + '|');
+endfor;
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "EDITCFL".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(
+        r.messages,
+        [
+            "A|*1,234.50 |*1,234.50|",
+            "C| $1,234.50 | $1,234.50  |",
+            "L| +1234.50| +1,234.50 |",
+            "A|****42.00-|****42.00|",
+            "C|    $42.00-|    $42.00CR|",
+            "L|   +42.00|    +42.00-|",
+            "A|******.00 |******.00|",
+            "C|      $.00 |      $.00  |",
+            "L|     +.00|           |",
+        ]
+    );
+}
