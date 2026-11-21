@@ -2146,3 +2146,9 @@ A based array as MOVEA's result stays with the interpreter. Its writes resolve t
 **Verified by** the native unit NBASARR, under both engines, as captured on PUB400 (tools/golden/native96.txt n96_based): XFOOT, LOOKUP, SORTA, FOR-EACH and MOVEA of arrays based on pointers to other arrays.
 
 Note on the generator version: rpgcg's VERSION stayed at `+stage2.171` from S2.172 to S2.185. Each block's change of it looked for a text that was no longer there, so it never applied. The routines' fingerprints still changed with their compiled code, and every validation generates its code afresh, so no stale code ran. VERSION is `+stage2.186` from this block on.
+
+## S2.187: a procedure's own named constant as an output edit word
+
+An EXCEPT whose output field's edit word is a named constant of the procedure it runs in is lowered. The native runtime's out_text_n now takes the constant as the interpreter's out_text does, through `Machine::sym`: the procedure's own first, as the frame finds it, then the module's. Before, it took the module's constant only, and lowering left a procedure's own constant with the interpreter (the review of 2026-11-18). Lowering still requires the name to be a named constant where the EXCEPT runs.
+
+**Verified by** the native unit NEXCPT2, under both engines, as captured on PUB400 (tools/golden/native92). Its EXCEPT in the procedure `local`, which declares the edit word `ew` itself, runs natively now (the WHY pass lists none of NEXCPT2's statements).
