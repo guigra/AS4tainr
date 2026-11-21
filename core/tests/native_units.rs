@@ -4404,3 +4404,18 @@ async fn native_unit_lowered_extpgm_variable() {
     };
     assert!(line.starts_with("1 0 hello 0 "), "NPGMVAR: {line}");
 }
+
+// Stage 2, S2.201: a C function's float parameters and result. The
+// capture is "ABC": on IBM i pow(9 : 0.5) is not exactly 3, where the
+// interpreter's pow (Rust's powf, and so the native engine's) gives 3
+// (fidelity.md, "pow(9 : 0.5)"). The test checks the first two.
+// Source: golden capture tools/golden/native201 n201_pow (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_c_float() {
+    let _ = require_db!();
+    let got = shown("NCFLOAT", include_str!("native/NCFLOAT.rpgle")).await;
+    let [line] = got.as_slice() else {
+        panic!("NCFLOAT: {got:?}");
+    };
+    assert!(line.starts_with("AB"), "NCFLOAT: {line}");
+}

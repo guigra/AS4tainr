@@ -2266,3 +2266,9 @@ A pointer minus a pointer where either side is not a pointer field, such as %ADD
 A call through a prototype whose EXTPGM names a scalar character field is lowered. The runtime's call_proto reads the field's value, as eval gives it, and calls the program of that name in upper case, as call_named_inner does. call_named_inner reads the name before args_for evaluates the arguments, and generated code evaluates them first. So the call is lowered only when its arguments change nothing (fields, literals, figurative constants).
 
 **Verified by** the native unit NPGMVAR, under both engines, against the PUB400 capture (tools/golden/native200.txt n200_pgmvar), on its first two calls (`1 0 hello 0`: to ASCII with QTCPASC and back with QTCPEBC). IBM i calls the program as the variable spells it, and the interpreter in upper case (fidelity.md). rla_test.rs HEAPA's call through such a prototype is native now.
+
+## S2.201: C functions with float parameters; a call in a float comparison
+
+A float parameter of a C function passed by value or CONST is lowered. args_for evaluates the argument, a number as it is, and the C function takes it as float_value. A side of a float comparison that is a call alone is lowered as the call's returned value (`FloatExpr::Call`). eval's comparison under is_float, like float_cmp, takes float_value of each side whatever type the call gives it. Calls inside float arithmetic still stay with the interpreter (S2.108): there eval picks the operation by the value's type.
+
+**Verified by** the native unit NCFLOAT, under both engines, against the PUB400 capture (tools/golden/native201.txt n201_pow: `ABC`), on its first two comparisons. IBM i's pow(9, 0.5) is not exactly 3, while the interpreter's powf gives 3 (fidelity.md). The WHY pass lists none of NCFLOAT's statements. rla_test.rs HEAPA's `if pow(2 : 10) = 1024` is native now.
