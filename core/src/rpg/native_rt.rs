@@ -5,8 +5,9 @@
 //! changing it.
 //!
 //! Each `Runtime` method is the matching arm of `Machine::run_code_at`'s
-//! step, and `settle` is its error routing, written to do exactly what
-//! the interpreter does (a test watches `run_code_at` for changes:
+//! step, and the services rpgrt::native::settle routes errors with
+//! (S2.211) give the interpreter's signals, statuses and notes, written
+//! to do exactly what the interpreter does (a test watches `run_code_at` for changes:
 //! core/tests/native_tripwire.rs).
 
 #![forbid(unsafe_code, unused_must_use)]
@@ -29,7 +30,7 @@ use super::super::native::{self, Engine};
 use super::errors;
 use super::{Flow, GotoSignal, LeaveSrSignal, Machine, ReturnPointSignal, ReturnSignal};
 use anyhow::{anyhow, Result};
-use rpgrt::native::{CallArg, FileBit, KeyArg, MonitorStack, NResult, Runtime, Settled};
+use rpgrt::native::{CallArg, FileBit, KeyArg, NResult, Runtime};
 use std::cmp::Ordering;
 use std::io::Write as _;
 
@@ -2023,91 +2024,54 @@ impl Runtime for Rt<'_, '_> {
         self.m.num_precision(node)
     }
 
-    fn settle(&mut self, pc: usize, step: NResult<usize>, monitors: &mut MonitorStack) -> Settled {
-        // A pointer fault in a condition (IF, DOW...).
-        let step = match (step, self.m.take_fault()) {
-            (Err(e), _) if errors::is_signal(&e) => Err(e),
-            (_, Some(f)) => Err(anyhow!(f)),
-            (s, None) => s,
-        };
-        let err = match step {
-            Ok(t) => return Settled::Go(t),
-            Err(err) => err,
-        };
+    /// S2.211: interp.rs take_fault, for rpgrt::native::settle.
+    fn take_fault(&mut self) -> Option<anyhow::Error> {
+        self.m.take_fault().map(|f| anyhow!(f))
+    }
+
+    /// S2.211: the interpreter's control signals (run_code_at's arms for
+    /// ReturnSignal, LeaveSrSignal, GotoSignal and ReturnPointSignal).
+    fn signal(&self, err: &anyhow::Error) -> Option<rpgrt::native::Signal> {
+        use rpgrt::native::Signal;
         if let Some(r) = err.downcast_ref::<ReturnSignal>() {
-            return Settled::Exit(Ok(Flow::Return(r.0.clone()).into_native()));
+            return Some(Signal::Return(Flow::Return(r.0.clone()).into_native()));
         }
         if err.downcast_ref::<LeaveSrSignal>().is_some() {
-            return Settled::Exit(Ok(rpgrt::native::Flow::LeaveSr));
+            return Some(Signal::LeaveSr);
         }
-        // GOTO from a subroutine to a TAG here.
         if let Some(GotoSignal(t)) = err.downcast_ref::<GotoSignal>() {
-            let to = self
-                .code
-                .iter()
-                .position(|x| matches!(&x.ins, Ins::Label(l) if l == t));
-            if let Some(to) = to {
-                monitors.retain_past(to);
-                return Settled::Go(to);
-            }
-            return Settled::Exit(Err(err));
+            return Some(Signal::Goto(t.clone()));
         }
         if err.downcast_ref::<ReturnPointSignal>().is_some() {
-            return Settled::Exit(Err(err));
+            return Some(Signal::ReturnPoint);
         }
-        // An escape message sent to a caller passes this procedure by.
-        if self.passes_by_n(&err) {
-            return Settled::Exit(Err(err));
-        }
-        // An error inside a monitored body goes to the first ON-ERROR that
-        // lists its status (or *ALL / nothing).
-        let mut handled = None;
-        let code = errors::status_code(&err);
-        let id = errors::message_id(&err);
-        while let Some(g) = monitors.last().copied() {
-            if pc < g.end_body {
-                handled = match self.code.get(g.at).map(|i| &i.ins) {
-                    Some(Ins::Monitor { handlers, .. }) => handlers
-                        .iter()
-                        .find(|(codes, _)| {
-                            codes.is_empty()
-                                || codes.iter().any(|c| {
-                                    c.strip_prefix("MSG:").is_some_and(|m| m == id)
-                                        || errors::on_error_takes(c, code)
-                                })
-                        })
-                        .map(|h| h.1),
-                    _ => None,
-                };
-                // A group none of whose handlers takes the error is left,
-                // and the enclosing group gets it (run_code_at, upstream
-                // #10).
-                if handled.is_some() {
-                    break;
-                }
-            }
-            monitors.pop();
-        }
-        let line = self.code.get(pc).map(|i| i.line).unwrap_or(0);
-        match handled {
-            Some(h) => {
-                self.note_error_n(&err);
-                Settled::Go(h)
-            }
-            None if line == 0 => Settled::Exit(Err(err)),
-            // Where the error happened, for its exception message's sender
-            // (shown as "line N").
-            None => {
-                let first = errors::origin(&err);
-                let called = first.as_ref().is_some_and(|a| a.called);
-                let sender = first.map(|a| a.sender).unwrap_or_else(|| self.sender_n());
-                Settled::Exit(Err(err.context(errors::At {
-                    line,
-                    sender,
-                    called,
-                })))
-            }
-        }
+        None
+    }
+
+    fn passes_by(&self, err: &anyhow::Error) -> bool {
+        self.passes_by_n(err)
+    }
+
+    fn error_status(&self, err: &anyhow::Error) -> (u32, String) {
+        (errors::status_code(err), errors::message_id(err))
+    }
+
+    fn note_error(&mut self, err: &anyhow::Error) {
+        self.note_error_n(err);
+    }
+
+    /// Where the error happened, for its exception message's sender
+    /// (shown as "line N"): the first place it was noted, or this
+    /// procedure's call stack entry.
+    fn error_at(&self, err: anyhow::Error, line: usize) -> anyhow::Error {
+        let first = errors::origin(&err);
+        let called = first.as_ref().is_some_and(|a| a.called);
+        let sender = first.map(|a| a.sender).unwrap_or_else(|| self.sender_n());
+        err.context(errors::At {
+            line,
+            sender,
+            called,
+        })
     }
 }
 

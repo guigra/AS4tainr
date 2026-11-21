@@ -83,6 +83,141 @@ impl MonitorStack {
     }
 }
 
+/// A control signal travelling as an error (S2.211): what
+/// interp.rs run_code_at does with each.
+#[derive(Debug)]
+pub enum Signal {
+    /// RETURN: the routine ends with this flow.
+    Return(Flow),
+    /// LEAVESR.
+    LeaveSr,
+    /// GOTO from a subroutine to a TAG.
+    Goto(String),
+    /// ENDSR with a return point.
+    ReturnPoint,
+}
+
+impl Signal {
+    /// errors.rs is_signal: a signal that passes a pointer fault by
+    /// (LEAVESR is not one of them).
+    fn passes_faults(&self) -> bool {
+        !matches!(self, Signal::LeaveSr)
+    }
+}
+
+/// A routine's error routing table (S2.211), generated with it: each
+/// instruction's source line (0: none), the TAGs by name, and each
+/// MONITOR group's ON-ERROR handlers (the codes each lists, and where it
+/// starts) by the group's instruction.
+#[derive(Debug)]
+pub struct Routing {
+    pub lines: &'static [usize],
+    pub labels: &'static [(&'static str, usize)],
+    pub monitors: &'static [(usize, Handlers)],
+}
+
+/// An ON-ERROR handler: the codes it lists, and its first instruction.
+pub type Handler = (&'static [&'static str], usize);
+
+/// A MONITOR group's handlers, in order.
+pub type Handlers = &'static [Handler];
+
+impl Routing {
+    fn handlers(&self, at: usize) -> Option<Handlers> {
+        self.monitors.iter().find(|m| m.0 == at).map(|m| m.1)
+    }
+}
+
+/// errors.rs on_error_takes (watched by native_tripwire.rs): whether an
+/// ON-ERROR list entry takes a status code: *ALL, *PROGRAM (00100-00999),
+/// *FILE (01000-09999), or the code itself.
+fn on_error_takes(entry: &str, code: u32) -> bool {
+    match entry {
+        "*ALL" => true,
+        "*PROGRAM" => code < 1000,
+        "*FILE" => code >= 1000,
+        n => n.parse::<u32>().is_ok_and(|n| n == code),
+    }
+}
+
+/// After the instruction at `pc`: its result (Ok: the next instruction),
+/// routed as interp.rs run_code_at routes it (S2.211; before, the
+/// runtime's own settle over the interpreter's compiled code). In order:
+/// a pointer fault the instruction left (unless the error is a control
+/// signal), RETURN, LEAVESR, a GOTO to a TAG of this routine (only the
+/// MONITOR groups whose body goes past it stay entered), the return
+/// point, an escape message passing this procedure by, then the
+/// innermost MONITOR group whose body holds `pc` with a handler that
+/// takes the error (a group with none is left for the enclosing one).
+/// An error nothing takes ends the routine, with its line when it has
+/// one.
+pub fn settle(
+    rt: &mut dyn Runtime,
+    table: &Routing,
+    pc: usize,
+    step: NResult<usize>,
+    monitors: &mut MonitorStack,
+) -> Settled {
+    let fault = rt.take_fault();
+    let step = match (step, fault) {
+        (Err(e), _) if rt.signal(&e).is_some_and(|s| s.passes_faults()) => Err(e),
+        (_, Some(f)) => Err(f),
+        (s, None) => s,
+    };
+    let err = match step {
+        Ok(t) => return Settled::Go(t),
+        Err(err) => err,
+    };
+    match rt.signal(&err) {
+        Some(Signal::Return(f)) => return Settled::Exit(Ok(f)),
+        Some(Signal::LeaveSr) => return Settled::Exit(Ok(Flow::LeaveSr)),
+        Some(Signal::Goto(t)) => {
+            return match table.labels.iter().find(|l| l.0 == t) {
+                Some(&(_, to)) => {
+                    monitors.retain_past(to);
+                    Settled::Go(to)
+                }
+                None => Settled::Exit(Err(err)),
+            };
+        }
+        Some(Signal::ReturnPoint) => return Settled::Exit(Err(err)),
+        None => {}
+    }
+    if rt.passes_by(&err) {
+        return Settled::Exit(Err(err));
+    }
+    let (code, id) = rt.error_status(&err);
+    let mut handled = None;
+    while let Some(g) = monitors.last().copied() {
+        if pc < g.end_body {
+            handled = table.handlers(g.at).and_then(|hs| {
+                hs.iter()
+                    .find(|(codes, _)| {
+                        codes.is_empty()
+                            || codes.iter().any(|c| {
+                                c.strip_prefix("MSG:").is_some_and(|m| m == id)
+                                    || on_error_takes(c, code)
+                            })
+                    })
+                    .map(|h| h.1)
+            });
+            if handled.is_some() {
+                break;
+            }
+        }
+        monitors.pop();
+    }
+    let line = table.lines.get(pc).copied().unwrap_or(0);
+    match handled {
+        Some(h) => {
+            rt.note_error(&err);
+            Settled::Go(h)
+        }
+        None if line == 0 => Settled::Exit(Err(err)),
+        None => Settled::Exit(Err(rt.error_at(err, line))),
+    }
+}
+
 /// Where a routine goes after an instruction and its error routing.
 #[derive(Debug)]
 pub enum Settled {
@@ -134,10 +269,24 @@ pub trait Runtime {
     /// ENDSR with a return point: an error (the signal) when the point is
     /// set.
     fn end_sr(&mut self, pc: usize) -> NResult<()>;
-    /// After the instruction at `pc`: its result (Ok: the next
-    /// instruction), routed as the interpreter routes it (pointer faults,
-    /// control signals, MONITOR groups, the source line).
-    fn settle(&mut self, pc: usize, step: NResult<usize>, monitors: &mut MonitorStack) -> Settled;
+    /// S2.211, for `settle`: the pointer fault the instruction left
+    /// (interp.rs take_fault: it is taken, whatever the instruction's
+    /// result).
+    fn take_fault(&mut self) -> Option<anyhow::Error>;
+    /// S2.211: the control signal an error is, if it is one.
+    fn signal(&self, err: &anyhow::Error) -> Option<Signal>;
+    /// S2.211: an escape message sent to a caller passes this procedure by
+    /// (errors.rs passes_by).
+    fn passes_by(&self, err: &anyhow::Error) -> bool;
+    /// S2.211: an error's status code and message ID (errors.rs
+    /// status_code and message_id).
+    fn error_status(&self, err: &anyhow::Error) -> (u32, String);
+    /// S2.211: a handled error noted (%STATUS, %ERROR, the PSDS, the
+    /// exception message; errors.rs note_error).
+    fn note_error(&mut self, err: &anyhow::Error);
+    /// S2.211: an error no MONITOR group took, with where it happened for
+    /// its exception message's sender (errors.rs At, "line N").
+    fn error_at(&self, err: anyhow::Error, line: usize) -> anyhow::Error;
     /// Stage 2 (docs/native/adr/0006): lowered code may run, because the
     /// routine runs in its own context: a main-program routine with no
     /// procedure frame, or a procedure's routine under its own frame (S2.8).

@@ -2342,3 +2342,26 @@ A read or a change of a database record whose program fields include float field
 A graphic column is a character move, as fill_fields' and record_of's text arms; data::store and load convert UCS-2 (S2.206). Large objects stay out of the program's record, as before.
 
 **Verified by** the native unit NFLTGRF, under both engines, as captured on PUB400 (tools/golden/native210.txt n210_floatgraphic: `7 +1.230000000000000E+002 Zurich|7 +3.075000000000000E+001 Bern`): READ, a float halved twice over and a VARGRAPHIC changed, UPDATE, then a new read. rla_test.rs TYPES's READ and UPDATE are native now (its WHY pass lists nothing). With a CLOB column, IBM i failed where the interpreter goes on (fidelity.md); the capture leaves that column out.
+
+## S2.211: error routing in generated code (rpgcg 0.1.0+stage2.211)
+
+Plan step 3, which the user chose to do before the interpreter's fixes (2026-11-21). Until now every routine ended each instruction with `rt.settle`. That is native_rt.rs's routing, which reads the interpreter's compiled `Code` for three things: the MONITOR groups' handlers, the TAGs and the source line.
+
+Each generated routine now carries its own table, `static ROUTING: rpgrt::native::Routing`:
+- each instruction's line;
+- its TAGs by name (`Kind::Label` now has the name);
+- each MONITOR group's ON-ERROR handlers, the codes and the first instruction (`Kind::Monitor` now has `handlers`, and the generator checks their targets as it checks jumps).
+
+`rpgrt::native::settle` routes over that table in run_code_at's order. The `Runtime` trait's `settle` gives way to narrow services:
+- `take_fault`, the pointer fault;
+- `signal`, the interpreter's control signals classified as `rpgrt::native::Signal`;
+- `passes_by`;
+- `error_status`, errors.rs status_code and message_id;
+- `note_error`;
+- `error_at`, errors.rs `At` with the error's first sender.
+
+`on_error_takes` is written again in rpgrt. native_tripwire.rs already watches errors.rs on_error_takes and is_signal.
+
+The source map says `"settle": "native"`, and native-coverage.sh counts such routines. The services above are runtime services on the machine's state (the PSDS, the call stack, the job log), the same kind as calls and files. Writing them again with no Machine is phase B.
+
+**Verified by** the native units and native-diff under both engines: MONITOR groups (status codes, *PROGRAM, *FILE, MSG: entries), nested groups, *PSSR, GOTO from a subroutine, RETURN in a group and the return point. No behavior change: the order and the outcomes are the old settle's, so no new IBM i capture is needed.

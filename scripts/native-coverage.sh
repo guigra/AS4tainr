@@ -10,9 +10,11 @@
 #             routine as a whole instead;
 #   interp    always run by the interpreter (stage 1).
 #
-# Phase A ends when "fallback" and "interp" are 0. Every routine also
-# still settles errors through the interpreter (Runtime::settle); that is
-# counted as one line, not per instruction.
+# Phase A ends when "fallback" and "interp" are 0. How each routine
+# routes its errors is counted as one line, not per instruction: since
+# rpgcg 0.1.0+stage2.211 with rpgrt::native::settle over the routine's own
+# table (the map's "settle": "native"); before, through the runtime's
+# settle over the interpreter's compiled code.
 #
 #   scripts/native-coverage.sh DIR [OUT]
 #
@@ -28,10 +30,15 @@ via = collections.Counter()
 todo = collections.Counter()
 routines = 0
 old = 0
+settled = 0
 for p in sorted(glob.glob(os.path.join(d, "*.map.json"))):
     with open(p, encoding="utf-8") as f:
         m = json.load(f)
     routines += 1
+    # S2.211: the routine routes its errors itself (rpgrt::native::settle
+    # over its own table), not through the interpreter's compiled code.
+    if m.get("settle") == "native":
+        settled += 1
     for i in m.get("instructions", []):
         v = i.get("via")
         if v is None:
@@ -48,7 +55,10 @@ for k in ("native", "fallback", "interp", "unknown"):
         print(f"  {k:9} {via[k]:7}  {pct:5.1f}%")
 if old:
     print(f"  ({old} instructions from source maps without \"via\": generated before rpgcg 0.1.0+stage2.34.1)")
-print(f"  settle    {routines} routines (errors routed through the interpreter)")
+if settled:
+    print(f"  settle    {settled} of {routines} routines route errors natively (rpgrt::native::settle)")
+if routines - settled:
+    print(f"  settle    {routines - settled} routines (errors routed through the interpreter)")
 print("not native yet, by kind and statement:")
 for (v, k, w), n in todo.most_common(40):
     print(f"  {n:6}  {v:8} {k:14} {w}")

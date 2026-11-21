@@ -4553,13 +4553,18 @@ fn kind(i: &Ins) -> (ir::Kind, String) {
             },
             "CABxx".into(),
         ),
-        Ins::Label(name) => (K::Label, format!("TAG {name}")),
+        Ins::Label(name) => (K::Label(name.clone()), format!("TAG {name}")),
         Ins::GotoOut(name) => (K::GotoOut, format!("GOTO {name} (out)")),
         Ins::EndSr(_) => (K::EndSr, "ENDSR return point".into()),
-        Ins::Monitor { end_body, end, .. } => (
+        Ins::Monitor {
+            handlers,
+            end_body,
+            end,
+        } => (
             K::Monitor {
                 end_body: *end_body,
                 end: *end,
+                handlers: handlers.clone(),
             },
             "MONITOR".into(),
         ),

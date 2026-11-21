@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.210");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.211");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -1378,12 +1378,18 @@ pub mod ir {
         Cab {
             to: Option<usize>,
         },
-        Label,
+        /// TAG: its name, where a GOTO signal from a subroutine finds it
+        /// (S2.211: the routine's own error routing).
+        Label(String),
         GotoOut,
         EndSr,
+        /// MONITOR: its body ends at `end_body`; each ON-ERROR handler is
+        /// its list of status codes (`MSG:` and a message ID for one
+        /// message, none for any) and its first instruction (S2.211).
         Monitor {
             end_body: usize,
             end: usize,
+            handlers: Vec<(Vec<String>, usize)>,
         },
         EndMonitor {
             end: usize,
@@ -1521,7 +1527,7 @@ fn kind_name(k: &ir::Kind) -> &'static str {
         Return => "return",
         LeaveSr => "leavesr",
         Cab { .. } => "cab",
-        Label => "tag",
+        Label(_) => "tag",
         GotoOut => "goto-out",
         EndSr => "endsr",
         Monitor { .. } => "monitor",
@@ -1553,16 +1559,57 @@ fn step(pc: usize, next: usize, kind: &ir::Kind) -> String {
             format!("rt.cab({pc}).map(|branch| if branch {{ {t} }} else {{ {next} }})")
         }
         Cab { to: None } => format!("rt.cab({pc}).map(|_| {next})"),
-        Label | Nop => format!("Ok({next})"),
+        Label(_) | Nop => format!("Ok({next})"),
         GotoOut => format!("rt.goto_out({pc}).map(|()| {next})"),
         EndSr => format!("rt.end_sr({pc}).map(|()| {next})"),
-        Monitor { end_body, end } => format!(
+        Monitor { end_body, end, .. } => format!(
             "{{\n                monitors.push(rpgrt::native::MonitorRef {{ at: {pc}, end_body: {end_body}, end: {end} }});\n                Ok({next})\n            }}"
         ),
         EndMonitor { end } => {
             format!("{{\n                monitors.pop();\n                Ok({end})\n            }}")
         }
     }
+}
+
+/// The routine's error routing table (S2.211): each instruction's source
+/// line, its TAGs and its MONITOR groups' handlers, which
+/// rpgrt::native::settle reads in place of the interpreter's compiled
+/// code.
+fn routing(r: &ir::Routine) -> String {
+    let lines: Vec<String> = r.ins.iter().map(|i| i.line.to_string()).collect();
+    let labels: Vec<String> = r
+        .ins
+        .iter()
+        .enumerate()
+        .filter_map(|(pc, i)| match &i.kind {
+            ir::Kind::Label(name) => Some(format!("({name:?}, {pc})")),
+            _ => None,
+        })
+        .collect();
+    let monitors: Vec<String> = r
+        .ins
+        .iter()
+        .enumerate()
+        .filter_map(|(pc, i)| match &i.kind {
+            ir::Kind::Monitor { handlers, .. } => {
+                let hs: Vec<String> = handlers
+                    .iter()
+                    .map(|(codes, to)| {
+                        let cs: Vec<String> = codes.iter().map(|c| format!("{c:?}")).collect();
+                        format!("(&[{}], {to})", cs.join(", "))
+                    })
+                    .collect();
+                Some(format!("({pc}, &[{}])", hs.join(", ")))
+            }
+            _ => None,
+        })
+        .collect();
+    format!(
+        "\nstatic ROUTING: rpgrt::native::Routing = rpgrt::native::Routing {{\n    lines: &[{}],\n    labels: &[{}],\n    monitors: &[{}],\n}};\n",
+        lines.join(", "),
+        labels.join(", "),
+        monitors.join(", ")
+    )
 }
 
 /// How an instruction runs (ADR 0007, phase A), for the source map:
@@ -1579,9 +1626,14 @@ fn via(i: &ir::Ins) -> &'static str {
     match i.kind {
         // EXSR runs the subroutine's generated code; LEAVESR and a GOTO out
         // of a subroutine are signals (S2.40): no interpreter evaluation.
-        Jump(_) | Label | Nop | Monitor { .. } | EndMonitor { .. } | ExSr | LeaveSr | GotoOut => {
-            "native"
-        }
+        Jump(_)
+        | Label(_)
+        | Nop
+        | Monitor { .. }
+        | EndMonitor { .. }
+        | ExSr
+        | LeaveSr
+        | GotoOut => "native",
         Stmt
         | JumpIfNot(_)
         | LoopTest { .. }
@@ -1600,8 +1652,16 @@ fn targets(kind: &ir::Kind) -> Vec<usize> {
         Jump(t) | JumpIfNot(t) => vec![*t],
         LoopTest { end } | EachNext { end } | EndMonitor { end } => vec![*end],
         Cab { to } => to.iter().copied().collect(),
-        Monitor { end_body, end } => vec![*end_body, *end],
-        Stmt | LoopStep | EachInit | ExSr | Return | LeaveSr | Label | GotoOut | EndSr | Nop => {
+        Monitor {
+            end_body,
+            end,
+            handlers,
+        } => {
+            let mut t = vec![*end_body, *end];
+            t.extend(handlers.iter().map(|h| h.1));
+            t
+        }
+        Stmt | LoopStep | EachInit | ExSr | Return | LeaveSr | Label(_) | GotoOut | EndSr | Nop => {
             vec![]
         }
     }
@@ -5361,7 +5421,7 @@ pub fn generate(r: &ir::Routine) -> Result<Generated, Error> {
     let mut map = String::new();
     let _ = write!(
         map,
-        "{{\"generator\":{},\"fingerprint\":{},\"instructions\":[",
+        "{{\"generator\":{},\"fingerprint\":{},\"settle\":\"native\",\"instructions\":[",
         json_str(VERSION),
         json_str(&r.fingerprint)
     );
@@ -5442,13 +5502,14 @@ pub fn generate(r: &ir::Routine) -> Result<Generated, Error> {
     src.push_str(
         "            _ => return Ok(Flow::Normal),\n\
          \x20       };\n\
-         \x20       match rt.settle(pc, step, &mut monitors) {\n\
+         \x20       match rpgrt::native::settle(rt, &ROUTING, pc, step, &mut monitors) {\n\
          \x20           Settled::Go(to) => pc = to,\n\
          \x20           Settled::Exit(r) => return r,\n\
          \x20       }\n\
          \x20   }\n\
          }\n",
     );
+    src.push_str(&routing(r));
     src.push_str(&unused_rt(&helpers));
     map.push_str("]}\n");
     Ok(Generated { source: src, map })
