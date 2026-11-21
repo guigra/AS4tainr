@@ -4161,3 +4161,17 @@ async fn native_unit_lowered_temporal_parameters() {
     )
     .await;
 }
+
+// Stage 2, S2.191: READ of a program-described file with input
+// specifications.
+// Source: golden capture tools/golden/native191 n191_pdread (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_program_described_read() {
+    let _ = require_db!();
+    expect(
+        "NPDREAD",
+        include_str!("native/NPDREAD.rpgle"),
+        &["Habc D12/35.00 Hxyz D999/.10 1"],
+    )
+    .await;
+}

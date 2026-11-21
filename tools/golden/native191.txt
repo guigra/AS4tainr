@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.191: READ of a program-described file (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native191.txt -f tools/golden/native191
+n191_crt|!system -q "DLTPGM PGM(@LIB@/GN191PD)"; system "CRTSQLRPGI OBJ(@LIB@/GN191PD) SRCSTMF('@HOME@/gld/gn191pd.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n191_pdread|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN191PD)"; cat gn1.out; rm -f gn1.out

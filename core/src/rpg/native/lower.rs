@@ -6096,10 +6096,30 @@ fn file_read(
     // The file as file_idx finds it (S2.118: a procedure's own first).
     let i = file_of(cx, file)?;
     let fi = prog.files.get(i)?;
-    let fref = fi.fref.as_ref()?;
+    // The database file's description; a program-described file read with
+    // no key (S2.191) needs none (it may not exist when the program is
+    // compiled: the runtime's open finds it).
+    let fref = fi.fref.as_ref();
     // An INFDS is written at the operation's end (file_end_n's
     // infds_update, S2.139).
-    if fi.decl.device != "DISK" || fi.program_described || !fi.inputs.is_empty() {
+    // A program-described file, or one with input specifications
+    // (S2.191): a read with no result data structure moves the record as
+    // interp.rs move_input does (the record image, the input fields,
+    // record and field indicators), which the runtime's file_done_n calls;
+    // no field moves here. Any other operation on such a file stays with
+    // the interpreter.
+    let input_mode = fi.program_described || !fi.inputs.is_empty();
+    if fref.is_none() && !(input_mode && key.is_none()) {
+        return None;
+    }
+    if fi.decl.device != "DISK"
+        || (input_mode
+            && (ds.is_some()
+                || !matches!(
+                    op,
+                    FileOp::Chain | FileOp::Read | FileOp::ReadE | FileOp::ReadP | FileOp::ReadPE
+                )))
+    {
         return None;
     }
     // The key: *LOVAL/*HIVAL/*START/*END alone (no values), a KLIST's
@@ -6146,16 +6166,18 @@ fn file_read(
         }
     };
     let mut moves = Vec::new();
-    if matches!(
-        op,
-        FileOp::Chain
-            | FileOp::Read
-            | FileOp::ReadE
-            | FileOp::ReadP
-            | FileOp::ReadPE
-            | FileOp::Write
-            | FileOp::Update
-    ) {
+    if !input_mode
+        && matches!(
+            op,
+            FileOp::Chain
+                | FileOp::Read
+                | FileOp::ReadE
+                | FileOp::ReadP
+                | FileOp::ReadPE
+                | FileOp::Write
+                | FileOp::Update
+        )
+    {
         // bifs.rs ds_members: a result data structure's subfields, by the
         // name to assign them through (S2.119).
         let members: Option<Vec<(String, String)>> = match ds {
@@ -6179,7 +6201,7 @@ fn file_read(
             }
             None => None,
         };
-        for (col, (fd, pname)) in fref.file.fields.iter().zip(&fi.fields).enumerate() {
+        for (col, (fd, pname)) in fref?.file.fields.iter().zip(&fi.fields).enumerate() {
             // record_to_ds: each field into the subfield of its program or
             // file name, the others left as they are.
             let tname = match &members {
@@ -6270,7 +6292,7 @@ fn file_read(
         return Some(ir::Lowered::FileChange {
             keys,
             fields: moves,
-            width: fref.file.fields.len(),
+            width: fref?.file.fields.len(),
             ds: ds.is_some(),
         });
     }
