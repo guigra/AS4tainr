@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.200: EXTPGM naming a variable (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native200.txt -f tools/golden/native200
+n200_crt|!system -q "DLTPGM PGM(@LIB@/GN200PV)"; system "CRTSQLRPGI OBJ(@LIB@/GN200PV) SRCSTMF('@HOME@/gld/gn200pv.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n200_pgmvar|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN200PV)"; cat gn1.out; rm -f gn1.out

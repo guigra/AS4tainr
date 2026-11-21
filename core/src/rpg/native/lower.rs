@@ -4501,8 +4501,28 @@ fn call_of(
             }
             let local = match &pr.extpgm {
                 Some(pgm) => {
-                    if matches!(sym(cx, pgm), Some(Sym::Var(_))) {
-                        return None;
+                    // EXTPGM(variable) (S2.200): call_named_inner reads the
+                    // name before args_for evaluates the arguments; here
+                    // the runtime reads it after them, so only arguments
+                    // that change nothing (fields, literals, figurative
+                    // constants) are lowered. A scalar character field.
+                    if let Some(Sym::Var(v)) = sym(cx, pgm) {
+                        let plain = args.iter().all(|a| {
+                            matches!(
+                                a,
+                                Expr::Name { args: None, .. }
+                                    | Expr::Num(_)
+                                    | Expr::Str(_)
+                                    | Expr::Fig(_)
+                                    | Expr::Omit
+                            )
+                        });
+                        if !plain
+                            || v.dim != 0
+                            || !matches!(v.dtype, DType::Char(_) | DType::Varchar(_))
+                        {
+                            return None;
+                        }
                     }
                     None
                 }
