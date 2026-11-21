@@ -2236,3 +2236,9 @@ Anything else stays with the interpreter. That covers an expression or a literal
 A *OMIT for a parameter without OPTIONS(*OMIT) is args_for's error, which lowering never passes on. In the procedure, %ADDR of an OPTIONS(*OMIT) parameter named alone is lowered as bif ADDR takes it (`PtrVal::AddrOmit`): *NULL when the frame notes the parameter omitted (bifs.rs omitted, `Runtime::omitted`), the parameter's address otherwise.
 
 **Verified by** the native unit NOMITLC, under both engines, as captured on PUB400 (tools/golden/native195.txt n195_omit: `1 2N 2x`). It calls a procedure with a *NOPASS and *OMIT parameter three ways: with the argument not passed, with *OMIT (%PARMS 2, its %ADDR *NULL) and with a value. The WHY pass lists none of NOMITLC's statements. rla_test.rs IMQNOPASS is native now.
+
+## S2.196: %LOOKUP of DSARR(*).SUBFIELD
+
+%LOOKUP of `dsarr(*).subfield` is lowered with S2.27's Lookup, as bifs.rs list_of takes the subfield of every element. The array is a global array of data structures, not based nor of multiple occurrences. The subfield's place in the first element (program.rs's DSARR.SUBFIELD) is the base, the structure's size the stride, and its dimension the number of elements. %LOOKUPLT, LE, GE and GT are not lowered for this form: IBM i asks for a sequenced array there, and a data structure array's subfield is not one (RNF0592).
+
+**Verified by** the native unit NLOOKDS, under both engines, as captured on PUB400 (tools/golden/native196.txt n196_lookds: `2 0 4 3`): a character and a numeric subfield, a start element, and a value not found. rla_test.rs LOOKDS is native now.

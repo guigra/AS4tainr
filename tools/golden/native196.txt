@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.196: %LOOKUP of DSARR(*).SUBFIELD (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native196.txt -f tools/golden/native196
+n196_crt|!system -q "DLTPGM PGM(@LIB@/GN196LK)"; system "CRTSQLRPGI OBJ(@LIB@/GN196LK) SRCSTMF('@HOME@/gld/gn196lk.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n196_lookds|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN196LK)"; cat gn1.out; rm -f gn1.out
