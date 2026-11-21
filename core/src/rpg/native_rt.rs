@@ -207,6 +207,7 @@ impl<'a> Rt<'_, 'a> {
         let mut alias = std::collections::HashMap::new();
         let mut values = Vec::new();
         let mut lengths = Vec::new();
+        let mut files = std::collections::HashMap::new();
         let passed = args.len();
         for (p, arg) in pi.params.iter().zip(args) {
             match arg {
@@ -246,6 +247,17 @@ impl<'a> Rt<'_, 'a> {
                 CallArg::Omit => {
                     anyhow::bail!("native: *OMIT for {proc}'s parameter {}", p.name)
                 }
+                // A LIKEFILE parameter (S2.185): args_for's Arg::File, the
+                // file the name is in the caller (file_idx, whose frame is
+                // still the caller's here), then call_proc's frame files;
+                // no operational descriptor.
+                CallArg::File(name) => {
+                    let f = self
+                        .file_idx_n(&name)
+                        .ok_or_else(|| anyhow!("{proc}: {name} is not a file"))?;
+                    lengths.push(None);
+                    files.insert(p.name.clone(), f);
+                }
                 CallArg::Val(v) => {
                     let len = match &v {
                         Value::Char(c) => Some(c.len()),
@@ -270,7 +282,7 @@ impl<'a> Rt<'_, 'a> {
             alias,
             passed,
             omitted: Vec::new(),
-            files: std::collections::HashMap::new(),
+            files,
             lengths,
         });
         let pgm = self.m.stack_pgm();
@@ -384,6 +396,10 @@ impl<'a> Rt<'_, 'a> {
                     CallArg::Omit => {
                         anyhow::bail!("native: *OMIT for program {pgm}'s parameter {}", p.name)
                     }
+                    // Lowering passes a file to no program (S2.185).
+                    CallArg::File(_) => {
+                        anyhow::bail!("native: a file for program {pgm}'s parameter {}", p.name)
+                    }
                     CallArg::Val(v) => {
                         let mut b = p.dtype.initial();
                         data::store(
@@ -469,25 +485,30 @@ impl<'a> Rt<'_, 'a> {
                 .and_then(|b| b.imports.get(&sym))
                 .cloned()
         };
-        let as_arg = |arg: CallArg| match arg {
-            CallArg::Ref { buf, off, dtype } => super::Arg::Ref(super::Loc {
-                buf,
-                off,
-                size: dtype.size(),
-                dtype,
-            }),
-            CallArg::Val(v) => super::Arg::Val(v),
-            // args_for's Arg::Omit (S2.150).
-            CallArg::Omit => super::Arg::Omit,
+        let as_arg = |arg: CallArg| -> NResult<super::Arg> {
+            Ok(match arg {
+                CallArg::Ref { buf, off, dtype } => super::Arg::Ref(super::Loc {
+                    buf,
+                    off,
+                    size: dtype.size(),
+                    dtype,
+                }),
+                CallArg::Val(v) => super::Arg::Val(v),
+                // args_for's Arg::Omit (S2.150).
+                CallArg::Omit => super::Arg::Omit,
+                // Lowering passes a file only to a procedure of this
+                // module (S2.185).
+                CallArg::File(f) => anyhow::bail!("native: file {f} passed to {sym}"),
+            })
         };
         if let Some(t) = bound {
             fits(args.len())?;
-            let a: Vec<super::Arg> = args.into_iter().map(as_arg).collect();
+            let a: Vec<super::Arg> = args.into_iter().map(as_arg).collect::<NResult<_>>()?;
             return self.m.call_bound(&sym, &t, a);
         }
         if super::cee::CEE_APIS.contains(&sym.as_str()) {
             fits(args.len())?;
-            let a: Vec<super::Arg> = args.into_iter().map(as_arg).collect();
+            let a: Vec<super::Arg> = args.into_iter().map(as_arg).collect::<NResult<_>>()?;
             let v = self
                 .m
                 .cee_call(&sym, &a)
@@ -541,7 +562,7 @@ impl<'a> Rt<'_, 'a> {
                             super::Arg::Val(data::load(&dtype, bytes)?)
                         }
                     }
-                    other => as_arg(other),
+                    other => as_arg(other)?,
                 });
             }
             let v = self
@@ -6434,18 +6455,25 @@ impl Rt<'_, '_> {
                 ))
             }
         };
-        let as_args = |args: Vec<CallArg>| -> Vec<super::Arg> {
+        let as_args = |args: Vec<CallArg>| -> NResult<Vec<super::Arg>> {
             args.into_iter()
-                .map(|arg| match arg {
-                    CallArg::Ref { buf, off, dtype } => super::Arg::Ref(super::Loc {
-                        buf,
-                        off,
-                        size: dtype.size(),
-                        dtype,
-                    }),
-                    CallArg::Val(v) => super::Arg::Val(v),
-                    // args_for's Arg::Omit (S2.150).
-                    CallArg::Omit => super::Arg::Omit,
+                .map(|arg| {
+                    Ok(match arg {
+                        CallArg::Ref { buf, off, dtype } => super::Arg::Ref(super::Loc {
+                            buf,
+                            off,
+                            size: dtype.size(),
+                            dtype,
+                        }),
+                        CallArg::Val(v) => super::Arg::Val(v),
+                        // args_for's Arg::Omit (S2.150).
+                        CallArg::Omit => super::Arg::Omit,
+                        // Lowering passes a file only to a procedure of
+                        // this module (S2.185).
+                        CallArg::File(f) => {
+                            anyhow::bail!("native: file {f} passed through a procedure pointer")
+                        }
+                    })
                 })
                 .collect()
         };
@@ -6465,7 +6493,7 @@ impl Rt<'_, '_> {
                             group: group.to_string(),
                         },
                         Some(pn),
-                        as_args(args),
+                        as_args(args)?,
                     )?;
                     return Ok(ProcTarget::Called(r));
                 }
@@ -6478,7 +6506,7 @@ impl Rt<'_, '_> {
                         &pname,
                         &crate::ile::Target::Module(m.clone()),
                         Some(&m),
-                        as_args(args),
+                        as_args(args)?,
                     )?;
                     return Ok(ProcTarget::Called(r));
                 }
@@ -6496,7 +6524,7 @@ impl Rt<'_, '_> {
                         &pname,
                         &crate::ile::Target::SrvPgm { library, name: sp },
                         module.as_deref(),
-                        as_args(args),
+                        as_args(args)?,
                     )?;
                     return Ok(ProcTarget::Called(r));
                 }

@@ -2109,3 +2109,19 @@ A timestamp field is lowered as a host variable wherever exec_sql.rs takes the h
 Both functions are exec_sql.rs's own, made `pub(super)` with the user's authorization of 2026-11-21 (CLAUDE.native.md, section 3).
 
 **Verified by** the native unit NSQLTS, under both engines, as captured on PUB400 (tools/golden/native184.txt n184_tshost: `2 2026-11-01-20.43.10.123456 0|2026-10-31-20.43.10.123456`): a parameter marker of EXECUTE USING, `:ts + 1 day` in VALUES, a comparison in WHERE, and MAX and MIN read back INTO. rla_test.rs SQLOVR's timestamp statements are native now.
+
+## S2.185: LIKEFILE parameters inside procedures
+
+A procedure's own LIKEFILE parameter no longer keeps its file operations in the interpreter.
+- **At run time,** the runtime's file_idx_n looks first at the frame's files, as errors.rs file_idx does, and finds the caller's file there.
+- **At lowering,** file_of takes the record format of LIKEFILE's file. That is the program's own file of that name, which must be a DISK file, and the caller's file has the same format. The name comes from the new `ParamInfo.likefile`, authorized by the user on 2026-11-21 (CLAUDE.native.md, section 3). An INFDS of the caller's file is file_end_n's, by the file the operation runs on.
+
+A call that passes a file to a LIKEFILE parameter of a procedure of the module is lowered as `CallArg::File(name)`, following args_for:
+- the parameter's p.file is checked first;
+- the argument is a name with no index;
+- the runtime resolves it in the caller with file_idx_n, giving the same error when it is not a file;
+- call_frame binds it in the new frame's files, with no operational descriptor.
+
+A file for a program, a bound procedure or a procedure pointer stays with the interpreter.
+
+**Verified by** the native unit NLIKEF, under both engines, as captured on PUB400 (tools/golden/native164.txt n164_likef: `3 3cc`). Its countAll(t1) call and the procedure's SETLL *START, READ into a data structure and %EOF on the parameter all run natively now (the WHY pass lists none of NLIKEF's statements). rla_test.rs LIKEF is native now.

@@ -220,6 +220,10 @@ pub struct ParamInfo {
     pub buf: Option<usize>,
     /// LIKEFILE(file): a file is passed (the caller's open file).
     pub file: bool,
+    /// LIKEFILE(file)'s file, as written (upper case): the file whose
+    /// record format the parameter's file has (the native engine's
+    /// lowering reads its fields; the interpreter does not use it).
+    pub likefile: Option<String>,
 }
 
 /// A prototype (DCL-PR / PR): what a call passes and where it goes.
@@ -1354,6 +1358,9 @@ impl Binder<'_> {
                             }),
                             buf,
                             file: likefile,
+                            likefile: keyword(&p.keywords, "LIKEFILE")
+                                .and_then(|k| k.args.first())
+                                .map(|a| a.trim().to_ascii_uppercase()),
                         });
                         j += 1;
                     }
