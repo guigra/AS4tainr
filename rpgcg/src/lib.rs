@@ -1421,6 +1421,27 @@ fn comment(text: &str) -> String {
 }
 
 /// The JSON string for a text.
+/// An input host variable's SQL literal in generated code, `v` its value
+/// (S2.70): sql_literal with its fixed character length, or for a
+/// timestamp field (S2.184) the runtime's sql_ts_literal, as exec_sql.rs
+/// host_literal casts it.
+fn sql_in_lit(i: &ir::SqlIn) -> String {
+    if matches!(
+        i.value,
+        ir::Operand::Var {
+            ty: ir::Ty::Timestamp(_),
+            ..
+        }
+    ) {
+        return "rt.sql_ts_literal(&v)?".to_string();
+    }
+    let cl = match i.char_len {
+        Some(n) => format!("Some({n})"),
+        None => "None".to_string(),
+    };
+    format!("rpgrt::native::sql_literal(&v, {cl})?")
+}
+
 fn json_str(text: &str) -> String {
     let mut out = String::from("\"");
     for c in text.chars() {
@@ -1851,13 +1872,10 @@ fn sql_inputs(body: &mut String, groups: &[Vec<ir::SqlIn>]) {
         let gm = if g.is_empty() { "" } else { "mut " };
         let _ = writeln!(body, "        let {gm}parts: Vec<String> = Vec::new();");
         for i in g {
-            let cl = match i.char_len {
-                Some(n) => format!("Some({n})"),
-                None => "None".to_string(),
-            };
+            let lit = sql_in_lit(i);
             let _ = writeln!(
                 body,
-                "        {{\n            let v = {};\n            parts.push(rpgrt::native::sql_literal(&v, {cl})?);\n        }}",
+                "        {{\n            let v = {};\n            parts.push({lit});\n        }}",
                 value(&i.value)
             );
         }
@@ -2903,13 +2921,10 @@ fn lowered_step(
                     Some(ind) => format!("{}.is_negative()", number(ind)),
                     None => "false".to_string(),
                 };
-                let cl = match i.char_len {
-                    Some(n) => format!("Some({n})"),
-                    None => "None".to_string(),
-                };
+                let lit = sql_in_lit(i);
                 let _ = writeln!(
                     body,
-                    "    if {null} {{\n        qlits.push(\"NULL\".to_string());\n    }} else {{\n        let v = {};\n        qlits.push(rpgrt::native::sql_literal(&v, {cl})?);\n    }}",
+                    "    if {null} {{\n        qlits.push(\"NULL\".to_string());\n    }} else {{\n        let v = {};\n        qlits.push({lit});\n    }}",
                     value(&i.value)
                 );
             }
@@ -3014,13 +3029,10 @@ fn lowered_step(
                     Some(ind) => format!("{}.is_negative()", number(ind)),
                     None => "false".to_string(),
                 };
-                let cl = match i.char_len {
-                    Some(n) => format!("Some({n})"),
-                    None => "None".to_string(),
-                };
+                let lit = sql_in_lit(i);
                 let _ = writeln!(
                     body,
-                    "    if {null} {{\n        qlits.push(\"NULL\".to_string());\n    }} else {{\n        let v = {};\n        qlits.push(rpgrt::native::sql_literal(&v, {cl})?);\n    }}",
+                    "    if {null} {{\n        qlits.push(\"NULL\".to_string());\n    }} else {{\n        let v = {};\n        qlits.push({lit});\n    }}",
                     value(&i.value)
                 );
             }
@@ -3165,13 +3177,10 @@ fn lowered_step(
                             Some(ind) => format!("{}.is_negative()", number(ind)),
                             None => "false".to_string(),
                         };
-                        let cl = match input.char_len {
-                            Some(n) => format!("Some({n})"),
-                            None => "None".to_string(),
-                        };
+                        let lit = sql_in_lit(input);
                         let _ = writeln!(
                             body,
-                            "    if {null} {{\n        exprs.push(format!(\"{{}}NULL\", {}));\n    }} else {{\n        let v = {};\n        exprs.push(format!(\"{{}}{{}}\", {}, rpgrt::native::sql_literal(&v, {cl})?));\n    }}",
+                            "    if {null} {{\n        exprs.push(format!(\"{{}}NULL\", {}));\n    }} else {{\n        let v = {};\n        exprs.push(format!(\"{{}}{{}}\", {}, {lit}));\n    }}",
                             json_str(kw),
                             value(&input.value),
                             json_str(kw)
@@ -3857,13 +3866,10 @@ fn lowered_step(
                     Some(ind) => format!("{}.is_negative()", number(ind)),
                     None => "false".to_string(),
                 };
-                let cl = match i.char_len {
-                    Some(n) => format!("Some({n})"),
-                    None => "None".to_string(),
-                };
+                let lit = sql_in_lit(i);
                 let _ = writeln!(
                     body,
-                    "    if {null} {{\n        lits.push(\"NULL\".to_string());\n    }} else {{\n        let v = {};\n        lits.push(rpgrt::native::sql_literal(&v, {cl})?);\n    }}",
+                    "    if {null} {{\n        lits.push(\"NULL\".to_string());\n    }} else {{\n        let v = {};\n        lits.push({lit});\n    }}",
                     value(&i.value)
                 );
             }

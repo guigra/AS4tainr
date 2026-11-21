@@ -2098,3 +2098,14 @@ That differs from %CHAR's path, float_value. A float expression other than a fie
 IBM i's text was captured at last. DSPLY with a message queue operand sends the value to a queue made for the capture, GN183Q, and the program reads it back through QSYS2.MESSAGE_QUEUE_INFO. A plain DSPLY in a PASE job ends with status 00333. A batch job did not run, because the user's job queue is not attached to an active subsystem.
 
 **Verified by** the native unit NFLTDSP, under both engines, against the PUB400 capture (tools/golden/native183.txt n183_fltdsply), on its 8-byte values. IBM i shows a 4-byte float with eight digits and a two-digit exponent; the interpreter shows seven and three (fidelity.md). rla_test.rs TYPES's `dsply rate` and `dsply score` are native now.
+
+## S2.184: timestamp host variables in EXEC SQL
+
+A timestamp field is lowered as a host variable wherever exec_sql.rs takes the host through host_literal or assign_hosts (`sql_host_field`). That covers statement inputs, INTO, EXECUTE USING, OPEN USING, FETCH and the arguments of CALL. GET DIAGNOSTICS and the other places that take a field keep sql_field.
+
+- **Input:** generated code calls the runtime's `sql_ts_literal`. Like host_literal's timestamp arm, it makes `CAST('<iso_timestamp of the characters>' AS timestamp)`.
+- **Output:** assign_hosts_n gives a timestamp target db2_timestamp's text, as assign_hosts does.
+
+Both functions are exec_sql.rs's own, made `pub(super)` with the user's authorization of 2026-11-21 (CLAUDE.native.md, section 3).
+
+**Verified by** the native unit NSQLTS, under both engines, as captured on PUB400 (tools/golden/native184.txt n184_tshost: `2 2026-11-01-20.43.10.123456 0|2026-10-31-20.43.10.123456`): a parameter marker of EXECUTE USING, `:ts + 1 day` in VALUES, a comparison in WHERE, and MAX and MIN read back INTO. rla_test.rs SQLOVR's timestamp statements are native now.

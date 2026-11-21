@@ -408,6 +408,10 @@ pub trait Runtime {
     /// Stage 2 (S2.128): OPEN or CLOSE of a database file (errors.rs
     /// file_op around file_op_inner's OPEN and CLOSE).
     fn disk_open_close(&mut self, pc: usize) -> NResult<()>;
+    /// Stage 2 (S2.184): a timestamp host variable's SQL literal, as
+    /// exec_sql.rs host_literal makes it: CAST('iso' AS timestamp) of its
+    /// characters, any other value as sql_literal makes it.
+    fn sql_ts_literal(&mut self, v: &Value) -> NResult<String>;
     /// Stage 2 (S2.179): a list into an array, as assign_value takes it:
     /// each value into its element, the elements after it initialized,
     /// RNQ0121 for more values than elements, a varying-dimension array's

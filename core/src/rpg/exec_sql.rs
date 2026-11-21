@@ -1675,7 +1675,7 @@ impl Machine<'_> {
 
 /// An RPG timestamp's text ('2026-10-23-13.38.38.840000') in the form
 /// PostgreSQL reads ('2026-10-23 13:38:38.840000'); other text as it is.
-fn iso_timestamp(t: &str) -> String {
+pub(super) fn iso_timestamp(t: &str) -> String {
     let b = t.as_bytes();
     let db2 = b.len() >= 19
         && b[4] == b'-'
@@ -1696,7 +1696,7 @@ fn iso_timestamp(t: &str) -> String {
 /// A timestamp as PostgreSQL gives it ('2026-10-23 13:38:38.84'), in the
 /// form an RPG timestamp holds ('2026-10-23-13.38.38.840000'); other
 /// text as it is.
-fn db2_timestamp(t: &str) -> String {
+pub(super) fn db2_timestamp(t: &str) -> String {
     let t = t.trim();
     let Some((date, time)) = t.split_once(' ') else {
         return t.to_string();

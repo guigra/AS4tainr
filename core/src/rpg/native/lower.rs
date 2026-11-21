@@ -6364,6 +6364,23 @@ fn sql_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operan
     }
 }
 
+/// A host variable's field where exec_sql.rs takes it through
+/// host_literal (an input) or assign_hosts (an output) (S2.184): as
+/// sql_field, or a timestamp field, which host_literal casts as a
+/// TIMESTAMP of its iso_timestamp text and assign_hosts gets back as
+/// db2_timestamp's text.
+fn sql_host_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    let o = variable(cx, e, used)?;
+    match &o {
+        ir::Operand::Var {
+            ty: ir::Ty::Timestamp(_),
+            based: None,
+            ..
+        } => Some(o),
+        _ => sql_field(cx, e, used),
+    }
+}
+
 /// The pieces, inputs and outputs of an EXEC SQL with host variables
 /// (S2.70), as exec_sql.rs's sql_statement and bind_host take it apart.
 #[allow(clippy::type_complexity)] // the four parts of ExecSqlHosts
@@ -6434,7 +6451,7 @@ fn sql_hosts(
             if k > 0 {
                 pieces.push(", ".to_string());
             }
-            let value = sql_field(cx, t, used)?;
+            let value = sql_host_field(cx, t, used)?;
             let char_len = match &value {
                 ir::Operand::Var {
                     ty: ir::Ty::Char(n),
@@ -6470,7 +6487,7 @@ fn sql_hosts(
             None => None,
         };
         for t in sql_targets(cx, &name)? {
-            let target = sql_field(cx, &t, used)?;
+            let target = sql_host_field(cx, &t, used)?;
             if !matches!(target, ir::Operand::Var { index: None, .. }) {
                 return None;
             }
@@ -6594,7 +6611,7 @@ fn sql_dyn(
                     };
                     let mut g = Vec::new();
                     for t in &targets {
-                        let value = sql_field(cx, t, used)?;
+                        let value = sql_host_field(cx, t, used)?;
                         let char_len = match &value {
                             ir::Operand::Var {
                                 ty: ir::Ty::Char(n),
@@ -6704,7 +6721,7 @@ fn sql_host_inputs(
     };
     let mut out = Vec::new();
     for t in &targets {
-        let value = sql_field(cx, t, used)?;
+        let value = sql_host_field(cx, t, used)?;
         let char_len = match &value {
             ir::Operand::Var {
                 ty: ir::Ty::Char(n),
@@ -6874,7 +6891,7 @@ fn sql_cursor(
                             None => None,
                         };
                         for t in sql_targets(cx, &hn)? {
-                            let target = sql_field(cx, &t, used)?;
+                            let target = sql_host_field(cx, &t, used)?;
                             if !matches!(target, ir::Operand::Var { index: None, .. }) {
                                 return None;
                             }
@@ -7255,7 +7272,7 @@ fn sql_call_host(
     let [t] = targets.as_slice() else {
         return None;
     };
-    let value = sql_field(cx, t, used)?;
+    let value = sql_host_field(cx, t, used)?;
     if !matches!(
         value,
         ir::Operand::Var {
