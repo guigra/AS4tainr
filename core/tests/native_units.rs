@@ -4304,3 +4304,16 @@ async fn native_unit_lowered_options_convert() {
     )
     .await;
 }
+
+// Stage 2, S2.195: *OMIT for a parameter of a procedure of the module.
+// Source: golden capture tools/golden/native195 n195_omit (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_omit_local() {
+    let _ = require_db!();
+    expect(
+        "NOMITLC",
+        include_str!("native/NOMITLC.rpgle"),
+        &["1 2N 2x"],
+    )
+    .await;
+}
