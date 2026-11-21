@@ -267,6 +267,13 @@ impl Machine<'_> {
                 }
                 let v = self.eval(&args[0])?;
                 let Some(t) = temporal(&v) else {
+                    // A date, time or timestamp field whose bytes are not
+                    // one (blanks, overlaid in a data structure): status
+                    // 00112 (PUB400, IBM i 7.5, 2026-11-20: %DEC of a date
+                    // field holding blanks, in a MONITOR group).
+                    if typed {
+                        bail!("RNX0112: The date, time or timestamp value is not valid.");
+                    }
                     return Ok(None);
                 };
                 let fmt = self.special_arg(args, 1);

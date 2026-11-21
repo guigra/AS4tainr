@@ -30263,3 +30263,50 @@ endmon;
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["OVER ERROR 113"]);
 }
+
+/// %DEC of a date field whose bytes are not a date (blanks, the field
+/// overlaid by a character field in a data structure) is status 00112;
+/// of a valid date, its digits. Expected values: PUB400, IBM i 7.5,
+/// 2026-11-20 (tools/golden/native168 n168_decbad in the native fork:
+/// "112 20260131").
+#[tokio::test]
+async fn dec_of_a_date_field_holding_blanks_is_status_112() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-ds x;
+  c char(10) pos(1) inz(*blanks);
+  d date pos(1);
+end-ds;
+dcl-s n packed(9:0);
+dcl-s line varchar(80);
+monitor;
+  n = %dec(d);
+  line = 'no error ' + %char(n);
+on-error;
+  line = %char(%status);
+endmon;
+c = '2026-01-31';
+n = %dec(d);
+line += ' ' + %char(n);
+dsply line;
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "DECBAD".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["112 20260131"]);
+}
