@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.206: UCS-2 fields (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native206.txt -f tools/golden/native206
+n206_crt|!system -q "DLTPGM PGM(@LIB@/GN206UC)"; system "CRTSQLRPGI OBJ(@LIB@/GN206UC) SRCSTMF('@HOME@/gld/gn206uc.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n206_ucs2|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN206UC)"; cat gn1.out; rm -f gn1.out

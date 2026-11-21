@@ -2370,6 +2370,19 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
             used.push(format!("ind {n}"));
             Some(ir::CharExpr::Ind(n.clone()))
         }
+        // %CHAR of a character or UCS-2 field (S2.206): bif CHAR's
+        // `other.chars()` of eval's value, which is the field's character
+        // data (data::load converts UCS-2).
+        Expr::Bif(b, args)
+            if b == "CHAR"
+                && matches!(args.as_slice(), [Expr::Name { parts, args: None }]
+                    if matches!(sym(cx, &parts.join(".")), Some(Sym::Var(v))
+                        if v.dim == 0 && matches!(v.dtype, DType::Char(_) | DType::Varchar(_) | DType::Ucs2(_) | DType::VarUcs2(_)))) =>
+        {
+            let mut cp = path.clone();
+            cp.push(0);
+            char_expr(cx, args.first()?, used, cp)
+        }
         Expr::Bif(b, args) if b == "CHAR" => {
             let [inner] = args.as_slice() else {
                 return None;
@@ -2859,6 +2872,12 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
                     ty: ir::Ty::Varchar(_),
                     ..
                 } => Some(ir::NumExpr::VarLen { var: v }),
+                // A varying UCS-2 field's current length (S2.206): not
+                // lowered.
+                ir::Operand::Var {
+                    ty: ir::Ty::VarUcs2(_),
+                    ..
+                } => None,
                 _ => operand(cx, e, used).map(ir::NumExpr::Leaf),
             }
         }
@@ -3857,6 +3876,8 @@ fn is_char(o: &ir::Operand) -> bool {
             | ir::Operand::Var {
                 ty: ir::Ty::Char(_)
                     | ir::Ty::Varchar(_)
+                    | ir::Ty::Ucs2(_)
+                    | ir::Ty::VarUcs2(_)
                     | ir::Ty::Date(..)
                     | ir::Ty::Time(..)
                     | ir::Ty::Timestamp(_),
@@ -4110,6 +4131,9 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
         DType::Uns(n) => ir::Ty::Uns(n),
         DType::Char(n) => ir::Ty::Char(n),
         DType::Varchar(n) => ir::Ty::Varchar(n),
+        // A UCS-2 field (S2.206): character data as data::load gives it.
+        DType::Ucs2(n) => ir::Ty::Ucs2(n),
+        DType::VarUcs2(n) => ir::Ty::VarUcs2(n),
         // A pointer field (S2.47): only where a pointer is taken (EVAL of
         // a pointer, comparisons, %ADDR), never as a number (`operand`).
         DType::Pointer => ir::Ty::Pointer,

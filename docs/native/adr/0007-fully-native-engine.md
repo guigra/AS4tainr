@@ -2300,3 +2300,9 @@ A whole data structure array, named with no index and with DIM above 1, is lower
 The array may be global, or a procedure's own, but not based and not of multiple occurrences.
 
 **Verified by** the native unit NDSRET, under both engines, as captured on PUB400 (tools/golden/native205.txt n205_dsret: `ONE 1|TWO 2`). The WHY pass lists none of its statements. rla_test.rs RUNITF's `e = inner()` and `return res` are native now.
+
+## S2.206: UCS-2 fields with character data
+
+Fixed and varying UCS-2 fields are lowered as character operands (`Ty::Ucs2`, `Ty::VarUcs2`). data::load gives their value as character data in the job's CCSID 37, and data::store converts character data back, as the interpreter's eval and assign do. So a UCS-2 field works where a character field does: a leaf of a character expression, an EVAL's target, and a comparison's side. %CHAR of a character or UCS-2 field is the field's character data (bif CHAR's `other.chars()`). The forms that check Ty::Char or Ty::Varchar by name still leave a UCS-2 field to the interpreter. %LEN of a varying UCS-2 field, its current length, is refused explicitly.
+
+**Verified by** the native unit NUCS2, under both engines, as captured on PUB400 (tools/golden/native206.txt n206_ucs2: `[abc   ][Bern][Bern] Zurich EQ`). rla_test.rs TYPES's `%trim(note)` and `note = 'Bern'` and CONSTS's `%char` of a UCS-2 field are native now (the WHY passes of those tests). TYPES's READ and UPDATE of a record with LOB fields are not.
