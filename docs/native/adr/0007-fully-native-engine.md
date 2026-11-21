@@ -2167,3 +2167,14 @@ The first candidate whose parameters each take an argument's first kind wins; fa
 Nor is a call with no candidate, since that is the interpreter's error.
 
 **Verified by** the native unit NOVERLD, under both engines, as captured on PUB400 (tools/golden/native188.txt n188_overload: `N12.50|D04/03/26|Cabc|N-7.00`): a numeric literal, a date field, a character field and an integer field. The calls whose candidate is fmtNum or fmtChr run natively (the WHY pass lists only line 20). `fmt(d)`'s candidate fmtDate takes a CONST date parameter, which call_of does not lower yet, so that statement stays with the interpreter, as does rla_test.rs FREEFORM's `fmt(d)`; FREEFORM's `fmt(12.5)` is native now.
+
+## S2.189: date, time and timestamp parameters
+
+A call's date, time or timestamp parameter is lowered as args_for passes one when the argument is a field of the parameter's own type (format and separator included). The field goes by reference, for a parameter passed by reference, or CONST (same_type_variable): the field's bytes, which call_frame aliases. A value for such a parameter is not lowered. That covers a CONST parameter given a field of another format, an expression or a literal: args_for evaluates it and stores it in the parameter's type, and value_arg gives nothing for these types.
+
+**Verified by** the native unit NDTPARM, under both engines, as captured on PUB400 (tools/golden/native189.txt n189_dtparm: `2026-02-28|01:45 PM|2026-02-03-04.06.36.000007|2026-02-28 2026-12-25`):
+- a date by reference that the procedure changes;
+- a time CONST;
+- a timestamp by reference.
+
+These run natively. The statement whose call passes a *DMY date for an *ISO CONST parameter, line 18, stays with the interpreter (the WHY pass lists only it). NOVERLD's `fmt(d)` (S2.188) and rla_test.rs FREEFORM's `fmt(d)` are native now.

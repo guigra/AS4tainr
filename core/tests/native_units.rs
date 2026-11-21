@@ -4148,3 +4148,16 @@ async fn native_unit_lowered_overload_calls() {
     )
     .await;
 }
+
+// Stage 2, S2.189: date, time and timestamp parameters.
+// Source: golden capture tools/golden/native189 n189_dtparm (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_temporal_parameters() {
+    let _ = require_db!();
+    expect(
+        "NDTPARM",
+        include_str!("native/NDTPARM.rpgle"),
+        &["2026-02-28|01:45 PM|2026-02-03-04.06.36.000007|2026-02-28 2026-12-25"],
+    )
+    .await;
+}

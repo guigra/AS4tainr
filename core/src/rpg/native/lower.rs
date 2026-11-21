@@ -4753,6 +4753,9 @@ fn value_arg(
         return None;
     }
     match ty {
+        // A date, time or timestamp parameter's value (args_for's eval
+        // stored in the parameter's type) is not lowered (S2.189).
+        ir::Ty::Date(..) | ir::Ty::Time(..) | ir::Ty::Timestamp(_) => None,
         ir::Ty::Char(_) | ir::Ty::Varchar(_) => {
             Some(ir::CallArg::Char(char_expr(cx, a, used, path)?))
         }
@@ -4770,6 +4773,12 @@ fn value_arg(
 fn call_param_ty(t: DType) -> Option<ir::Ty> {
     match t {
         DType::Pointer => Some(ir::Ty::Pointer),
+        // A date, time or timestamp parameter (S2.189): passed by
+        // reference, or CONST for a field of its own type (its bytes);
+        // value_arg takes no value for one.
+        DType::Date(f) => Some(ir::Ty::Date(f.name, f.sep)),
+        DType::Time(f) => Some(ir::Ty::Time(f.name, f.sep)),
+        DType::Timestamp(n) => Some(ir::Ty::Timestamp(n)),
         other => param_ty(other),
     }
 }
