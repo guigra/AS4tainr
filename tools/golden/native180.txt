@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.180: XML-INTO %HANDLER (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native180.txt -f tools/golden/native180
+n180_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN180XH) SRCSTMF('@HOME@/gld/gn180xh.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n180_handler|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN180XH)"; cat gn1.out; rm -f gn1.out

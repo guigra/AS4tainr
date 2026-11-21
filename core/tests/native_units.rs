@@ -4032,3 +4032,20 @@ async fn native_unit_lowered_split_into_array() {
         "NSPLITA: {line}"
     );
 }
+
+// Stage 2, S2.180: XML-INTO %HANDLER. The capture is "9 2 abc|5 1 ab 1 351":
+// two calls of two elements and one; then a handler returning non-zero at
+// its first call, which ends the operation. IBM i ends it with an error
+// (%ERROR on, status 00351), where the interpreter (and so the native
+// engine) ends it without one (fidelity.md, "XML-INTO %HANDLER returning
+// non-zero"). The test checks the parts where both agree.
+// Source: golden capture tools/golden/native180 n180_handler (PUB400, IBM i 7.5, 2026-11-20)
+#[tokio::test]
+async fn native_unit_lowered_xml_into_handler() {
+    let _ = require_db!();
+    let got = shown("NXMLHND", include_str!("native/NXMLHND.rpgle")).await;
+    let [line] = got.as_slice() else {
+        panic!("NXMLHND: {got:?}");
+    };
+    assert!(line.starts_with("9 2 abc|5 1 ab "), "NXMLHND: {line}");
+}

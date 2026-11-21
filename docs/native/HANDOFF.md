@@ -1,8 +1,53 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-20 16:30 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
+Last update: 2026-11-20 22:40 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
 
-## Now (2026-11-20, 16:30 UTC)
+## Now (2026-11-20, 22:40 UTC)
+
+**Committed up to S2.176** (89e464a). The x86_64 run s7f-s2176 gives level 2 rust 786 of 786 as under the interpreter, and coverage is 98.8%. About 69 instructions of 5820 are left with the interpreter.
+
+S2.166 to S2.176 add:
+- SET RESULT SETS ARRAY;
+- the fixes from codex's review of S2.140-S2.166 (S2.167, S2.168);
+- data structure arrays as CONST parameters;
+- named constants in string operations;
+- E and the error indicator on database file operations (S2.171 and S2.172, in one commit);
+- CALLP(E);
+- UPDATE %FIELDS;
+- SND-MSG;
+- XML-INTO(E).
+
+**Validating:** s2179, on jsr-test-2. It holds S2.177 (EVAL-CORR), S2.178 (SET RESULT SETS of an OCCURS structure) and S2.179 (%SPLIT into an array).
+
+**ARM (jsr-test-arm) is reserved by the user** from 2026-11-20 16:40 UTC, for at least 24 hours or until they say otherwise. Its PostgreSQL container `as4tainr-test-db` is stopped. Run nothing there, and start the container first when it is free (memory: arm-vm-busy).
+
+**Interpreter defects found today**, now in fidelity.md (fix them in the fork after the native engine, then notify Kyle last; memory: kyle-notify-last):
+- %DEC of a date field of blanks;
+- READ(E) of a file that is not open;
+- OPEN(E) of an open file;
+- an SQL table's primary key, which is not a keyed access path;
+- SND-MSG *ESCAPE, which should go to the caller;
+- %SPLIT into an array, which clears the elements after the pieces;
+- a time plus a date;
+- %BITXOR with three arguments.
+
+**Left:**
+- XML-INTO with %HANDLER and XML-SAX;
+- UCS-2 (TYPES);
+- a data structure array returned (RUNITF);
+- EXCEPT to a program-described DISK file (TRANSPD);
+- a program-described DISK file read into a data structure (CEEPGM);
+- UNLOCK of a data area;
+- the parts the user chose to leave (LIKEFILE inside procedures, SQL timestamp host variables) and those left on purpose (ADR 0007).
+
+Even at 100%, errors still go through the interpreter's settle path. Removing the interpreter is a phase of its own.
+
+**Lessons (2026-11-20):**
+- A WHY pass over the whole suite needs a new database of its own: under `unshare` the library names repeat.
+- Stop a chain by its process group, and only one run may use dev41 at a time.
+- When one snapshot contains the next, the queue can be shortened: stop the chains that are waiting, then point the newest one at the run in progress.
+
+## Before (2026-11-20, 16:30 UTC)
 
 **Committed up to S2.165** (8007b1a). The x86_64 run s7f-s2165 gives level 2 rust 776 of 776 as under the interpreter, and coverage is 98.5%.
 

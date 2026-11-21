@@ -2059,3 +2059,15 @@ EVAL of a global character or varying array, not based nor of multiple occurrenc
   - a varying-dimension array's elements in use become the pieces.
 
 **Verified by** the native unit NSPLITA, under both engines, against the PUB400 capture (tools/golden/native179.txt n179_split: `the/fox/old|a   b   c   [    ]|a   [    ]b   |2y`), on the parts where IBM i and the interpreter agree. IBM i leaves a fixed array's elements after the pieces as they were, which the interpreter initializes (fidelity.md). rla_test.rs FREEFORM's `words = %split(...)` is native now.
+
+## S2.180: XML-INTO %HANDLER
+
+XML-INTO %HANDLER(procedure : area) %XML(document [: options]) is lowered, with or without E. Lowering first checks the handler as handler_items will at run time, so that its checks cannot fail when the operation runs:
+- it is a procedure of the module;
+- it has at least three parameters;
+- its second parameter is an array passed by reference;
+- the area is a name.
+
+Generated code evaluates the document and the options in order. The runtime then takes handler_items, and `xml_into_handler_doc` does the rest of xml_into_handler unchanged. That function is upstream's xml_into_handler split after its checks and evaluation, under the same authorization as S2.165's split; CLAUDE.native.md section 3 records it.
+
+**Verified by** the native unit NXMLHND, under both engines, against the PUB400 capture (tools/golden/native180.txt n180_handler: `9 2 abc|5 1 ab 1 351`), on the parts where IBM i and the interpreter agree. IBM i ends the operation with error 00351 when the handler returns non-zero; the interpreter ends it without an error (fidelity.md). rla_test.rs XMLHND is native now.

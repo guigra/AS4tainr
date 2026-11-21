@@ -312,7 +312,22 @@ impl Machine<'_> {
             Some(e) => a(&self.eval(e)?.chars()?),
             None => String::new(),
         };
-        let o = XmlOpts::parse(&opts)?;
+        self.xml_into_handler_doc(&proc, &comm, (pname, dim, init), doc, &opts)
+    }
+
+    /// XML-INTO %HANDLER with the handler's procedure, communication
+    /// area and array parameter (handler_items) found and the document's
+    /// value and the options' text evaluated.
+    pub(super) fn xml_into_handler_doc(
+        &mut self,
+        proc: &str,
+        comm: &Expr,
+        items: (String, u32, Vec<u8>),
+        doc: Value,
+        opts: &str,
+    ) -> Result<()> {
+        let (pname, dim, init) = items;
+        let o = XmlOpts::parse(opts)?;
         let text = if o.file {
             let path = a(&doc.chars()?).trim().to_string();
             self.c_flush();
@@ -365,13 +380,13 @@ impl Machine<'_> {
                 for (k, el) in chunk.iter().enumerate() {
                     let target = lv.with_index(k as i128 + 1);
                     let el = *el;
-                    self.in_handler_frame(&proc, buf, |m| m.xml_fill(&o, el, &target))?;
+                    self.in_handler_frame(proc, buf, |m| m.xml_fill(&o, el, &target))?;
                 }
                 // A handler that returns other than 0 ends the operation in
                 // error, status 00351 (PUB400, IBM i 7.5, 2026-11-20:
                 // XML-INTO(E) after the handler returned 1 has %ERROR on
                 // and %STATUS 351).
-                let rc = self.call_handler(&proc, &comm, buf, chunk.len())?;
+                let rc = self.call_handler(proc, comm, buf, chunk.len())?;
                 if rc != 0 {
                     bail!("RNX0351: The XML-INTO handler {proc} returned {rc}: the operation ends in error.");
                 }

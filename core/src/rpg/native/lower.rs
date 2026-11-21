@@ -1188,12 +1188,13 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
         // %HANDLER, not E.
         Ins::Stmt(Stmt::Op {
             code,
-            f1: Some(Expr::Name { args: None, .. }),
+            f1: Some(target),
             f2: Some(Expr::Bif(_, parts)),
             result: None,
             ext,
             ind,
         }) if code == "XML-INTO"
+            && (matches!(target, Expr::Name { args: None, .. }) || handler_ok(cx, target))
             && !ext.no_lock
             // E (S2.176): errors.rs stmt_e around it.
             && ext.other.chars().all(|c| c == 'E')
@@ -3211,6 +3212,38 @@ fn hex_number(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<i128> {
             .iter()
             .fold(0i128, |acc, &x| acc.wrapping_shl(8) | i128::from(x)),
     )
+}
+
+/// XML-INTO's %HANDLER(procedure : communication area) (S2.180): a
+/// procedure of this module that handler_items takes (three parameters
+/// at least, the second an array passed by reference), so that its checks
+/// cannot fail when the operation runs; the area a name.
+fn handler_ok(cx: &Cx<'_>, e: &Expr) -> bool {
+    let Expr::Bif(b, hargs) = e else {
+        return false;
+    };
+    if b != "HANDLER" {
+        return false;
+    }
+    let [Expr::Name { parts, args: None }, Expr::Name { args: None, .. }] = hargs.as_slice() else {
+        return false;
+    };
+    let proc = parts.join(".").to_ascii_uppercase();
+    let Some(pi) = cx.prog.procs.get(&proc) else {
+        return false;
+    };
+    let Some(p) = pi.params.get(1) else {
+        return false;
+    };
+    if pi.params.len() < 3 || p.buf.is_none() {
+        return false;
+    }
+    let dim = match pi.syms.get(&p.name) {
+        Some(Sym::Ds(d)) => d.dim,
+        Some(Sym::Var(v)) => v.dim,
+        _ => 0,
+    };
+    dim > 0
 }
 
 /// A file read's extenders (S2.171): none, or E (the parser keeps it in
