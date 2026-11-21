@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.202");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.203");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -1068,6 +1068,8 @@ pub mod ir {
         /// Character data read as a number, as %INT and %DEC take it
         /// (S2.112): char_number.
         CharDec(Box<CharExpr>),
+        /// A float value as %DEC or %DECH takes it (S2.203): its num().
+        OfFloat(Box<FloatExpr>),
         /// A pointer field minus a pointer field (S2.98), ptrs.rs
         /// ptr_arith: the distance between them.
         PtrDiff(Operand, Operand),
@@ -5169,6 +5171,7 @@ ir::NumExpr::PtrDiffOf(a, b) => {
             code
         }
         ir::NumExpr::CharDec(c) => format!("rpgrt::native::char_dec(&{})?", char_expr(pc, c, helpers)),
+        ir::NumExpr::OfFloat(f) => format!("{{ let v = {}; v.num()? }}", float_expr(pc, f, helpers)),
         ir::NumExpr::LenOf(c) => format!(
             "rpgrt::rpg::dec::Dec::from_i64(i64::try_from({}.chars()?.len())?)",
             char_expr(pc, c, helpers)

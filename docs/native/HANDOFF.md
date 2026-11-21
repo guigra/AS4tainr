@@ -1,8 +1,69 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-20 22:40 UTC. Branch `native/engine` is pushed to origin (guigra/AS4tainr) on top of upstream main dd47e28, which upstream has not changed since 2026-11-14.
+Last update: 2026-11-21 14:20 UTC.
 
-## Now (2026-11-20, 22:40 UTC)
+## Now (2026-11-21, 14:20 UTC)
+
+**Committed up to S2.197** (3dd0c7c). The x86_64 run s7f-s2197 gives level 2 rust 803 of 803 as under the interpreter, and coverage is 99.4% (34 instructions left with the interpreter).
+
+**Validating on jsr-test-2:** s2201 (S2.198 to S2.201), then s2202.
+
+**ARM is still reserved by the user** (memory: arm-vm-busy).
+
+**Plan to the milestone**, approved by the user on 2026-11-21 (memory: native-100-percent):
+1. coverage up to about 99.8–99.9%;
+2. the interpreter fixed in the fork where it accepts what IBM i rejects;
+3. the error routing (settle) made native.
+
+Since 2026-11-20 the user has also authorized these upstream touches, recorded in CLAUDE.native.md section 3:
+- xmlsax.rs's split;
+- exec_sql.rs's timestamp functions made `pub(super)`;
+- `ParamInfo.likefile`.
+
+**Blocks of 2026-11-21:**
+- XML-SAX;
+- IN of an enumeration, %CONCAT;
+- DSPLY of a float;
+- SQL timestamp host variables;
+- LIKEFILE in procedures;
+- based arrays;
+- an EXCEPT edit word from the procedure;
+- OVERLOAD;
+- date, time and timestamp parameters;
+- a based float read;
+- program-described reads, also into a data structure;
+- UNLOCK of data areas, and IN/OUT with E;
+- %KDS;
+- OPTIONS(*CONVERT);
+- local *OMIT;
+- %LOOKUP of DSARR(*).SUB;
+- EXCEPT to DISK;
+- pointer differences;
+- EXTPGM in a variable;
+- C functions' float parameters and results.
+
+**New interpreter defects**, all in fidelity.md: XML-SAX's non-zero return, %CONCAT with numbers and *BLANK, DSPLY of float(4), an OVERLOAD prototype without END-PR, OUT of a data area that is not locked, EXTFILE for output files, EXTPGM in lower case, pow(9 : 0.5).
+
+**Left:**
+- TYPES: UCS-2, graphic and LOB fields;
+- CONSTS: a UCS-2 constant;
+- RUNITF: a data structure returned, a *VARSIZE argument, a local array;
+- NESTED and IMQPATH: an element of a nested data structure array passed by reference;
+- LOCALTR: a C call returning a data structure;
+- XSCRT:97: %DECH of a call that returns a float.
+
+IBM i rejects these at compile time, so they cannot be made native:
+- NEST100;
+- SYSAPI's mismatched by-reference argument.
+
+The unit cases left on purpose are NINCONC:38 (a figurative *BLANK) and NDTPARM:18 (a CONST date of another format).
+
+**Lessons (2026-11-21):**
+- A WHY pass writes nothing unless AS4TAINR_NATIVE_EMIT is set too.
+- Check that a unit's name is free before writing its file: NPTRDIF was overwritten once and restored from git.
+- rpgcg's VERSION had not changed since S2.172, because the edit looked for a text that was no longer there. Check `grep '"+stage2'` after changing it.
+
+## Before (2026-11-20, 22:40 UTC)
 
 **Committed up to S2.176** (89e464a). The x86_64 run s7f-s2176 gives level 2 rust 786 of 786 as under the interpreter, and coverage is 98.8%. About 69 instructions of 5820 are left with the interpreter.
 

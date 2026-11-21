@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.203: %DEC, %DECH, %INT, %INTH of floats (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native203.txt -f tools/golden/native203
+n203_crt|!system -q "DLTPGM PGM(@LIB@/GN203FD)"; system "CRTSQLRPGI OBJ(@LIB@/GN203FD) SRCSTMF('@HOME@/gld/gn203fd.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n203_floatdec|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN203FD)"; cat gn1.out; rm -f gn1.out

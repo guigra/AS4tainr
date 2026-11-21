@@ -5492,6 +5492,19 @@ fn float_expr(
 /// expression is read by char_number, as those bif arms take a
 /// Value::Char; anything else is a numeric expression.
 fn dec_arg(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::NumExpr> {
+    // A float (S2.203): the bif arm's o.num() of eval's value; a call alone
+    // as its returned value (S2.201), any other float expression as
+    // float_expr lowers it.
+    if is_float_static(cx, e, 0) {
+        let f = match e {
+            Expr::Name {
+                parts,
+                args: Some(args),
+            } if is_call(cx, parts) => ir::FloatExpr::Call(call_of(cx, parts, args, used, path)?),
+            _ => float_expr(cx, e, used, path, 0)?,
+        };
+        return Some(ir::NumExpr::OfFloat(Box::new(f)));
+    }
     match char_expr(cx, e, used, path.clone()) {
         Some(c) => Some(ir::NumExpr::CharDec(Box::new(c))),
         None => num_expr(cx, e, used, path),

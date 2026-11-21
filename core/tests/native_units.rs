@@ -4432,3 +4432,17 @@ async fn native_unit_lowered_c_float_expressions() {
     )
     .await;
 }
+
+// Stage 2, S2.203: %DEC, %DECH, %INT and %INTH of floats. The capture is
+// "-12.6 2.67 -8 -7 1"; the unit leaves out its last statement (NFLTDEC.rpgle).
+// Source: golden capture tools/golden/native203 n203_floatdec (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_dec_of_float() {
+    let _ = require_db!();
+    expect(
+        "NFLTDEC",
+        include_str!("native/NFLTDEC.rpgle"),
+        &["-12.6 2.67 -8 -7"],
+    )
+    .await;
+}
