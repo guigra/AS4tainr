@@ -4485,3 +4485,16 @@ async fn native_unit_lowered_ucs2_fields() {
     )
     .await;
 }
+
+// Stage 2, S2.207: an element of a data structure array as a whole.
+// Source: golden capture tools/golden/native207 n207_dselem (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_ds_array_element() {
+    let _ = require_db!();
+    expect(
+        "NDSELEM",
+        include_str!("native/NDSELEM.rpgle"),
+        &["GRACE13 73 [007003] E121"],
+    )
+    .await;
+}

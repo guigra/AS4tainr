@@ -4009,6 +4009,53 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
                 based,
             });
         }
+        // An element of a global data structure array (S2.207): its bytes,
+        // as interp.rs ds_element places it (the index's value checked
+        // from 1 to the dimension, RNQ0121 otherwise, the element's size
+        // apart); a literal or numeric field index. Not based, not of
+        // multiple occurrences, not a procedure's own.
+        Some(Sym::Ds(d)) if d.dim > 0 => {
+            let prog = cx.prog;
+            let Some([ix]) = args.as_deref() else {
+                return None;
+            };
+            if d.local
+                || prog.based.contains_key(&d.buf)
+                || prog.occurs.iter().any(|o| o.buf == d.buf)
+            {
+                return None;
+            }
+            let of = match ix {
+                Expr::Num(n) if n.scale() == 0 => ir::Operand::Num {
+                    m: n.to_i128().ok()?,
+                    s: 0,
+                },
+                Expr::Name { args: None, .. } => num_variable(cx, ix, used)?,
+                _ => return None,
+            };
+            let size = u32::try_from(d.size).ok()?;
+            used.push(format!(
+                "layout {name}(i) {} {} ds {size} dim {}",
+                d.buf, d.off, d.dim
+            ));
+            return Some(ir::Operand::Var {
+                name: name.clone(),
+                buf: d.buf,
+                off: d.off,
+                ty: ir::Ty::Char(size),
+                local: false,
+                index: Some(Box::new(ir::Index {
+                    of,
+                    stride: d.size,
+                    dim: d.dim,
+                    vary: None,
+                    outer: None,
+                    next: false,
+                    table: None,
+                })),
+                based: None,
+            });
+        }
         _ => return None,
     };
     // An element of a global array with a literal index in range

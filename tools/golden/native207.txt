@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.207: an element of a data structure array as a whole (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native207.txt -f tools/golden/native207
+n207_crt|!system -q "DLTPGM PGM(@LIB@/GN207DE)"; system "CRTSQLRPGI OBJ(@LIB@/GN207DE) SRCSTMF('@HOME@/gld/gn207de.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n207_dselem|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN207DE)"; cat gn1.out; rm -f gn1.out
