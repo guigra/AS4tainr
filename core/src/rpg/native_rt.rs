@@ -4666,7 +4666,14 @@ impl Rt<'_, '_> {
         let prog = self.m.prog;
         for r in &prog.outputs {
             if r.kind == 'E' && r.name.as_deref() == name && self.out_cond_n(&r.cond) {
-                self.print_record_n(r, fields)?;
+                // print_line's DISK arm (S2.197): disk_output.
+                let disk = prog
+                    .file_index(&r.file)
+                    .filter(|i| prog.files.get(*i).is_some_and(|f| f.decl.device == "DISK"));
+                match disk {
+                    Some(i) => self.m.disk_output(i, r)?,
+                    None => self.print_record_n(r, fields)?,
+                }
             }
         }
         Ok(())

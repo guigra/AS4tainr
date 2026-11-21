@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.197: EXCEPT to a program-described DISK file (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native197.txt -f tools/golden/native197
+n197_crt|!system -q "DLTPGM PGM(@LIB@/GN197ED)"; system "CRTSQLRPGI OBJ(@LIB@/GN197ED) SRCSTMF('@HOME@/gld/gn197ed.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n197_exceptdisk|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN197ED)"; cat gn1.out; rm -f gn1.out
