@@ -2284,6 +2284,51 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
         }
         // %SCANRPL of character expressions, with a start and a length that
         // are numeric literals or fields (S2.28).
+        // %CONCAT(separator : a : b ...) (S2.182): bif's CONCAT arm, the
+        // separator (*NONE nothing, *BLANK one blank, else its characters)
+        // evaluated once, then each value in order, a number as
+        // char_of_num gives it. Here the separator a literal or a special
+        // value, so evaluating it again between the values is the same;
+        // the values character literals or fields.
+        Expr::Bif(b, args) if b == "CONCAT" && args.len() >= 2 => {
+            let sep: Vec<u8> = match args.first()? {
+                Expr::Name { parts, args: None } if parts.len() == 1 => {
+                    match parts.first()?.to_ascii_uppercase().as_str() {
+                        "*NONE" => Vec::new(),
+                        "*BLANK" | "*BLANKS" => vec![super::super::data::BLANK],
+                        _ => return None,
+                    }
+                }
+                Expr::Str(b) => b.clone(),
+                _ => return None,
+            };
+            let mut parts = Vec::with_capacity(args.len().saturating_mul(2));
+            for (k, e) in args.iter().enumerate().skip(1) {
+                let mut ep = path.clone();
+                ep.push(u8::try_from(k).ok()?);
+                if k > 1 && !sep.is_empty() {
+                    let mut sp = path.clone();
+                    sp.push(0);
+                    parts.push(char_expr(cx, &Expr::Str(sep.clone()), used, sp)?);
+                }
+                // A number is RNF0203 on IBM i (fidelity.md); not lowered.
+                let part = match e {
+                    Expr::Str(_) => char_expr(cx, e, used, ep)?,
+                    Expr::Name {
+                        parts: n,
+                        args: None,
+                    } if matches!(sym(cx, &n.join(".")), Some(Sym::Var(v))
+                            if v.dim == 0 && matches!(v.dtype, DType::Char(_) | DType::Varchar(_))) =>
+                    {
+                        char_expr(cx, e, used, ep)?
+                    }
+                    _ => return None,
+                };
+                parts.push(part);
+            }
+            used.push("concat".into());
+            Some(ir::CharExpr::Chain { parts, path })
+        }
         Expr::Bif(b, args) if b == "SCANRPL" => {
             let (pat, rep, s, start, len) = match args.as_slice() {
                 [a, r, s] => (a, r, s, None, None),
@@ -3054,12 +3099,33 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
         // b, or x equal to one. An array or an enumeration stays with the
         // interpreter.
         BinOp::In => {
-            let Expr::Bif(b, args) = &**r else {
-                return None;
-            };
-            let range = match b.as_str() {
-                "RANGE" if args.len() == 2 => true,
-                "LIST" if !args.is_empty() => false,
+            // x IN an enumeration (S2.182): list_of's constant list, its
+            // values as literals, compared as %LIST's.
+            let enum_args: Vec<Expr>;
+            let (range, args) = match &**r {
+                Expr::Bif(b, args) => match b.as_str() {
+                    "RANGE" if args.len() == 2 => (true, args),
+                    "LIST" if !args.is_empty() => (false, args),
+                    _ => return None,
+                },
+                Expr::Name { parts, args: None } => {
+                    let Some(Sym::Const(Value::List(vals))) = sym(cx, &parts.join(".")) else {
+                        return None;
+                    };
+                    let mut lits = Vec::with_capacity(vals.len());
+                    for v in vals {
+                        lits.push(match v {
+                            Value::Char(b) => Expr::Str(b.clone()),
+                            Value::Num(d) => Expr::Num(*d),
+                            _ => return None,
+                        });
+                    }
+                    if lits.is_empty() {
+                        return None;
+                    }
+                    enum_args = lits;
+                    (false, &enum_args)
+                }
                 _ => return None,
             };
             let x = side(cx, l, used, child(0))?;

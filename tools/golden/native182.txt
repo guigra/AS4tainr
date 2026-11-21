@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.182: IN an enumeration, %CONCAT (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native182.txt -f tools/golden/native182
+n182_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN182IC) SRCSTMF('@HOME@/gld/gn182ic.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n182_inconcat|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN182IC)"; cat gn1.out; rm -f gn1.out
