@@ -30879,3 +30879,76 @@ endmon;
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["PLUS OK", "NOT NULL", "DIFF 1"]);
 }
+
+/// A call through a procedure pointer set to *NULL fails as a called
+/// procedure does: status 00202 in the caller's MONITOR group. Expected
+/// values: PUB400, IBM i 7.5, 2026-11-18 (tools/golden/native87
+/// n87_procptr in the native fork: "ADD 5 MUL 6 NE EQ 15", "NULL 202").
+#[tokio::test]
+async fn a_call_through_a_null_procedure_pointer_is_status_202() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s pp pointer(*proc);
+dcl-s qq pointer(*proc);
+dcl-pr op int(10) extproc(pp);
+  a int(10) value;
+  b int(10) value;
+end-pr;
+dcl-s line varchar(52);
+pp = %paddr(add);
+line = 'ADD ' + %char(op(2: 3));
+pp = %paddr('MUL');
+line += ' MUL ' + %char(op(2: 3));
+qq = %paddr(add);
+if pp <> qq;
+  line += ' NE';
+endif;
+pp = qq;
+if pp = qq;
+  line += ' EQ ' + %char(op(10: 5));
+endif;
+dsply line;
+pp = *null;
+monitor;
+  line = 'CALL ' + %char(op(1: 1));
+on-error;
+  line = 'NULL ' + %char(%status);
+endmon;
+dsply line;
+*inlr = *on;
+
+dcl-proc add;
+  dcl-pi *n int(10);
+    a int(10) value;
+    b int(10) value;
+  end-pi;
+  return a + b;
+end-proc;
+
+dcl-proc mul;
+  dcl-pi *n int(10);
+    a int(10) value;
+    b int(10) value;
+  end-pi;
+  return a * b;
+end-proc;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "NULLPP".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["ADD 5 MUL 6 NE EQ 15", "NULL 202"]);
+}

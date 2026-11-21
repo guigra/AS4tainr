@@ -6823,7 +6823,21 @@ impl<'a> Machine<'a> {
                     Value::Ptr(p) if p.kind == super::mem::KIND_PROC => super::mem::proc_ref(p.buf)
                         .ok_or_else(|| anyhow!("MCH3601: procedure pointer {var} is not valid."))?,
                     Value::Ptr(_) => bail!("MCH3601: {var} is not a procedure pointer."),
-                    _ => bail!("MCH3601: procedure pointer {var} is not set (*NULL)."),
+                    // A call through *NULL fails as a called procedure
+                    // does: status 00202 where it is caught (PUB400, IBM i
+                    // 7.5, 2026-11-18: MONITOR around a call by a procedure
+                    // pointer set to *NULL sees 202).
+                    _ => {
+                        let at = errors::At {
+                            line: self.line,
+                            sender: self.sender(),
+                            called: true,
+                        };
+                        return Err(anyhow!(
+                            "MCH3601: procedure pointer {var} is not set (*NULL)."
+                        )
+                        .context(at));
+                    }
                 };
                 // A procedure of a service program (not this module of
                 // it): called there, in its activation.
