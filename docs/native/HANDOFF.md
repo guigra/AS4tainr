@@ -1,8 +1,24 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-21 14:20 UTC.
+Last update: 2026-11-21 21:00 UTC.
 
-## Now (2026-11-21, 14:20 UTC)
+## Now (2026-11-21, 21:00 UTC)
+
+**Committed up to S2.211** (3fe0658). The x86_64 run s7f-s2211 gives level 2 rust 816 of 816 as under the interpreter, coverage 99.7% (18 instructions left with the interpreter), and settle 646 of 646 routines route errors natively.
+
+**ARM is still reserved by the user** (memory: arm-vm-busy).
+
+**Plan step 1 (coverage) is closed.** After S2.210 nothing that can be lowered is left with the interpreter:
+- NEST100 and SYSAPI's call are sources IBM i does not compile;
+- NINCONC:38 (%CONCAT with *BLANK), NDTPARM:18 (a CONST date of another format) and NWHOLEA:35 (an element of a *VARSIZE array parameter, reach) are left on purpose (fidelity.md, ADR 0007).
+
+**The user chose step 3 before step 2** (2026-11-21): S2.211 makes the error routing native. Each routine has its own table, and rpgrt::native::settle routes errors over it. The machine still gives the services on its state (status, PSDS, exception message): that is phase B.
+
+**Next:**
+1. Step 2: fix the interpreter in fork branches `fix/<topic>`, one per fidelity.md defect and codex finding, each with a PUB400 capture, tests, evidence and a codex review. Nothing to Kyle until the end (memory: kyle-notify-last).
+2. Phase B: the machine's services written again in rpgrt.
+
+## Earlier (2026-11-21, 14:20 UTC)
 
 **Committed up to S2.197** (3dd0c7c). The x86_64 run s7f-s2197 gives level 2 rust 803 of 803 as under the interpreter, and coverage is 99.4% (34 instructions left with the interpreter).
 
