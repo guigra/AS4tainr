@@ -4916,6 +4916,12 @@ fn value_arg(
     {
         return None;
     }
+    // A float parameter (a C function's, S2.201): a float expression as
+    // eval gives its value (S2.202: %FLOAT of a literal...), else a
+    // numeric one.
+    if matches!(ty, ir::Ty::Float(_)) && is_float_static(cx, a, 0) {
+        return Some(ir::CallArg::Float(float_expr(cx, a, used, path, 0)?));
+    }
     match ty {
         // A date, time or timestamp parameter's value (args_for's eval
         // stored in the parameter's type) is not lowered (S2.189).

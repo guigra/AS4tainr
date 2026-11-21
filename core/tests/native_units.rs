@@ -4419,3 +4419,16 @@ async fn native_unit_lowered_c_float() {
     };
     assert!(line.starts_with("AB"), "NCFLOAT: {line}");
 }
+
+// Stage 2, S2.202: float expressions for C functions' float parameters.
+// Source: golden capture tools/golden/native202 n202_cfloat (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_c_float_expressions() {
+    let _ = require_db!();
+    expect(
+        "NCFLTEX",
+        include_str!("native/NCFLTEX.rpgle"),
+        &["12.50 -3.25 P"],
+    )
+    .await;
+}

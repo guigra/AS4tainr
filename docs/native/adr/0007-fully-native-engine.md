@@ -2272,3 +2272,9 @@ A call through a prototype whose EXTPGM names a scalar character field is lowere
 A float parameter of a C function passed by value or CONST is lowered. args_for evaluates the argument, a number as it is, and the C function takes it as float_value. A side of a float comparison that is a call alone is lowered as the call's returned value (`FloatExpr::Call`). eval's comparison under is_float, like float_cmp, takes float_value of each side whatever type the call gives it. Calls inside float arithmetic still stay with the interpreter (S2.108): there eval picks the operation by the value's type.
 
 **Verified by** the native unit NCFLOAT, under both engines, against the PUB400 capture (tools/golden/native201.txt n201_pow: `ABC`), on its first two comparisons. IBM i's pow(9, 0.5) is not exactly 3, while the interpreter's powf gives 3 (fidelity.md). The WHY pass lists none of NCFLOAT's statements. rla_test.rs HEAPA's `if pow(2 : 10) = 1024` is native now.
+
+## S2.202: float expressions for a C function's float parameters
+
+A float expression for a C function's float parameter passed by value is lowered (`CallArg::Float`): its value as eval gives it, which args_for passes on. That covers a float field, and a float literal, which the parser gives as %FLOAT of its text. A numeric expression keeps S2.201's path.
+
+**Verified by** the native unit NCFLTEX, under both engines, as captured on PUB400 (tools/golden/native202.txt n202_cfloat: `12.50 -3.25 P`): QXXDTOZ given 12.5e0 and a float field, and pow given a float field. rla_test.rs XSCRT's `QXXDTOZ(...: 12.5e0)` is native now.
