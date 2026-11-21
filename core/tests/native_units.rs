@@ -4387,3 +4387,20 @@ async fn native_unit_lowered_pointer_difference_char() {
     let _ = require_db!();
     expect("NPTRDF2", include_str!("native/NPTRDF2.rpgle"), &["2 8 -2"]).await;
 }
+
+// Stage 2, S2.200: EXTPGM naming a variable. The capture is
+// "1 0 hello 0 hello 211": QDCXLATE by its name in upper case to ASCII and
+// back, then by 'qdcxlate', which IBM i does not find (status 00211),
+// where the interpreter (and so the native engine) takes the name in
+// upper case and calls it (fidelity.md, "EXTPGM variable in lower case").
+// The test checks the first two calls.
+// Source: golden capture tools/golden/native200 n200_pgmvar (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_extpgm_variable() {
+    let _ = require_db!();
+    let got = shown("NPGMVAR", include_str!("native/NPGMVAR.rpgle")).await;
+    let [line] = got.as_slice() else {
+        panic!("NPGMVAR: {got:?}");
+    };
+    assert!(line.starts_with("1 0 hello 0 "), "NPGMVAR: {line}");
+}

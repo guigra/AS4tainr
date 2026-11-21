@@ -2260,3 +2260,9 @@ A read of a program-described DISK file into a result data structure is lowered,
 A pointer minus a pointer where either side is not a pointer field, such as %ADDR of a field or of an array element, or a pointer expression, is lowered (`NumExpr::PtrDiffOf`). It is lowered as the whole value, as S2.98's PtrDiff is, or as the argument of %CHAR; neither gives the difference a precision of its own to matter. eval's operands come in order, then ptr_arith's Sub of two pointers, through S2.98's runtime ptr_diff: the offsets' difference within the same storage, or its error.
 
 **Verified by** the native unit NPTRDF2, under both engines, as captured on PUB400 (tools/golden/native199.txt n199_ptrdiff: `2 8 -2`). rla_test.rs PTRS's `%char(p - %addr(name))` is native now.
+
+## S2.200: EXTPGM naming a variable
+
+A call through a prototype whose EXTPGM names a scalar character field is lowered. The runtime's call_proto reads the field's value, as eval gives it, and calls the program of that name in upper case, as call_named_inner does. call_named_inner reads the name before args_for evaluates the arguments, and generated code evaluates them first. So the call is lowered only when its arguments change nothing (fields, literals, figurative constants).
+
+**Verified by** the native unit NPGMVAR, under both engines, against the PUB400 capture (tools/golden/native200.txt n200_pgmvar), on its first two calls (`1 0 hello 0`: to ASCII with QTCPASC and back with QTCPEBC). IBM i calls the program as the variable spells it, and the interpreter in upper case (fidelity.md). rla_test.rs HEAPA's call through such a prototype is native now.
