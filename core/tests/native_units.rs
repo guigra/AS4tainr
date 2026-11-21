@@ -4498,3 +4498,16 @@ async fn native_unit_lowered_ds_array_element() {
     )
     .await;
 }
+
+// Stage 2, S2.208: a whole array for a CONST array parameter.
+// Source: golden capture tools/golden/native208 n208_wholearr (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_whole_array_const() {
+    let _ = require_db!();
+    expect(
+        "NWHOLEA",
+        include_str!("native/NWHOLEA.rpgle"),
+        &["7 15 40"],
+    )
+    .await;
+}

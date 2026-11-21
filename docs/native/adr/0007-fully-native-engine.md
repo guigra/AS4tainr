@@ -2320,3 +2320,9 @@ So an element is read and assigned as eval's and assign_value's Sym::Ds arms tak
 - index 4 of 3, status 00121.
 
 rla_test.rs NESTED's `show(list.users(2))` is native now.
+
+## S2.208: a whole array for a CONST array parameter
+
+A whole array given to a CONST parameter of its elements' type is lowered as args_for's branch for it, after its data structure array cases (whole_ds_array, ds_array_path), for any call. The argument is Arg::Ref(loc_of): the array's place and its elements' extent, `stride × (dim − 1) + element size`, as characters of that size. The array is not based, not of multiple occurrences, and a procedure's own one is placed through rt.local.
+
+**Verified by** the native unit NWHOLEA, under both engines, as captured on PUB400 (tools/golden/native208.txt n208_wholearr: `7 15 40`): arrays of 2 and 5 elements, and a procedure's own array of 1, given to `int(10) CONST DIM(5) OPTIONS(*VARSIZE)`. rla_test.rs RUNITF is native now (its WHY pass lists nothing). In the unit, the callee's `keys(i)` stays with the interpreter (the WHY pass lists line 35). It reads an element of the procedure's own OPTIONS(*VARSIZE) array parameter, which elem_off checks against the argument's storage (`reach`).

@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.208: a whole array for a CONST array parameter (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native208.txt -f tools/golden/native208
+n208_crt|!system -q "DLTPGM PGM(@LIB@/GN208WA)"; system "CRTSQLRPGI OBJ(@LIB@/GN208WA) SRCSTMF('@HOME@/gld/gn208wa.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n208_wholearr|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN208WA)"; cat gn1.out; rm -f gn1.out

@@ -4927,6 +4927,48 @@ fn call_of(
                 }
             }
         }
+        // A whole array for a CONST array parameter of its elements' type
+        // (S2.208): args_for's Arg::Ref(loc_of), the array's place and
+        // its elements' extent (stride * (dim - 1) + element), as
+        // characters of that size; for any call, after the data structure
+        // array cases (whole_ds_array, ds_array_path). Not based, not of
+        // multiple occurrences; a procedure's own through rt.local.
+        if p.konst && !p.by_value {
+            if let Expr::Name { parts, args: None } = a {
+                let an = parts.join(".");
+                if let Some(Sym::Var(v)) = sym(cx, &an) {
+                    if v.dim > 0 && v.dtype == p.dtype {
+                        let placeable = if v.local {
+                            local_ds_ok(cx, v.buf)
+                        } else {
+                            !prog.based.contains_key(&v.buf)
+                                && !prog.occurs.iter().any(|o| o.buf == v.buf)
+                        };
+                        if !placeable {
+                            return None;
+                        }
+                        let size = v
+                            .stride
+                            .checked_mul(usize::try_from(v.dim).ok()?.checked_sub(1)?)?
+                            .checked_add(v.dtype.size())?;
+                        used.push(format!(
+                            "whole array {an} {} {} {size} for {}",
+                            v.buf, v.off, p.name
+                        ));
+                        out.push(ir::CallArg::Ref(ir::Operand::Var {
+                            name: an,
+                            buf: v.buf,
+                            off: v.off,
+                            ty: ir::Ty::Char(u32::try_from(size).ok()?),
+                            local: v.local,
+                            index: None,
+                            based: None,
+                        }));
+                        continue;
+                    }
+                }
+            }
+        }
         if (local.is_some_and(|pi| !matches!(pi.syms.get(&p.name), Some(Sym::Var(_)))) && !ds_ref)
             || (whole_ds && local.is_some() && !ds_ref && !ds_to_field)
         {
