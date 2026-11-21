@@ -1483,6 +1483,20 @@ impl Runtime for Rt<'_, '_> {
             Some(o) => a(&o.chars()?),
             None => String::new(),
         };
+        // %HANDLER (S2.180): xml_into_handler's procedure, area and array
+        // parameter, which lowering has checked, then the rest of it.
+        if let Expr::Bif(b, hargs) = target {
+            if b == "HANDLER" {
+                let (Some(Expr::Name { parts, .. }), Some(comm)) = (hargs.first(), hargs.get(1))
+                else {
+                    return Err(mismatch(pc, "an XML-INTO %HANDLER"));
+                };
+                let proc = parts.join(".").to_ascii_uppercase();
+                let comm = comm.clone();
+                let items = self.m.handler_items(&proc)?;
+                return self.m.xml_into_handler_doc(&proc, &comm, items, doc, &opts);
+            }
+        }
         self.m.xml_into_doc(target, doc, &opts)
     }
 
