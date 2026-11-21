@@ -6225,13 +6225,17 @@ fn file_read(
     // record and field indicators), which the runtime's file_done_n calls;
     // no field moves here. Any other operation on such a file stays with
     // the interpreter.
+    // A program-described file read into a data structure (S2.198):
+    // record_to_ds's record image into it, byte for byte, which the
+    // runtime's file_done_n calls; an externally described one with
+    // input specifications stays with the interpreter then.
     let input_mode = fi.program_described || !fi.inputs.is_empty();
     if fref.is_none() && !(input_mode && key.is_none()) {
         return None;
     }
     if fi.decl.device != "DISK"
         || (input_mode
-            && (ds.is_some()
+            && ((ds.is_some() && !fi.program_described)
                 || !matches!(
                     op,
                     FileOp::Chain | FileOp::Read | FileOp::ReadE | FileOp::ReadP | FileOp::ReadPE

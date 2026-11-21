@@ -4365,3 +4365,17 @@ async fn native_unit_lowered_except_disk() {
     )
     .await;
 }
+
+// Stage 2, S2.198: READ of a program-described file into a data
+// structure.
+// Source: golden capture tools/golden/native198 n198_pdds (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_program_described_read_ds() {
+    let _ = require_db!();
+    expect(
+        "NPDDS",
+        include_str!("native/NPDDS.rpgle"),
+        &["[HELLO world         |HELLO][second   xy         |secon]"],
+    )
+    .await;
+}

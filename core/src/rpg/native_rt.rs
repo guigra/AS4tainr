@@ -2657,20 +2657,21 @@ impl Rt<'_, '_> {
         }
         let open = self.file_n(i)?.open.is_some();
         // move_input's files (S2.191): lowering generates no field moves.
-        let input_mode = !into_ds
-            && self
-                .m
-                .prog
-                .files
-                .get(i)
-                .is_some_and(|f| f.program_described || !f.inputs.is_empty());
+        // A program-described file read into a data structure (S2.198):
+        // file_done_n's record_to_ds.
+        let input_mode = self
+            .m
+            .prog
+            .files
+            .get(i)
+            .is_some_and(|f| f.program_described || (!into_ds && !f.inputs.is_empty()));
         let read = self.read_inner_n(i, op, &file, special, keys, no_lock, cmt.as_deref());
         let read = read.and_then(|r| {
             let rec = match &r.record {
                 // record_to_ds (S2.119): the fields by their place, with
                 // no null checks.
-                Some(rec) if into_ds => Some(self.record_fields_n(i, rec)?),
                 Some(_) if input_mode => Some(Vec::new()),
+                Some(rec) if into_ds => Some(self.record_fields_n(i, rec)?),
                 Some(rec) => Some(self.fields_read_n(i, rec)?),
                 None => None,
             };
@@ -2887,9 +2888,15 @@ impl Rt<'_, '_> {
         // file_op's move_input for a program-described file or one with
         // input specifications (S2.191), as the record's move: its error
         // is the operation's, as a field's.
-        let moved = match (moved, &p.input) {
-            (Ok(()), Some(rec)) => self.m.move_input(i, rec),
-            (m, _) => m,
+        let ds = match &at(self.code, pc)?.ins {
+            Ins::Stmt(super::super::ast::Stmt::File { ds, .. }) => ds.clone(),
+            _ => None,
+        };
+        let moved = match (moved, &p.input, ds) {
+            // A result data structure (S2.198): record_to_ds.
+            (Ok(()), Some(rec), Some(d)) => self.m.record_to_ds(i, rec, &d),
+            (Ok(()), Some(rec), None) => self.m.move_input(i, rec),
+            (m, _, _) => m,
         };
         let cmt = self.file_n(i)?.cmt.clone();
         if let Err(err) = moved {
