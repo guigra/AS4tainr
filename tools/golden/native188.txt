@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.188: calls of an OVERLOAD prototype (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native188.txt -f tools/golden/native188
+n188_crt|!system -q "DLTPGM PGM(@LIB@/GN188OV)"; system "CRTSQLRPGI OBJ(@LIB@/GN188OV) SRCSTMF('@HOME@/gld/gn188ov.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n188_overload|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN188OV)"; cat gn1.out; rm -f gn1.out

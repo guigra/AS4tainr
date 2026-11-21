@@ -4273,6 +4273,89 @@ fn param_ty(t: DType) -> Option<ir::Ty> {
     })
 }
 
+/// An argument's kinds as bifs.rs arg_kind gives them (S2.188), for the
+/// arguments known without evaluating them: *ON and *OFF an indicator or
+/// character; a numeric literal (eval's Value::Num) a number or float; a
+/// field with no index by its type (an indicator also character, a float
+/// also a number, a number also a float). Anything else is not lowered.
+fn arg_kind_static(cx: &Cx<'_>, e: &Expr) -> Option<Vec<char>> {
+    let of_type = |t: DType| -> char {
+        match t {
+            DType::Date(_) => 'D',
+            DType::Time(_) => 'T',
+            DType::Timestamp(_) => 'Z',
+            DType::Ind => 'I',
+            DType::Float(_) => 'F',
+            t if t.is_numeric() => 'N',
+            _ => 'C',
+        }
+    };
+    match e {
+        Expr::Fig(Fig::On | Fig::Off) => Some(vec!['I', 'C']),
+        Expr::Num(_) => Some(vec!['N', 'F']),
+        Expr::Name { parts, args: None } => match sym(cx, &parts.join("."))? {
+            Sym::Var(v) if v.dim == 0 => Some(match v.dtype {
+                DType::Ind => vec!['I', 'C'],
+                DType::Float(_) => vec!['F', 'N'],
+                t if t.is_numeric() => vec!['N', 'F'],
+                t => vec![of_type(t)],
+            }),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// bifs.rs overload_target (S2.188): the first candidate whose
+/// parameters each take an argument's first kind, then the first that
+/// takes one of its kinds; by number of arguments (those not *NOPASS
+/// required). No candidate, or one that is neither a prototype nor a
+/// procedure, is the interpreter's error: not lowered.
+fn overload_target(
+    cx: &Cx<'_>,
+    pr: &super::super::program::Proto,
+    args: &[Expr],
+) -> Option<String> {
+    let prog = cx.prog;
+    let mut kinds = Vec::with_capacity(args.len());
+    for a in args {
+        kinds.push(arg_kind_static(cx, a)?);
+    }
+    for exact in [true, false] {
+        for cand in &pr.overload {
+            let params = match (prog.protos.get(cand), prog.procs.get(cand)) {
+                (Some(p), _) => &p.params,
+                (None, Some(p)) => &p.params,
+                _ => return None,
+            };
+            let required = params.iter().filter(|p| !p.nopass).count();
+            if args.len() < required || args.len() > params.len() {
+                continue;
+            }
+            let fits = params.iter().zip(&kinds).all(|(p, k)| {
+                let want = match p.dtype {
+                    DType::Date(_) => 'D',
+                    DType::Time(_) => 'T',
+                    DType::Timestamp(_) => 'Z',
+                    DType::Ind => 'I',
+                    DType::Float(_) => 'F',
+                    t if t.is_numeric() => 'N',
+                    _ => 'C',
+                };
+                if exact {
+                    k.first() == Some(&want)
+                } else {
+                    k.contains(&want)
+                }
+            });
+            if fits {
+                return Some(cand.clone());
+            }
+        }
+    }
+    None
+}
+
 /// A call of a procedure of this module that runs natively (S2.35, ADR
 /// 0007): what `call_named`, `args_for` and `call_proc` do, for a
 /// procedure with no *PSSR, ON-EXIT, pointer initializations or local
@@ -4300,6 +4383,17 @@ fn call_of(
     // bound into the program; not a procedure pointer, an overload, a CEE
     // API or a C runtime function, which keep their own paths.
     let mut layout = format!("call {name}:");
+    // An OVERLOAD prototype (S2.188): bifs.rs overload_target's candidate,
+    // chosen here from the arguments' kinds as arg_kind gives them, when
+    // they are known without evaluating anything: a numeric literal, *ON
+    // or *OFF, or a field's type. The call is then the candidate's.
+    if !prog.procs.contains_key(&name) {
+        if let Some(pr) = proto(cx, &name).filter(|p| !p.overload.is_empty()) {
+            let target = overload_target(cx, pr, args)?;
+            used.push(format!("overload {name} -> {target}"));
+            return call_of(cx, std::slice::from_ref(&target), args, used, path);
+        }
+    }
     let (params, local) = match prog.procs.get(&name) {
         Some(pi) => (&pi.params, Some(pi)),
         None => {

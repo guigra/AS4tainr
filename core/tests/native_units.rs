@@ -4135,3 +4135,16 @@ async fn native_unit_lowered_sql_timestamp_hosts() {
     )
     .await;
 }
+
+// Stage 2, S2.188: calls of an OVERLOAD prototype.
+// Source: golden capture tools/golden/native188 n188_overload (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_overload_calls() {
+    let _ = require_db!();
+    expect(
+        "NOVERLD",
+        include_str!("native/NOVERLD.rpgle"),
+        &["N12.50|D04/03/26|Cabc|N-7.00"],
+    )
+    .await;
+}
