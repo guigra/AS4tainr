@@ -153,6 +153,9 @@ struct PendingRead {
     /// The operation already ended (S2.171): an error E or the error
     /// indicator took, file_op's end made.
     ended: bool,
+    /// A record of a program-described file, or one with input
+    /// specifications (S2.191), for file_done_n's move_input.
+    input: Option<crate::rla::Record>,
 }
 
 /// The instruction at `pc` (borrowing only the routine, not the machine).
@@ -2620,12 +2623,21 @@ impl Rt<'_, '_> {
             })?;
         }
         let open = self.file_n(i)?.open.is_some();
+        // move_input's files (S2.191): lowering generates no field moves.
+        let input_mode = !into_ds
+            && self
+                .m
+                .prog
+                .files
+                .get(i)
+                .is_some_and(|f| f.program_described || !f.inputs.is_empty());
         let read = self.read_inner_n(i, op, &file, special, keys, no_lock, cmt.as_deref());
         let read = read.and_then(|r| {
             let rec = match &r.record {
                 // record_to_ds (S2.119): the fields by their place, with
                 // no null checks.
                 Some(rec) if into_ds => Some(self.record_fields_n(i, rec)?),
+                Some(_) if input_mode => Some(Vec::new()),
                 Some(rec) => Some(self.fields_read_n(i, rec)?),
                 None => None,
             };
@@ -2639,6 +2651,7 @@ impl Rt<'_, '_> {
                     eof: r.eof,
                     has_record: r.record.is_some(),
                     ended: false,
+                    input: if input_mode { r.record.clone() } else { None },
                 });
                 Ok(rec)
             }
@@ -2655,6 +2668,7 @@ impl Rt<'_, '_> {
                     eof: false,
                     has_record: false,
                     ended: true,
+                    input: None,
                 });
                 Ok(None)
             }
@@ -2837,6 +2851,13 @@ impl Rt<'_, '_> {
             // An error E or the error indicator took (S2.171): ended.
             return moved;
         }
+        // file_op's move_input for a program-described file or one with
+        // input specifications (S2.191), as the record's move: its error
+        // is the operation's, as a field's.
+        let moved = match (moved, &p.input) {
+            (Ok(()), Some(rec)) => self.m.move_input(i, rec),
+            (m, _) => m,
+        };
         let cmt = self.file_n(i)?.cmt.clone();
         if let Err(err) = moved {
             self.file_end_n(i, op, &file, cmt.as_deref(), Err(&err))?;
@@ -3062,6 +3083,7 @@ impl Rt<'_, '_> {
                     eof: false,
                     has_record: false,
                     ended: false,
+                    input: None,
                 });
                 Ok(())
             }

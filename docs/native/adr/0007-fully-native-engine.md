@@ -2189,3 +2189,15 @@ A global float field based on a pointer, not of multiple occurrences, is lowered
 `value` reads it where its pointer points: interp.rs sym's based_place for the field's size, which `Runtime::based_at` checks the same way. A based float as a target still stays with the interpreter, because the generated stores take no based place.
 
 **Verified by** the native unit NFLTCHR, under both engines, as captured on PUB400 (tools/golden/native110). Its `%char(bf)` of a float based on `%addr(f8)` runs natively now (the WHY pass lists none of NFLTCHR's statements).
+
+## S2.191: reads of program-described files and of files with input specifications
+
+CHAIN, READ, READE, READP and READPE of a DISK file that is program described, or that has input specifications, are lowered when there is no result data structure. The record is moved as interp.rs file_op moves it, through move_input: the record image, the input fields by their positions (blanks in a zoned field read as zeros), and the record identifying and field indicators.
+
+- **Lowering** generates no field moves for such a file.
+- **file_read_n** keeps the record read (`PendingRead.input`).
+- **file_done_n** calls move_input as the record's move, so an error in it is the operation's, as a field's is, before the status and the indicators.
+
+A program-described file read with no key needs no database description when the program is compiled; the runtime's open finds the file. Other operations on such files still stay with the interpreter: writes, updates, deletes, and reads into a data structure.
+
+**Verified by** the native unit NPDREAD, under both engines, as captured on PUB400 (tools/golden/native191.txt n191_pdread: `Habc D12/35.00 Hxyz D999/.10 1`): two record types told apart by position 1, a character field and zoned fields with decimals, read until end of file (the WHY pass lists none of NPDREAD's statements). rla_test.rs QTMPRD's READ is native now.
