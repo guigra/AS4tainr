@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.200");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.201");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -1259,6 +1259,9 @@ pub mod ir {
         Bin(FloatOp, Box<FloatExpr>, Box<FloatExpr>),
         /// %ABS of a float expression (S2.162).
         Abs(Box<FloatExpr>),
+        /// A call's returned value as a side of a float comparison
+        /// (S2.201): float_cmp takes float_value of it, whatever its type.
+        Call(Call),
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1742,6 +1745,7 @@ fn elem_place(buf: usize, local: bool) -> String {
 fn float_expr(pc: usize, e: &ir::FloatExpr, helpers: &mut String) -> String {
     match e {
         ir::FloatExpr::Field(o) => value(o),
+        ir::FloatExpr::Call(c) => returned(call_fn(pc, c, helpers), &c.proc),
         ir::FloatExpr::Dec(n) => {
             format!("rpgrt::rpg::data::Value::Num({})", num_expr(pc, n, helpers))
         }

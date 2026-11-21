@@ -3299,8 +3299,22 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
     // A comparison with a float operand (S2.109, ADR 0008): eval's float
     // arm (is_float of either side), both values compared as f64.
     if is_float_static(cx, l, 0) || is_float_static(cx, r, 0) {
-        let a = float_expr(cx, l, used, child(0), 0)?;
-        let b = float_expr(cx, r, used, child(1), 0)?;
+        // A side that is a call alone (S2.201): eval's value of it, which
+        // float_cmp takes as float_value as is_float's comparison does,
+        // whatever type a bound procedure gives it.
+        let side = |e: &Expr, used: &mut Vec<String>, p: Vec<u8>| -> Option<ir::FloatExpr> {
+            match e {
+                Expr::Name {
+                    parts,
+                    args: Some(args),
+                } if is_call(cx, parts) => {
+                    Some(ir::FloatExpr::Call(call_of(cx, parts, args, used, p)?))
+                }
+                _ => float_expr(cx, e, used, p, 0),
+            }
+        };
+        let a = side(l, used, child(0))?;
+        let b = side(r, used, child(1))?;
         return Some(ir::Cond::FloatCmp(cmp, Box::new(a), Box::new(b)));
     }
     // An indicator (*INnn, *INLR...) compared with *ON or *OFF, = or <>
@@ -4775,7 +4789,13 @@ fn call_of(
             out.push(ir::CallArg::Ind(Box::new(c)));
             continue;
         }
-        let ty = call_param_ty(p.dtype)?;
+        // A float parameter of a C function passed by value or CONST
+        // (S2.201): args_for's eval of the argument, a number as it is,
+        // which the C function takes as float_value.
+        let ty = match p.dtype {
+            DType::Float(n) if c_extra && (p.by_value || p.konst) => ir::Ty::Float(n),
+            t => call_param_ty(t)?,
+        };
         let _ = std::fmt::Write::write_fmt(
             &mut layout,
             format_args!(
