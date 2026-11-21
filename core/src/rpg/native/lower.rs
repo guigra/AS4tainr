@@ -4366,8 +4366,26 @@ fn call_of(
             out.push(ir::CallArg::Omit);
             continue;
         }
-        if p.file || (p.string && !string_ok) || (p.trim && matches!(a, Expr::Fig(_))) || p.convert
-        {
+        // A file for a LIKEFILE parameter of a procedure of this module
+        // (S2.185): args_for checks p.file first, then a name with no
+        // index, which file_idx resolves in the caller (the runtime's
+        // file_idx_n); a name lowering cannot place as a file, or another
+        // target, stays with the interpreter.
+        if p.file {
+            let Expr::Name { parts, args: None } = a else {
+                return None;
+            };
+            let fname = parts.join(".");
+            // `local`: the procedure of this module the call reaches.
+            if local.is_none() || file_of(cx, &fname).is_none() {
+                return None;
+            }
+            let _ =
+                std::fmt::Write::write_fmt(&mut layout, format_args!(" {}=file:{fname}", p.name));
+            out.push(ir::CallArg::File(fname));
+            continue;
+        }
+        if (p.string && !string_ok) || (p.trim && matches!(a, Expr::Fig(_))) || p.convert {
             return None;
         }
         // A parameter that is a data structure (LIKEDS), or a whole data
@@ -7630,18 +7648,29 @@ fn printer_file(cx: &Cx<'_>, file: &str) -> bool {
 /// errors.rs file_idx finds it: one declared in the routine's procedure
 /// first (by name, then by format), then the program's, then
 /// file_index. A LIKEFILE parameter of the routine's own procedure by
-/// that name (file_idx looks at the frame's files first: the caller's
-/// file) leaves it to the interpreter; other names resolve as file_idx
-/// resolves them after that (S2.164: the frame holds its procedure's
-/// file parameters only).
+/// that name is the caller's file at run time (file_idx looks at the
+/// frame's files first); its record format is LIKEFILE's file's
+/// (S2.185). Other names resolve as file_idx resolves them after that
+/// (S2.164: the frame holds its procedure's file parameters only).
 fn file_of(cx: &Cx<'_>, file: &str) -> Option<usize> {
     let prog = cx.prog;
-    let param = cx
+    // A LIKEFILE parameter of the routine's own procedure (S2.185): the
+    // runtime's file_idx_n finds the caller's file in the frame, as
+    // file_idx does; lowering takes the record format of LIKEFILE's file,
+    // which the caller's file has too (a template or a file of the
+    // program, not of a procedure).
+    if let Some(q) = cx
         .proc
         .and_then(|p| prog.procs.get(p))
-        .is_some_and(|pi| pi.params.iter().any(|q| q.file && q.name == file));
-    if param {
-        return None;
+        .and_then(|pi| pi.params.iter().find(|q| q.file && q.name == file))
+    {
+        // A database file only: its INFDS, if the caller's has one, is
+        // the runtime's file_end_n's, by the file it runs on.
+        let t = q.likefile.as_deref()?;
+        return prog
+            .files
+            .iter()
+            .position(|f| f.decl.proc.is_none() && f.decl.name == t && f.decl.device == "DISK");
     }
     let files = &prog.files;
     let local = |f: &super::super::program::FileInfo| f.decl.proc.as_deref() == cx.proc;

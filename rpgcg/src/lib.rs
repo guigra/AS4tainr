@@ -1300,6 +1300,9 @@ pub mod ir {
         Ind(Box<Cond>),
         /// *OMIT for an OPTIONS(*OMIT) parameter (S2.150).
         Omit,
+        /// A file for a LIKEFILE parameter of a procedure of the module
+        /// (S2.185): the name args_for's file_idx resolves in the caller.
+        File(String),
     }
 
     /// The instruction kinds of `code::Ins`, with the targets the
@@ -4392,6 +4395,13 @@ fn call_fn(pc: usize, c: &ir::Call, helpers: &mut String) -> String {
             },
             ir::CallArg::Omit => {
                 let _ = writeln!(body, "    let {an} = rpgrt::native::CallArg::Omit;");
+            }
+            ir::CallArg::File(f) => {
+                let _ = writeln!(
+                    body,
+                    "    let {an} = rpgrt::native::CallArg::File({}.to_string());",
+                    json_str(f)
+                );
             }
             ir::CallArg::Num(e) => {
                 let x = num_expr(pc, e, helpers);

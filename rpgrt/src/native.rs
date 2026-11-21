@@ -836,6 +836,9 @@ pub enum CallArg {
     Val(Value),
     /// *OMIT (S2.150): args_for's Arg::Omit.
     Omit,
+    /// A file for a LIKEFILE parameter (S2.185): args_for's Arg::File of
+    /// the file this name is in the caller.
+    File(String),
 }
 
 /// A sum, difference or product with the decimal places the precision
