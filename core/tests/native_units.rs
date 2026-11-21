@@ -4069,3 +4069,31 @@ async fn native_unit_lowered_xml_sax() {
         "NXMLSAX: {line}"
     );
 }
+
+// Stage 2, S2.182: x IN an enumeration, %CONCAT. The capture is
+// "G-in X-out 9-in|x, y, z|ab|a b|ab  -q-ab  |". %CONCAT(*BLANK : ...) is
+// "a b" on IBM i, where the interpreter (*BLANK reaching it as a
+// figurative constant, not a special value) joins with nothing: "ab"
+// (fidelity.md, "%CONCAT(*BLANK)"); that statement stays with the
+// interpreter. The test checks the parts where both agree.
+// Source: golden capture tools/golden/native182 n182_inconcat (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_in_enum_and_concat() {
+    let _ = require_db!();
+    let got = shown("NINCONC", include_str!("native/NINCONC.rpgle")).await;
+    let [line] = got.as_slice() else {
+        panic!("NINCONC: {got:?}");
+    };
+    let parts: Vec<&str> = line.split('|').collect();
+    assert_eq!(parts.len(), 6, "NINCONC: {line}");
+    assert_eq!(
+        parts.get(..3),
+        Some(&["G-in X-out 9-in", "x, y, z", "ab"][..]),
+        "NINCONC: {line}"
+    );
+    assert_eq!(
+        parts.get(4..),
+        Some(&["ab  -q-ab  ", ""][..]),
+        "NINCONC: {line}"
+    );
+}

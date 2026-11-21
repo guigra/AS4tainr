@@ -2077,3 +2077,11 @@ Generated code evaluates the document and the options in order. The runtime then
 XML-SAX %HANDLER(procedure : area) %XML(document [: options]) is lowered with S2.165's `Lowered::XmlInto`, with or without E. Lowering checks xml_sax's conditions before the document (a %HANDLER of a procedure name and an area), so they cannot fail at run time. Generated code evaluates the document and the options in order. The runtime then calls `xml_sax_doc`, which is upstream's xml_sax split after its checks and evaluation with no behavior change (authorized by the user on 2026-11-21; CLAUDE.native.md, section 3). The handler's calls go through the program's ordinary procedure calls, so a native handler runs natively.
 
 **Verified by** the native unit NXMLSAX, under both engines, against the PUB400 capture (tools/golden/native181.txt n181_sax: `<order<itempen<itemink & nib|id=7 14 1 351`), on the parts where IBM i and the interpreter agree. When the handler returns non-zero, IBM i ends the parsing with error 00351 and the interpreter ends it without an error (fidelity.md). rla_test.rs SAXT is native now.
+
+## S2.182: x IN an enumeration, %CONCAT
+
+`x IN enumeration` is lowered as `x IN %LIST(...)` (S2.131). An enumeration is a named constant whose value is the list of its constants' values (program.rs), and that list is what bifs.rs eval_in's list_of takes. Each value becomes a literal, of character or numeric class, compared with data::compare.
+
+%CONCAT(separator : a : b ...) is lowered as a chain, following bif's CONCAT arm. The separator is a literal, or *NONE or *BLANK(S) written as names. A figurative *BLANK, which is what the parser gives, is not lowered; on that form the interpreter differs from IBM i (fidelity.md). It is evaluated once there, which is the same as once per gap because it has no effect of its own. The values are character literals or character fields. A numeric operand is not lowered: IBM i rejects it with RNF0203, while the interpreter accepts it (fidelity.md).
+
+**Verified by** the native unit NINCONC, under both engines, as captured on PUB400 (tools/golden/native182.txt n182_inconcat: `G-in X-out 9-in|x, y, z|ab|a b|ab  -q-ab  |`), on the parts where IBM i and the interpreter agree (not the *BLANK one). rla_test.rs FREEFORM's `'G' in color` and `%concat(', ' : ...)` are native now.
