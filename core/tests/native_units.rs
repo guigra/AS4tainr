@@ -4472,3 +4472,16 @@ async fn native_unit_lowered_ds_array_return() {
     )
     .await;
 }
+
+// Stage 2, S2.206: UCS-2 fields with character data.
+// Source: golden capture tools/golden/native206 n206_ucs2 (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_ucs2_fields() {
+    let _ = require_db!();
+    expect(
+        "NUCS2",
+        include_str!("native/NUCS2.rpgle"),
+        &["[abc   ][Bern][Bern] Zurich EQ"],
+    )
+    .await;
+}

@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.205");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.206");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -78,6 +78,11 @@ pub mod ir {
         /// A varying-length character field of this many characters at
         /// most (S2.19); its bytes start with the current length.
         Varchar(u32),
+        /// A UCS-2 field of this many characters, fixed or varying
+        /// (S2.206): data::load gives its value as character data (the
+        /// job's CCSID 37), data::store converts character data back.
+        Ucs2(u32),
+        VarUcs2(u32),
         /// A pointer (S2.47): 16 bytes, rpgrt::rpg::mem::Ptr's encoding.
         Pointer,
         /// An indicator field (S2.100): one byte, '1' or '0'; its value is
@@ -1610,6 +1615,8 @@ fn ty(t: &ir::Ty) -> String {
         Uns(n) => format!("{p}::Uns({n})"),
         Char(n) => format!("{p}::Char({n})"),
         Varchar(n) => format!("{p}::Varchar({n})"),
+        Ucs2(n) => format!("{p}::Ucs2({n})"),
+        VarUcs2(n) => format!("{p}::VarUcs2({n})"),
         Pointer => format!("{p}::Pointer"),
         Ind => format!("{p}::Ind"),
         Float(n) => format!("{p}::Float({n})"),
