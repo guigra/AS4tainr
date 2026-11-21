@@ -2278,3 +2278,9 @@ A float parameter of a C function passed by value or CONST is lowered. args_for 
 A float expression for a C function's float parameter passed by value is lowered (`CallArg::Float`): its value as eval gives it, which args_for passes on. That covers a float field, and a float literal, which the parser gives as %FLOAT of its text. A numeric expression keeps S2.201's path.
 
 **Verified by** the native unit NCFLTEX, under both engines, as captured on PUB400 (tools/golden/native202.txt n202_cfloat: `12.50 -3.25 P`): QXXDTOZ given 12.5e0 and a float field, and pow given a float field. rla_test.rs XSCRT's `QXXDTOZ(...: 12.5e0)` is native now.
+
+## S2.203: %DEC, %DECH, %INT and %INTH of floats
+
+A float argument of %DEC, %DECH, %INT or %INTH is lowered as those bif arms take eval's value of it: o.num(), then the arm's rescaling (`NumExpr::OfFloat`). The argument is a float field or a float expression, or a call alone as its returned value (S2.201).
+
+**Verified by** the native unit NFLTDEC, under both engines, as captured on PUB400 (tools/golden/native203.txt n203_floatdec: `-12.6 2.67 -8 -7 1`), less its last statement. That statement is %INTH(pow(2 : 0.5)): 1 on IBM i, and RNQ0103 in the interpreter, whose num() of that float does not fit 63 digits (fidelity.md). The unit covers QXXZTOD's float result, the WHY pass lists none of its statements, and rla_test.rs XSCRT's `%dech(QXXZTOD(...): 7: 2)` is native now.
