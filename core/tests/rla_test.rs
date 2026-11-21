@@ -31017,3 +31017,59 @@ dsply line;
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["1 1215 0 0 0 0", "1 1215", "1 1211"]);
 }
+
+/// OUT of a data area the job does not hold locked (after UNLOCK) is
+/// status 00412, and the data area keeps its value. Expected values:
+/// PUB400, IBM i 7.5, 2026-11-21 (tools/golden/native192 n192_unlock in
+/// the native fork: "one 1 412 one two 1 412 two").
+#[tokio::test]
+async fn out_of_a_data_area_that_is_not_locked_is_status_412() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (client, lib) = setup(&url).await;
+    // As the capture made them in QTEMP before the calculations.
+    for c in [
+        format!("CRTDTAARA DTAARA({lib}/GN192A) TYPE(*CHAR) LEN(10) VALUE('one')"),
+        format!("CRTDTAARA DTAARA({lib}/GN192B) TYPE(*CHAR) LEN(10) VALUE('two')"),
+    ] {
+        job_run(&client, &lib, &c).await.unwrap();
+    }
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s val char(10) dtaara('GN192A');
+dcl-s oth char(10) dtaara('GN192B');
+dcl-s line varchar(200);
+in *lock val;
+line = %trim(val);
+unlock val;
+val = 'changed';
+out(e) val;
+line += ' ' + %char(%error) + ' ' + %char(%status);
+in *lock val;
+in *lock oth;
+line += ' ' + %trim(val) + ' ' + %trim(oth);
+unlock oth;
+oth = 'other';
+out(e) oth;
+line += ' ' + %char(%error) + ' ' + %char(%status);
+in oth;
+line += ' ' + %trim(oth);
+dsply line;
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "OUTUNL".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["one 1 412 one two 1 412 two"]);
+}

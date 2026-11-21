@@ -102,6 +102,22 @@ async fn conflicting(client: &Client, t: &Target, state: &str, owner: &str) -> R
     Ok(n > 0)
 }
 
+/// Does the job (`owner`) hold `state` on the object, on a connection
+/// that is still there (a program's own session, or the job's kept
+/// locks)?
+pub async fn holds(client: &Client, t: &Target, state: &str, owner: &str) -> Result<bool> {
+    let n: i64 = client
+        .query_one(
+            "SELECT count(*) FROM as4tainr.object_locks o
+               JOIN pg_stat_activity a ON a.pid = o.pid AND a.backend_start = o.started
+              WHERE o.key = $1 AND o.state = $2 AND o.owner = $3",
+            &[&t.key(), &state, &owner],
+        )
+        .await?
+        .get(0);
+    Ok(n > 0)
+}
+
 /// Does another job hold a lock on the object that `state` cannot be
 /// held with? For commands that use an object without allocating it
 /// themselves (CHGDTAARA).

@@ -2818,6 +2818,27 @@ impl<'a> Machine<'a> {
                 "*DTAARA",
                 crate::authority::Aut::Change,
             ))?;
+            // OUT needs the data area locked by the job: IN *LOCK in this
+            // program, or kept from an earlier call that returned with LR
+            // off. Otherwise status 00412, and the data area keeps its
+            // value (PUB400, IBM i 7.5, 2026-11-21: OUT(E) after UNLOCK,
+            // and after IN without *LOCK, sets %ERROR and status 412).
+            let locked = held || {
+                let t = crate::objlock::Target {
+                    library: d.library.clone(),
+                    name: d.name.clone(),
+                    objtype: "*DTAARA".into(),
+                };
+                let owner = self.io.job_key.clone();
+                self.block(crate::objlock::holds(client, &t, "*EXCLRD", &owner))?
+            };
+            if !locked {
+                bail!(
+                    "RNX0412: Data area {} in library {} is not locked: OUT needs it locked with IN *LOCK.",
+                    d.name,
+                    crate::qtemp::logical(&d.library)
+                );
+            }
             let v = self.eval(&Expr::name(field))?;
             let text = match v {
                 Value::Num(n) => n.to_string(),
