@@ -2306,3 +2306,17 @@ The array may be global, or a procedure's own, but not based and not of multiple
 Fixed and varying UCS-2 fields are lowered as character operands (`Ty::Ucs2`, `Ty::VarUcs2`). data::load gives their value as character data in the job's CCSID 37, and data::store converts character data back, as the interpreter's eval and assign do. So a UCS-2 field works where a character field does: a leaf of a character expression, an EVAL's target, and a comparison's side. %CHAR of a character or UCS-2 field is the field's character data (bif CHAR's `other.chars()`). The forms that check Ty::Char or Ty::Varchar by name still leave a UCS-2 field to the interpreter. %LEN of a varying UCS-2 field, its current length, is refused explicitly.
 
 **Verified by** the native unit NUCS2, under both engines, as captured on PUB400 (tools/golden/native206.txt n206_ucs2: `[abc   ][Bern][Bern] Zurich EQ`). rla_test.rs TYPES's `%trim(note)` and `note = 'Bern'` and CONSTS's `%char` of a UCS-2 field are native now (the WHY passes of those tests). TYPES's READ and UPDATE of a record with LOB fields are not.
+
+## S2.207: an element of a data structure array as a whole
+
+An element of a global data structure array, `ds(i)` or a LIKEDS DIM subfield's `list.users(i)`, is an operand: its bytes, as characters of the element's size, at the place interp.rs ds_element finds. The index is checked from 1 to the dimension, giving RNQ0121 otherwise (`rpgrt::native::elem_at`), and the element's size is the stride. The index is a literal or a numeric field. The array is not based, not of multiple occurrences, and not a procedure's own.
+
+So an element is read and assigned as eval's and assign_value's Sym::Ds arms take it, and it is passed by reference to a LIKEDS parameter (S2.97's call_frame aliasing).
+
+**Verified by** the native unit NDSELEM, under both engines, as captured on PUB400 (tools/golden/native207.txt n207_dselem: `GRACE13 73 [007003] E121`). It covers:
+- an element passed to a LIKEDS parameter and changed there;
+- an element assigned another;
+- an element read as characters;
+- index 4 of 3, status 00121.
+
+rla_test.rs NESTED's `show(list.users(2))` is native now.
