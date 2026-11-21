@@ -2125,3 +2125,24 @@ A call that passes a file to a LIKEFILE parameter of a procedure of the module i
 A file for a program, a bound procedure or a procedure pointer stays with the interpreter.
 
 **Verified by** the native unit NLIKEF, under both engines, as captured on PUB400 (tools/golden/native164.txt n164_likef: `3 3cc`). Its countAll(t1) call and the procedure's SETLL *START, READ into a data structure and %EOF on the parameter all run natively now (the WHY pass lists none of NLIKEF's statements). rla_test.rs LIKEF is native now.
+
+## S2.186: whole-array operations on based arrays
+
+These operations of a global array based on a pointer, not one of multiple occurrences, are lowered:
+- fixed-form XFOOT and LOOKUP;
+- SORTA;
+- MOVEA with the based array as factor 2.
+
+The array's place is resolved once, first, as each operation's array_ref resolves it: interp.rs sym's based_place of its pointer for the size of one element (`Runtime::based_at`). The elements are then read and written from there, with the operations' existing runtime.
+
+An element past the end of the storage the pointer addresses is handled as interp.rs load_var and store_var handle it (`load_pad_n`, `store_pad_n`):
+- a read gets what is there, then blanks;
+- a write changes only the part there is.
+
+An array that is not based never reaches past its own storage, so this changes nothing for it.
+
+A based array as MOVEA's result stays with the interpreter. Its writes resolve the place element by element, and one of them could change the pointer.
+
+**Verified by** the native unit NBASARR, under both engines, as captured on PUB400 (tools/golden/native96.txt n96_based): XFOOT, LOOKUP, SORTA, FOR-EACH and MOVEA of arrays based on pointers to other arrays.
+
+Note on the generator version: rpgcg's VERSION stayed at `+stage2.171` from S2.172 to S2.185. Each block's change of it looked for a text that was no longer there, so it never applied. The routines' fingerprints still changed with their compiled code, and every validation generates its code afresh, so no stale code ran. VERSION is `+stage2.186` from this block on.
