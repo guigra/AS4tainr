@@ -2370,6 +2370,14 @@ pub fn bit_end(acc: i128) -> Dec {
     Dec::new(acc, 0)
 }
 
+/// Stage 2 (S2.183): DSPLY of a float field, as Stmt::Dsply's float arm:
+/// the value's num() as text, parsed back to f64 (0 when it does not
+/// parse), then float_text of the field's size.
+pub fn float_dsply(v: &Value, bytes: u32) -> NResult<Value> {
+    let x: f64 = v.num()?.to_string().parse().unwrap_or(0.0);
+    Ok(Value::str(&data::float_text(x, bytes)))
+}
+
 pub fn float_char(v: &Value, bytes: u32) -> NResult<Value> {
     Ok(Value::str(&data::float_text(float_value(v)?, bytes)))
 }

@@ -1827,7 +1827,7 @@ An *OMIT argument for an OPTIONS(*OMIT) parameter is lowered as args_for's `Arg:
 
 Not lowered: a by-reference parameter given a field of another type without OPTIONS(*VARSIZE). args_for passes it as the argument's own storage, but IBM i rejects such a call when it compiles it, so no value can be captured (SYSAPI's QDCXLATE call, a CHAR(2) for CHAR(10)).
 
-Still not lowered: DSPLY of a float field. A second capture was tried on 2026-11-20: the program was submitted as a batch job (SBMJOB LOG(4 00 *SECLVL) LOGOUTPUT(*JOBEND)), and its QPJOBLOG was to be copied to a stream file. It left neither a job log nor its stream file within 45 seconds (CPF3303). IBM i's text is therefore still unknown, and the interpreter keeps the statement (S2.110).
+DSPLY of a float field was not lowered here; S2.183 lowers it. A second capture was tried on 2026-11-20: the program was submitted as a batch job (SBMJOB LOG(4 00 *SECLVL) LOGOUTPUT(*JOBEND)), and its QPJOBLOG was to be copied to a stream file. It left neither a job log nor its stream file within 45 seconds (CPF3303). IBM i's text is therefore still unknown, and the interpreter keeps the statement (S2.110).
 
 ## S2.152: COMMIT and ROLBK
 
@@ -2085,3 +2085,16 @@ XML-SAX %HANDLER(procedure : area) %XML(document [: options]) is lowered with S2
 %CONCAT(separator : a : b ...) is lowered as a chain, following bif's CONCAT arm. The separator is a literal, or *NONE or *BLANK(S) written as names. A figurative *BLANK, which is what the parser gives, is not lowered; on that form the interpreter differs from IBM i (fidelity.md). It is evaluated once there, which is the same as once per gap because it has no effect of its own. The values are character literals or character fields. A numeric operand is not lowered: IBM i rejects it with RNF0203, while the interpreter accepts it (fidelity.md).
 
 **Verified by** the native unit NINCONC, under both engines, as captured on PUB400 (tools/golden/native182.txt n182_inconcat: `G-in X-out 9-in|x, y, z|ab|a b|ab  -q-ab  |`), on the parts where IBM i and the interpreter agree (not the *BLANK one). rla_test.rs FREEFORM's `'G' in color` and `%concat(', ' : ...)` are native now.
+
+## S2.183: DSPLY of a float field
+
+DSPLY of a float field with no response field is lowered (`CharExpr::FloatDsply`, `rpgrt::native::float_dsply`). It follows Stmt::Dsply's float arm:
+1. the field's value through num();
+2. its text parsed back to f64, or 0 when the text does not parse;
+3. data::float_text of the field's size.
+
+That differs from %CHAR's path, float_value. A float expression other than a field, and DSPLY with a response field, still stay with the interpreter.
+
+IBM i's text was captured at last. DSPLY with a message queue operand sends the value to a queue made for the capture, GN183Q, and the program reads it back through QSYS2.MESSAGE_QUEUE_INFO. A plain DSPLY in a PASE job ends with status 00333. A batch job did not run, because the user's job queue is not attached to an active subsystem.
+
+**Verified by** the native unit NFLTDSP, under both engines, against the PUB400 capture (tools/golden/native183.txt n183_fltdsply), on its 8-byte values. IBM i shows a 4-byte float with eight digits and a two-digit exponent; the interpreter shows seven and three (fidelity.md). rla_test.rs TYPES's `dsply rate` and `dsply score` are native now.

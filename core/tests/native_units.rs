@@ -4097,3 +4097,28 @@ async fn native_unit_lowered_in_enum_and_concat() {
         "NINCONC: {line}"
     );
 }
+
+// Stage 2, S2.183: DSPLY of float fields. The capture's texts are
+// "DSPLY  +1.230000000000000E+002", "DSPLY  +5.0000000E-01" and
+// "DSPLY  -1.250000000000000E-004" (the message queue's text, after
+// DSPLY's own name). A 4-byte float is +5.0000000E-01 on IBM i, eight
+// digits and a two-digit exponent, where the interpreter's float_text (and
+// so the native engine) gives seven and three (fidelity.md, "DSPLY of a
+// 4-byte float"). The test checks the 8-byte values.
+// Source: golden capture tools/golden/native183 n183_fltdsply (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_dsply_float() {
+    let _ = require_db!();
+    let got = shown("NFLTDSP", include_str!("native/NFLTDSP.rpgle")).await;
+    assert_eq!(got.len(), 3, "NFLTDSP: {got:?}");
+    assert_eq!(
+        got.first().map(String::as_str),
+        Some("+1.230000000000000E+002"),
+        "NFLTDSP"
+    );
+    assert_eq!(
+        got.get(2).map(String::as_str),
+        Some("-1.250000000000000E-004"),
+        "NFLTDSP"
+    );
+}

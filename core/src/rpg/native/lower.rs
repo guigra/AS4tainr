@@ -1710,6 +1710,21 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                     _ => temporal_char(cx, std::slice::from_ref(m), &mut used)?,
                 }))
             }
+            // A float field shows in its external display form (S2.183):
+            // Stmt::Dsply's float arm, the field's value through num() and
+            // back to f64, then float_text of its size.
+            Some(m @ Expr::Name { .. }) if float_target_ok(cx, m) => {
+                let o = float_target(cx, m, &mut used)?;
+                let ir::Operand::Var {
+                    ty: ir::Ty::Float(n),
+                    ..
+                } = &o
+                else {
+                    return None;
+                };
+                let n = *n;
+                Some(ir::ValExpr::Char(ir::CharExpr::FloatDsply(o, n)))
+            }
             Some(m) => Some(match char_expr(cx, m, &mut used, Vec::new()) {
                 Some(c) => ir::ValExpr::Char(c),
                 None => ir::ValExpr::Num(num_expr(cx, m, &mut used, Vec::new())?),
