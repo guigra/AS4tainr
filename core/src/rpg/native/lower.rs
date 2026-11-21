@@ -794,6 +794,31 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                     other => fig_op(other)?,
                 },
             )))),
+            // A whole data structure array (S2.205): RETURN's value of all
+            // its elements' bytes (whole_ds_array).
+            Some(x) if whole_ds_array_place(cx, x, &mut used).is_some() => {
+                let (o, size, dim) = whole_ds_array_place(cx, x, &mut used)?;
+                let total = u32::try_from(size.checked_mul(usize::try_from(dim).ok()?)?).ok()?;
+                let ir::Operand::Var {
+                    name,
+                    buf,
+                    off,
+                    local,
+                    ..
+                } = o
+                else {
+                    return None;
+                };
+                Some(ir::ValExpr::Char(ir::CharExpr::Leaf(ir::Operand::Var {
+                    name,
+                    buf,
+                    off,
+                    ty: ir::Ty::Char(total),
+                    local,
+                    index: None,
+                    based: None,
+                })))
+            }
             Some(x) => Some(match char_expr(cx, x, &mut used, Vec::new()) {
                 Some(c) => ir::ValExpr::Char(c),
                 None => ir::ValExpr::Num(num_expr(cx, x, &mut used, Vec::new())?),
@@ -1883,6 +1908,23 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             ext,
             right,
         }) if !ext.error && !ext.no_lock && ext.other.chars().all(|c| c == 'H') => {
+            // A whole data structure array (S2.205): assign_value's first
+            // arm (all its elements from character data of their length),
+            // else its first element.
+            if let Some((o, size, dim)) = whole_ds_array_place(cx, target, &mut used) {
+                return {
+                    let l = ir::Lowered::EvalDsArr {
+                        target: o,
+                        size,
+                        dim,
+                        value: char_value(cx, value, &mut used)?,
+                        half: ext.half_adjust,
+                        right: *right,
+                    };
+                    layout.extend(used);
+                    Some(l)
+                };
+            }
             let target = target_var(cx, target, &mut used)?;
             if is_pointer(&target) {
                 return None;
@@ -1907,6 +1949,53 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
     };
     layout.extend(used);
     Some(l)
+}
+
+/// A whole data structure array named with no index, DIM above 1 (S2.205),
+/// as interp.rs whole_ds_array finds it: its first element's place (a
+/// procedure's own through rt.local), the element's size, the dimension.
+/// Not based, not of multiple occurrences.
+fn whole_ds_array_place(
+    cx: &Cx<'_>,
+    e: &Expr,
+    used: &mut Vec<String>,
+) -> Option<(ir::Operand, usize, u32)> {
+    let Expr::Name { parts, args: None } = e else {
+        return None;
+    };
+    let name = parts.join(".");
+    let Some(Sym::Ds(d)) = sym(cx, &name) else {
+        return None;
+    };
+    let prog = cx.prog;
+    if d.dim <= 1 {
+        return None;
+    }
+    let ok = if d.local {
+        local_ds_ok(cx, d.buf)
+    } else {
+        !prog.based.contains_key(&d.buf) && !prog.occurs.iter().any(|o| o.buf == d.buf)
+    };
+    if !ok {
+        return None;
+    }
+    used.push(format!(
+        "ds array {name} {} {} {} {}",
+        d.buf, d.off, d.size, d.dim
+    ));
+    Some((
+        ir::Operand::Var {
+            name,
+            buf: d.buf,
+            off: d.off,
+            ty: ir::Ty::Char(u32::try_from(d.size).ok()?),
+            local: d.local,
+            index: None,
+            based: None,
+        },
+        d.size,
+        d.dim,
+    ))
 }
 
 /// The areas CLEAR of `name` writes (S2.94), as interp.rs stmt's CLEAR

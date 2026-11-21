@@ -2290,3 +2290,13 @@ A float argument of %DEC, %DECH, %INT or %INTH is lowered as those bif arms take
 A call returning a pointer is a pointer expression for comparisons (`ptr_expr`): it is S2.99's PtrVal::Call, and the comparison is S2.160's PtrCmp, eval's values compared by data::compare. Two operands where one is a call were left out by the two operands' case (it takes no call), and now reach this one.
 
 **Verified by** the native unit NPTRCAL, under both engines, as captured on PUB400 (tools/golden/native204.txt n204_ptrcall: `70 0 11 1970-01-11`): `localtime_r(secs : t) <> *null`, then strftime. rla_test.rs LOCALTR is native now (its WHY pass lists nothing).
+
+## S2.205: a data structure array returned and assigned
+
+A whole data structure array, named with no index and with DIM above 1, is lowered as interp.rs whole_ds_array takes it, in two places:
+- **RETURN.** It returns all its elements' bytes, `size × dim` characters, the return value of a procedure returning LIKEDS(ds) DIM(n).
+- **EVAL as a target** (`Lowered::EvalDsArr`, `rpgrt::native::store_ds_array`). It follows assign_value's first arm: character data of all the elements' length goes into them all, byte for byte; any other value goes into the first element as characters of the element's size. The value is evaluated first, then the place, as assign_value does.
+
+The array may be global, or a procedure's own, but not based and not of multiple occurrences.
+
+**Verified by** the native unit NDSRET, under both engines, as captured on PUB400 (tools/golden/native205.txt n205_dsret: `ONE 1|TWO 2`). The WHY pass lists none of its statements. rla_test.rs RUNITF's `e = inner()` and `return res` are native now.
