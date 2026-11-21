@@ -4175,3 +4175,58 @@ async fn native_unit_lowered_program_described_read() {
     )
     .await;
 }
+
+// Stage 2, S2.192: UNLOCK of data areas, IN and OUT with E.
+// Source: golden capture tools/golden/native192 n192_unlock (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_unlock_data_area() {
+    let _ = require_db!();
+    let _ddl = DDL.lock().await;
+    use as4tainr_core::commands::{Environment, Job};
+    let url = require_db_url();
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
+    let env = Environment {
+        database_url: String::new(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some("QGPL".into()),
+        libl: vec!["QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    // As the capture's program made GN192A and GN192B before its IN.
+    for cmd in [
+        "DLTDTAARA DTAARA(QGPL/NDTAUA)",
+        "DLTDTAARA DTAARA(QGPL/NDTAUB)",
+    ] {
+        let _ = job.run(cmd).await;
+    }
+    for cmd in [
+        "CRTDTAARA DTAARA(QGPL/NDTAUA) TYPE(*CHAR) LEN(10) VALUE('one')",
+        "CRTDTAARA DTAARA(QGPL/NDTAUB) TYPE(*CHAR) LEN(10) VALUE('two')",
+    ] {
+        job.run(cmd)
+            .await
+            .unwrap_or_else(|e| panic!("{cmd}: {e:#}"));
+    }
+    // The capture is "one 1 412 one two 1 412 two": after UNLOCK, OUT(E)
+    // of the data area is an error, status 00412 (the data area is not
+    // locked), and its value stays. The interpreter's data_area writes it
+    // with no error (fidelity.md, "OUT of a data area that is not
+    // locked"); the test checks the values read before any OUT.
+    let got = shown("NDTAUNL", include_str!("native/NDTAUNL.rpgle")).await;
+    let [line] = got.as_slice() else {
+        panic!("NDTAUNL: {got:?}");
+    };
+    let w: Vec<&str> = line.split(' ').collect();
+    assert_eq!(w.len(), 8, "NDTAUNL: {line}");
+    assert_eq!(w.first().copied(), Some("one"), "NDTAUNL: {line}");
+    assert_eq!(w.get(4).copied(), Some("two"), "NDTAUNL: {line}");
+}

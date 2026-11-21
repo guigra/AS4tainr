@@ -408,6 +408,9 @@ pub trait Runtime {
     /// Stage 2 (S2.128): OPEN or CLOSE of a database file (errors.rs
     /// file_op around file_op_inner's OPEN and CLOSE).
     fn disk_open_close(&mut self, pc: usize) -> NResult<()>;
+    /// Stage 2 (S2.192): UNLOCK of a data area or *DTAARA, as interp.rs
+    /// stmt's File arm: the IN *LOCK lock given back.
+    fn dtaara_unlock(&mut self, pc: usize) -> NResult<()>;
     /// Stage 2 (S2.184): a timestamp host variable's SQL literal, as
     /// exec_sql.rs host_literal makes it: CAST('iso' AS timestamp) of its
     /// characters, any other value as sql_literal makes it.

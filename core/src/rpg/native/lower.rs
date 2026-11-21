@@ -1337,9 +1337,11 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             ext,
             ind,
         }) if (code == "IN" || code == "OUT")
-            && !ext.error
-            && ext.other.is_empty()
-            && ind.is_empty() =>
+            // E or the error indicator in 73-74 (S2.192): stmt_e.
+            && ext.other.chars().all(|c| c == 'E')
+            && ext.error == !ext.other.is_empty()
+            && ind.hi.is_none()
+            && ind.eq.is_none() =>
         {
             let lock = except_name(f1).as_deref() == Some("*LOCK");
             let target = except_name(f2)?;
@@ -1371,6 +1373,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 input: code == "IN",
                 lock,
                 fields,
+                e: ext.error || ind.lo.is_some(),
             }
         }
         // EXCEPT (S2.78): the exception records of that name printed by
@@ -1502,6 +1505,28 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 outputs,
                 into,
             }
+        }
+        // UNLOCK of a data area (its field's name) or *DTAARA (S2.192):
+        // interp.rs stmt's File arm, before any file operation, gives the
+        // IN *LOCK lock back (unlock_dtaara, release_dtaaras); no
+        // extender or indicator, which that arm does not take.
+        Ins::Stmt(Stmt::File {
+            op: FileOp::Unlock,
+            file,
+            key: None,
+            ds: None,
+            fields: None,
+            ext,
+            ind,
+        }) if !ext.error
+            && ext.other.is_empty()
+            && !ext.no_lock
+            && ind.is_empty()
+            && (file.eq_ignore_ascii_case("*DTAARA")
+                || cx.prog.dtaaras.keys().any(|k| k.eq_ignore_ascii_case(file))) =>
+        {
+            used.push(format!("unlock data area {file}"));
+            ir::Lowered::DtaaraUnlock
         }
         // A read of a database file (S2.58).
         // OPEN, CLOSE and FEOD of a printer file (S2.79): errors.rs

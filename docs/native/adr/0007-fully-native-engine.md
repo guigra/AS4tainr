@@ -2201,3 +2201,11 @@ CHAIN, READ, READE, READP and READPE of a DISK file that is program described, o
 A program-described file read with no key needs no database description when the program is compiled; the runtime's open finds the file. Other operations on such files still stay with the interpreter: writes, updates, deletes, and reads into a data structure.
 
 **Verified by** the native unit NPDREAD, under both engines, as captured on PUB400 (tools/golden/native191.txt n191_pdread: `Habc D12/35.00 Hxyz D999/.10 1`): two record types told apart by position 1, a character field and zoned fields with decimals, read until end of file (the WHY pass lists none of NPDREAD's statements). rla_test.rs QTMPRD's READ is native now.
+
+## S2.192: UNLOCK of data areas; IN and OUT with E
+
+UNLOCK of a data area's field, or of *DTAARA, with no extender or indicator, is lowered (`Lowered::DtaaraUnlock`, `Runtime::dtaara_unlock`). The runtime does what interp.rs stmt's File arm does before any file operation, through the Machine's own unlock_dtaara and release_dtaaras: the IN *LOCK lock goes.
+
+IN and OUT of data areas with E, or with an error indicator in positions 73-74, are lowered inside errors.rs stmt_e's start and catch (call_e_start, call_e_end), as CALLP(E) is (S2.173).
+
+**Verified by** the native unit NDTAUNL, under both engines, against the PUB400 capture (tools/golden/native192.txt n192_unlock), on the values read before any OUT. On IBM i, OUT(E) of a data area that is no longer locked is an error, status 00412; the interpreter writes the data area (fidelity.md). The capture's second UNLOCK names the data area, not *DTAARA, because as4tainr's free-form parser takes *DTAARA as the name DTAARA (fidelity.md). rla_test.rs LCKU's UNLOCK is native now.
