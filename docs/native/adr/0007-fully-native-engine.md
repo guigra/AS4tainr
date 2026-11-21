@@ -2178,3 +2178,14 @@ A call's date, time or timestamp parameter is lowered as args_for passes one whe
 - a timestamp by reference.
 
 These run natively. The statement whose call passes a *DMY date for an *ISO CONST parameter, line 18, stays with the interpreter (the WHY pass lists only it). NOVERLD's `fmt(d)` (S2.188) and rla_test.rs FREEFORM's `fmt(d)` are native now.
+
+## S2.190: reading a based float field
+
+A global float field based on a pointer, not of multiple occurrences, is lowered where a float field is read (`float_read`):
+- in a float expression (`FloatExpr::Field`);
+- in %CHAR;
+- in DSPLY.
+
+`value` reads it where its pointer points: interp.rs sym's based_place for the field's size, which `Runtime::based_at` checks the same way. A based float as a target still stays with the interpreter, because the generated stores take no based place.
+
+**Verified by** the native unit NFLTCHR, under both engines, as captured on PUB400 (tools/golden/native110). Its `%char(bf)` of a float based on `%addr(f8)` runs natively now (the WHY pass lists none of NFLTCHR's statements).
