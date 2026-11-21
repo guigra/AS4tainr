@@ -592,7 +592,8 @@ impl<'a> Machine<'a> {
             if by_name {
                 self.prog.files[i].format.clone()
             } else {
-                file.to_string()
+                // FILE.FORMAT: the format.
+                file.rsplit('.').next().unwrap_or(file).to_string()
             }
         } else {
             String::new()
@@ -658,6 +659,14 @@ impl<'a> Machine<'a> {
     /// The file a name in the calculations refers to: one declared in the
     /// running procedure first, then the program's.
     pub(super) fn file_idx(&self, name: &str) -> Option<usize> {
+        // FILE.FORMAT: a qualified file's record format, as WRITE and
+        // UPDATE name it (ILE RPG Reference, QUALIFIED; PUB400, IBM i 7.5,
+        // 2026-11-19: WRITE and UPDATE of gn120f.gn120f with a data
+        // structure).
+        if let Some((file, format)) = name.split_once('.') {
+            let i = self.file_idx(file)?;
+            return (self.prog.files[i].format == format).then_some(i);
+        }
         // A file parameter (LIKEFILE): the caller's file.
         if let Some(i) = self.frames.last().and_then(|f| f.files.get(name)) {
             return Some(*i);

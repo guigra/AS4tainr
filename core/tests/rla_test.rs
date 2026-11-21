@@ -31141,3 +31141,63 @@ end-proc;
     };
     assert!(e.contains("RNF3551"), "{e}");
 }
+
+/// WRITE and UPDATE of a qualified file's record format, named
+/// FILE.FORMAT, from a data structure LIKEREC of it. Expected values:
+/// PUB400, IBM i 7.5, 2026-11-19 (tools/golden/native120 n120_dsio in the
+/// native fork, its table GN120F (N INT, S CHAR(5)) made here with DDS:
+/// "50:zz 6:de").
+#[tokio::test]
+async fn write_and_update_of_a_qualified_files_format() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (mut client, lib) = setup(&url).await;
+    let dds = "     A          R GN120F\n     A            N              9B 0\n     A            S              5A\n";
+    let pf = dds::parse_pf("GN120F", dds).unwrap();
+    catalog::create_physical_file(&mut client, &lib, &pf)
+        .await
+        .unwrap();
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-f gn120f usage(*update:*output) qualified;
+dcl-ds o likerec(gn120f.gn120f:*output);
+dcl-ds r likerec(gn120f.gn120f:*input);
+dcl-s line varchar(80);
+o.n = 5;
+o.s = 'abc';
+write gn120f.gn120f o;
+o.n = 6;
+o.s = 'de';
+write gn120f.gn120f o;
+close gn120f;
+open gn120f;
+read gn120f r;
+r.n = r.n * 10;
+r.s = 'zz';
+update gn120f.gn120f r;
+close gn120f;
+open gn120f;
+read gn120f r;
+dow not %eof(gn120f);
+  line += %char(r.n) + ':' + %trimr(r.s) + ' ';
+  read gn120f r;
+enddo;
+dsply %trimr(line);
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "QUALIO".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["50:zz 6:de"]);
+}
