@@ -119,13 +119,26 @@ impl Machine<'_> {
     pub(super) fn printer_op(&mut self, op: FileOp, i: usize, name: &str) -> Result<()> {
         match op {
             FileOp::Write => self.printer_write(i, name),
-            FileOp::Open | FileOp::Feod => {
+            // OPEN of a printer file that is open is an error, CPF4161
+            // (status 01215), as for a database file (PUB400, IBM i 7.5,
+            // 2026-11-20: a second OPEN(E) of a USROPN printer file sets
+            // %ERROR, and %STATUS is 1215).
+            FileOp::Open => {
+                if self.files[i].prt_open {
+                    bail!("CPF4161: File {name} is already open.");
+                }
+                self.files[i].prt_open = true;
+                let file = self.prog.files[i].decl.name.clone();
+                self.flush_printer(&file)
+            }
+            FileOp::Feod => {
                 let file = self.prog.files[i].decl.name.clone();
                 self.flush_printer(&file)
             }
             // CLOSE: the spooled file is complete (RDY); an OPEN after it
             // starts a new one.
             FileOp::Close => {
+                self.files[i].prt_open = false;
                 let file = self.prog.files[i].decl.name.clone();
                 self.flush_printer(&file)?;
                 if let Some(p) = self.printers.remove(&file) {

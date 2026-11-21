@@ -30952,3 +30952,68 @@ end-proc;
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["ADD 5 MUL 6 NE EQ 15", "NULL 202"]);
 }
+
+/// OPEN(E) of a file that is already open, a printer file or a database
+/// file, sets %ERROR and status 01215, and the program goes on; FEOD(E)
+/// and CLOSE(E) of an open printer file and CLOSE(E) of a closed database
+/// file are not errors. READ(E) of a USROPN file that is not open sets
+/// %ERROR and status 01211 without leaving through its MONITOR group.
+/// Expected values: PUB400, IBM i 7.5, 2026-11-20 (the programs GN161OE,
+/// GN161DO and GN171RE of tools/golden/native161 and native171 in the
+/// native fork, with these files: "1 1215 0 0 0 0", "1 1215" and
+/// "1 1211").
+#[tokio::test]
+async fn open_e_of_an_open_file_and_read_e_of_a_closed_one_set_their_status() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-f custmast usage(*input) usropn;
+dcl-f custmas2 usage(*input) usropn extfile('CUSTMAST') extdesc('CUSTMAST')
+      rename(custrec : custrec2) prefix(x_);
+dcl-f qprint printer(132) usropn;
+dcl-s line varchar(80);
+
+open qprint;
+open(e) qprint;
+line = %char(%error) + ' ' + %char(%status(qprint));
+feod(e) qprint;
+line += ' ' + %char(%error);
+close(e) qprint;
+line += ' ' + %char(%error);
+open custmast;
+close custmast;
+close(e) custmast;
+line += ' ' + %char(%error) + ' ' + %char(%status(custmast));
+dsply line;
+open custmast;
+open(e) custmast;
+line = %char(%error) + ' ' + %char(%status(custmast));
+close custmast;
+dsply line;
+monitor;
+  read(e) custmas2;
+  line = %char(%error) + ' ' + %char(%status(custmas2));
+on-error;
+  line = 'caught ' + %char(%status);
+endmon;
+dsply line;
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "OPENE".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["1 1215 0 0 0 0", "1 1215", "1 1211"]);
+}

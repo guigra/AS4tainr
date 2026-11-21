@@ -636,7 +636,23 @@ impl<'a> Machine<'a> {
         st.opcode = format!("{:<5}{}", opcode_name(op), if by_name { 'F' } else { 'R' });
         st.record = record;
         self.infds_update(i);
-        r
+        // With E or an error indicator, the error is the operation's: the
+        // program goes on with %ERROR (or the indicator) on and the file's
+        // status set (ILE RPG Reference, "File Exception/Errors"). PUB400,
+        // IBM i 7.5, 2026-11-20: OPEN(E) of a file that is open, and
+        // READ(E) of a USROPN file that is not, set %ERROR with status
+        // 01215 and 01211, and the program goes on.
+        match r {
+            Err(err)
+                if (ext.error || ind.lo.is_some()) && !is_signal(&err) && !self.passes_by(&err) =>
+            {
+                if let Some(lo) = &ind.lo {
+                    self.set_ind(lo, true);
+                }
+                Ok(())
+            }
+            r => r,
+        }
     }
 
     /// The file a name in the calculations refers to: one declared in the

@@ -268,6 +268,9 @@ struct FileState {
     image: Option<Vec<u8>>,
     /// A display file is open.
     ws_open: bool,
+    /// A printer file is open: from the start without USROPN, and between
+    /// an OPEN and a CLOSE (a second OPEN is CPF4161, status 01215).
+    prt_open: bool,
     status: Status,
     /// I/O feedback: writes, reads and other operations.
     writes: i64,
@@ -556,10 +559,12 @@ impl<'a> Machine<'a> {
             files: prog
                 .files
                 .iter()
-                .map(|_| FileState {
+                .map(|f| FileState {
                     open: None,
                     image: None,
                     ws_open: false,
+                    prt_open: f.decl.device == "PRINTER"
+                        && keyword(&f.decl.keywords, "USROPN").is_none(),
                     status: Status::default(),
                     writes: 0,
                     reads: 0,
