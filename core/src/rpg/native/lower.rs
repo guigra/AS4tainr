@@ -7791,6 +7791,14 @@ fn except_fields(
     let mut fields: Vec<(String, ir::Operand)> = Vec::new();
     for r in all {
         let f = prog.files.get(prog.file_index(&r.file)?)?;
+        // A record to a database file (S2.197): the runtime's except_n
+        // gives it to interp.rs disk_output (program fields read where
+        // they are, the record image of a program-described file); no
+        // fields placed here, no fetch overflow.
+        if f.decl.device == "DISK" && !r.fetch_overflow {
+            used.push(format!("except disk {}", r.file));
+            continue;
+        }
         if f.decl.device != "PRINTER" {
             return None;
         }

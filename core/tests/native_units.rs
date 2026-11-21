@@ -4330,3 +4330,38 @@ async fn native_unit_lowered_lookup_ds_subfield() {
     )
     .await;
 }
+
+// Stage 2, S2.197: EXCEPT to a program-described DISK file.
+// Source: golden capture tools/golden/native197 n197_exceptdisk (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_except_disk() {
+    let url = require_db!();
+    let _ddl = DDL.lock().await;
+    let client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
+    // As the capture's program made QTEMP/GN197F (one CHAR(20) column)
+    // before its OPEN.
+    let mut client = client;
+    let libl = ["QGPL".to_string()];
+    if catalog::resolve_file(&client, &libl, "NEXCDF")
+        .await
+        .is_err()
+    {
+        let pf = dds::parse_pf(
+            "NEXCDF",
+            "     A          R NEXCDFR\n     A            R             20A\n",
+        )
+        .unwrap_or_else(|e| panic!("{e:#}"));
+        catalog::create_physical_file(&mut client, "QGPL", &pf)
+            .await
+            .unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    expect(
+        "NEXCDSK",
+        include_str!("native/NEXCDSK.rpgle"),
+        &["[Tabc     00042      ][XY                 7]"],
+    )
+    .await;
+}
