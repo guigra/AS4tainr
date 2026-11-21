@@ -6049,7 +6049,62 @@ impl Rt<'_, '_> {
             .and_then(|k| k.checked_mul(stride))
             .and_then(|d| off.checked_add(d))
             .ok_or_else(|| anyhow!("native: an element's place"))?;
+        self.load_pad_n(buf, at, ty)
+    }
+
+    /// interp.rs load_var's read of an element: past the end of its
+    /// storage (a based array over shorter storage, S2.186) what is
+    /// there, then blanks. An array that is not based never reaches past
+    /// its own storage.
+    fn load_pad_n(&self, buf: usize, at: usize, ty: super::super::data::DType) -> NResult<Value> {
+        let b = self
+            .m
+            .bufs
+            .get(buf)
+            .ok_or_else(|| anyhow!("native: an array's storage"))?;
+        let n = ty.size();
+        if at.checked_add(n).is_none_or(|end| end > b.len()) {
+            let mut tmp = b.get(at..).unwrap_or(&[]).to_vec();
+            tmp.resize(n, 0x40);
+            return super::super::data::load(&ty, &tmp);
+        }
         rpgrt::native::load(&self.m.bufs, buf, at, ty)
+    }
+
+    /// interp.rs store_var's write of an element (S2.186): past the end
+    /// of its storage only the part there is changed.
+    fn store_pad_n(
+        &mut self,
+        buf: usize,
+        at: usize,
+        ty: super::super::data::DType,
+        v: &Value,
+        fit: Fit,
+    ) -> NResult<()> {
+        let have = self
+            .m
+            .bufs
+            .get(buf)
+            .ok_or_else(|| anyhow!("native: an array's storage"))?
+            .len();
+        let n = ty.size();
+        if at.checked_add(n).is_none_or(|end| end > have) {
+            let mut tmp = vec![0x40u8; n];
+            super::super::data::store(&ty, v, &mut tmp, fit, false)?;
+            let k = have.saturating_sub(at);
+            let from = at.min(have);
+            self.m
+                .bufs
+                .get_mut(buf)
+                .and_then(|b| b.get_mut(from..have))
+                .ok_or_else(|| anyhow!("native: an array's storage"))?
+                .copy_from_slice(
+                    tmp.get(..k)
+                        .ok_or_else(|| anyhow!("native: an element's part"))?,
+                );
+            return Ok(());
+        }
+        rpgrt::native::store(&mut self.m.bufs, buf, at, ty, v, fit, false)
     }
 
     /// ops.rs lookup for an array (not a table), and array_op's XFOOT.
@@ -6205,7 +6260,12 @@ impl Rt<'_, '_> {
         let whole = arr.stride != arr.ty.size() || arr.lead > 0;
         for k in 0..n {
             let at = Self::arr_at_n(arr, k)?;
-            let key = rpgrt::native::load(&self.m.bufs, arr.buf, at, arr.ty)?;
+            let key = if whole {
+                rpgrt::native::load(&self.m.bufs, arr.buf, at, arr.ty)?
+            } else {
+                // sorta's load_var (S2.186: a based array's elements).
+                self.load_pad_n(arr.buf, at, arr.ty)?
+            };
             let bytes = if whole {
                 let start = at
                     .checked_sub(arr.lead)
@@ -6253,15 +6313,8 @@ impl Rt<'_, '_> {
                     .ok_or_else(|| anyhow!("native: an overlaid element"))?
                     .copy_from_slice(&bytes);
             } else {
-                rpgrt::native::store(
-                    &mut self.m.bufs,
-                    arr.buf,
-                    at,
-                    arr.ty,
-                    &v,
-                    Fit::Strict { half_adjust: false },
-                    false,
-                )?;
+                // sorta's store_var (S2.186).
+                self.store_pad_n(arr.buf, at, arr.ty, &v, Fit::Strict { half_adjust: false })?;
             }
         }
         Ok(())
@@ -6301,7 +6354,9 @@ impl Rt<'_, '_> {
                 let mut out = Vec::new();
                 for k in first..=dim {
                     let at = Self::arr_at_n(arr, k.saturating_sub(1))?;
-                    let b = rpgrt::native::load(&self.m.bufs, arr.buf, at, arr.ty)?.chars()?;
+                    // move_image's eval of the element, load_var's read
+                    // (S2.186: a based array's elements).
+                    let b = self.load_pad_n(arr.buf, at, arr.ty)?.chars()?;
                     out.push((b, Some((arr.buf, at, arr.ty))));
                 }
                 out

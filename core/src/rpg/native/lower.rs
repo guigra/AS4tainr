@@ -858,9 +858,27 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             let Some(Sym::Var(v)) = sym(cx, &name) else {
                 return None;
             };
-            if v.dim == 0 || v.local || cx.prog.varying.contains_key(&name) || global_moved(cx, v) {
+            // A based array (S2.186): sorta's array_ref resolves it once
+            // (sym's based_place for one element's size).
+            let based_on = cx.prog.based.get(&v.buf);
+            if v.dim == 0
+                || v.local
+                || cx.prog.varying.contains_key(&name)
+                || (based_on.is_none() && global_moved(cx, v))
+                || cx.prog.occurs.iter().any(|o| o.buf == v.buf)
+            {
                 return None;
             }
+            let based = match based_on {
+                Some(pn) => Some(Box::new(array_based(
+                    cx,
+                    &name,
+                    pn,
+                    v.dtype.size(),
+                    &mut used,
+                )?)),
+                None => None,
+            };
             let ty = global_elem_ty(v.dtype, true)?;
             let descend = cx.prog.sequence.get(&name) == Some(&'D');
             used.push(format!(
@@ -870,6 +888,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             ir::Lowered::Sorta {
                 arr: (v.buf, v.off, v.stride, v.dim, ty, v.lead),
                 descend,
+                based,
             }
         }
         // MOVEA of character data (S2.86): ops.rs movea, factor 2 and the
@@ -917,7 +936,16 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             let Some(Sym::Var(v)) = sym(cx, &aname) else {
                 return None;
             };
-            if v.dim == 0 || v.local || cx.prog.varying.contains_key(&aname) || global_moved(cx, v)
+            // A based array (S2.186): interp.rs sym's based_place of its
+            // pointer for the first element's size, once, the elements
+            // then read from there (load_var); not one of multiple
+            // occurrences.
+            let based_on = cx.prog.based.get(&v.buf);
+            if v.dim == 0
+                || v.local
+                || cx.prog.varying.contains_key(&aname)
+                || (based_on.is_none() && global_moved(cx, v))
+                || cx.prog.occurs.iter().any(|o| o.buf == v.buf)
             {
                 return None;
             }
@@ -930,6 +958,16 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 DType::Char(n) if code == "LOOKUP" => ir::Ty::Char(n),
                 _ => return None,
             };
+            let based = match based_on {
+                Some(pn) => Some(Box::new(array_based(
+                    cx,
+                    &aname,
+                    pn,
+                    v.dtype.size(),
+                    &mut used,
+                )?)),
+                None => None,
+            };
             let arr = ir::Operand::Var {
                 name: aname.clone(),
                 buf: v.buf,
@@ -937,7 +975,7 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 ty: ety,
                 local: false,
                 index: None,
-                based: None,
+                based,
             };
             let mut table: Option<(String, Option<String>)> = None;
             let (lookup, xfoot) = if code == "LOOKUP" {
@@ -8035,6 +8073,23 @@ fn global_elem_ty(t: DType, varying: bool) -> Option<ir::Ty> {
     })
 }
 
+/// The pointer a based array is based on (S2.186): interp.rs sym's
+/// based_place of it, for `size` (one element's) bytes.
+fn array_based(
+    cx: &Cx<'_>,
+    name: &str,
+    ptr_name: &str,
+    size: usize,
+    used: &mut Vec<String>,
+) -> Option<ir::Based> {
+    let ptr = variable(cx, &Expr::name(ptr_name), used)?;
+    if !base_pointer_ok(&ptr) {
+        return None;
+    }
+    used.push(format!("based {name} on {ptr_name}"));
+    Some(ir::Based { ptr, size })
+}
+
 /// A side of MOVEA for character data (S2.86): a global fixed-length
 /// character array (not of varying dimension), from its index field's
 /// element or the first; a fixed-length character field; for factor 2,
@@ -8046,11 +8101,25 @@ fn movea_side(cx: &Cx<'_>, e: &Expr, source: bool, used: &mut Vec<String>) -> Op
             let name = parts.join(".");
             match sym(cx, &name) {
                 Some(Sym::Var(v)) if v.dim > 0 => {
-                    if v.local || cx.prog.varying.contains_key(&name) || global_moved(cx, v) {
+                    // A based array as factor 2 (S2.186): its place once,
+                    // as movea_parts's array_ref; not as the result, whose
+                    // writes the interpreter places element by element.
+                    let based_on = cx.prog.based.get(&v.buf).filter(|_| source);
+                    if v.local
+                        || cx.prog.varying.contains_key(&name)
+                        || (based_on.is_none() && global_moved(cx, v))
+                        || cx.prog.occurs.iter().any(|o| o.buf == v.buf)
+                    {
                         return None;
                     }
                     let DType::Char(n) = v.dtype else {
                         return None;
+                    };
+                    let based = match based_on {
+                        Some(pn) => {
+                            Some(Box::new(array_based(cx, &name, pn, v.dtype.size(), used)?))
+                        }
+                        None => None,
                     };
                     let index = match args.as_deref() {
                         None => None,
@@ -8078,6 +8147,7 @@ fn movea_side(cx: &Cx<'_>, e: &Expr, source: bool, used: &mut Vec<String>) -> Op
                     Some(ir::MoveaOp::Array {
                         arr: (v.buf, v.off, v.stride, v.dim, ir::Ty::Char(n)),
                         index,
+                        based,
                     })
                 }
                 _ => {

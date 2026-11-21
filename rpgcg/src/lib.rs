@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.171");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.186");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -294,6 +294,8 @@ pub mod ir {
         Array {
             arr: (usize, usize, usize, u32, Ty),
             index: Option<Operand>,
+            /// The pointer a based array is based on (S2.186).
+            based: Option<Box<Based>>,
         },
         Bytes(Vec<u8>),
         Field(Operand),
@@ -634,6 +636,8 @@ pub mod ir {
         Sorta {
             arr: (usize, usize, usize, u32, Ty, usize),
             descend: bool,
+            /// The pointer a based array is based on (S2.186).
+            based: Option<Box<Based>>,
         },
         /// MOVEA of character data (S2.86): factor 2 and the result.
         Movea {
@@ -3239,14 +3243,27 @@ fn lowered_step(
             ir::Lowered::Sorta {
                 arr: (b, o, st, d, t, lead),
                 descend,
+                based,
             },
-        ) => guarded(
-            format!("rt.stmt({pc}).map(|()| {next})"),
-            format!(
-                "rt.sorta({pc}, rpgrt::native::ArrPlace {{ buf: {b}, off: {o}, stride: {st}, dim: {d}, ty: {}, lead: {lead} }}, {descend}).map(|()| {next})",
-                ty(t)
-            ),
-        ),
+        ) => {
+            // A based array (S2.186): its place where its pointer points
+            // now, first.
+            let (pre, b, o) = match based {
+                Some(x) => (
+                    format!("let (abuf, aoff) = {}; ", based_at(x, *o)),
+                    "abuf".to_string(),
+                    "aoff".to_string(),
+                ),
+                None => (String::new(), b.to_string(), o.to_string()),
+            };
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!(
+                    "{{ {pre}rt.sorta({pc}, rpgrt::native::ArrPlace {{ buf: {b}, off: {o}, stride: {st}, dim: {d}, ty: {}, lead: {lead} }}, {descend}) }}.map(|()| {next})",
+                    ty(t)
+                ),
+            )
+        }
         (ir::Kind::Stmt, ir::Lowered::Movea { from, to, pad }) => {
             // ops.rs movea: the sides' places, then the runtime.
             let side = |m: &ir::MoveaOp| -> Result<String, Error> {
@@ -3254,8 +3271,16 @@ fn lowered_step(
                     ir::MoveaOp::Array {
                         arr: (b, o, st, d, t),
                         index,
+                        based,
                     } => format!(
-                        "rpgrt::native::MoveaSide::Array {{ arr: rpgrt::native::ArrPlace {{ buf: {b}, off: {o}, stride: {st}, dim: {d}, ty: {}, lead: 0 }}, index: {}, at: {} }}",
+                        "{{ {}rpgrt::native::MoveaSide::Array {{ arr: rpgrt::native::ArrPlace {{ buf: {}, off: {}, stride: {st}, dim: {d}, ty: {}, lead: 0 }}, index: {}, at: {} }} }}",
+                        // A based array (S2.186): its place first.
+                        match based {
+                            Some(x) => format!("let (abuf, aoff) = {}; ", based_at(x, *o)),
+                            None => String::new(),
+                        },
+                        if based.is_some() { "abuf".to_string() } else { b.to_string() },
+                        if based.is_some() { "aoff".to_string() } else { o.to_string() },
                         ty(t),
                         match index {
                             Some(ir::Operand::Num { .. }) | None => "None".to_string(),
@@ -3334,10 +3359,24 @@ fn lowered_step(
                 ))
             };
             let ir::Operand::Var {
-                ty: at, buf, off, ..
+                ty: at,
+                buf,
+                off,
+                based,
+                ..
             } = arr
             else {
                 return Err(bad());
+            };
+            // A based array (S2.186): its place where its pointer points
+            // now, resolved first (interp.rs sym's based_place).
+            let (pre, buf, off) = match based {
+                Some(b) => (
+                    format!("    let (abuf, aoff) = {};\n", based_at(b, *off)),
+                    "abuf".to_string(),
+                    "aoff".to_string(),
+                ),
+                None => (String::new(), buf.to_string(), off.to_string()),
             };
             let lk = match lookup {
                 Some((arg, ix)) => format!(
@@ -3354,7 +3393,7 @@ fn lowered_step(
                 Some((r, h)) => format!("Some(({}, {h}))", slot(r)?),
                 None => "None".to_string(),
             };
-            let mut body = String::new();
+            let mut body = pre;
             let _ = writeln!(
                 body,
                 "    let op = rpgrt::native::ArrOpIn {{\n        lookup: {lk},\n        xfoot: {xf},\n        table: {},\n        arr: ({buf}, {off}, {stride}, {dim}, {}),\n        hi: {},\n        lo: {},\n        eq: {},\n    }};\n    rt.array_op({pc}, op)?;",
