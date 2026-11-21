@@ -4230,3 +4230,64 @@ async fn native_unit_lowered_unlock_data_area() {
     assert_eq!(w.first().copied(), Some("one"), "NDTAUNL: {line}");
     assert_eq!(w.get(4).copied(), Some("two"), "NDTAUNL: {line}");
 }
+
+// Stage 2, S2.193: CHAIN with %KDS into a LIKEREC data structure, on the
+// file NKDSPF (the DDS and rows of tools/golden/native193's GN193PF).
+// Source: golden capture tools/golden/native193 n193_kds (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_chain_kds() {
+    let url = require_db!();
+    let _ddl = DDL.lock().await;
+    let mut client = runtime::connect_db(&url)
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    init_catalog(&client).await;
+    let libl = ["QGPL".to_string()];
+    if catalog::resolve_file(&client, &libl, "NKDSPF")
+        .await
+        .is_err()
+    {
+        let pf = dds::parse_pf(
+            "NKDSPF",
+            include_str!("../../tools/golden/native193/gn193pf.pf"),
+        )
+        .unwrap_or_else(|e| panic!("{e:#}"));
+        catalog::create_physical_file(&mut client, "QGPL", &pf)
+            .await
+            .unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    client
+        .batch_execute(&format!(
+            "DELETE FROM {}.{}",
+            catalog::ident("QGPL"),
+            catalog::ident("NKDSPF")
+        ))
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    let f = catalog::resolve_file(&client, &libl, "NKDSPF")
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    let mut of = rla::OpenFile::new(f);
+    // The rows of tools/golden/native193.txt n193_rows, in its order.
+    for (ord, lin, name) in [
+        ("1", "2", "Beta"),
+        ("2", "1", "Delta"),
+        ("1", "1", "Alpha"),
+        ("3", "1", "Echo"),
+        ("1", "3", "Gamma"),
+    ] {
+        let rec: rla::Record = [("ORD", ord), ("LIN", lin), ("NAME", name)]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        of.write(&client, &rec)
+            .await
+            .unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    expect(
+        "NKDS",
+        include_str!("native/NKDS.rpgle"),
+        &["Gamma 1 Delta 1 1 Delta 0 []"],
+    )
+    .await;
+}
