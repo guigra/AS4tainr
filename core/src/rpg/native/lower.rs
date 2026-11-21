@@ -1751,8 +1751,8 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             // A float field shows in its external display form (S2.183):
             // Stmt::Dsply's float arm, the field's value through num() and
             // back to f64, then float_text of its size.
-            Some(m @ Expr::Name { .. }) if float_target_ok(cx, m) => {
-                let o = float_target(cx, m, &mut used)?;
+            Some(m @ Expr::Name { .. }) if float_read_ok(cx, m) => {
+                let o = float_read(cx, m, &mut used)?;
                 let ir::Operand::Var {
                     ty: ir::Ty::Float(n),
                     ..
@@ -2229,9 +2229,9 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
         // %CHAR of a float field (S2.107, ADR 0008): bif's CHAR arm for
         // a float, float_text of its float_value with the field's bytes.
         Expr::Bif(b, args)
-            if b == "CHAR" && matches!(args.as_slice(), [a] if float_target_ok(cx, a)) =>
+            if b == "CHAR" && matches!(args.as_slice(), [a] if float_read_ok(cx, a)) =>
         {
-            let o = float_target(cx, args.first()?, used)?;
+            let o = float_read(cx, args.first()?, used)?;
             let ir::Operand::Var {
                 ty: ir::Ty::Float(n),
                 ..
@@ -5284,8 +5284,8 @@ fn float_expr(
     };
     let d = depth.saturating_add(1);
     Some(match e {
-        Expr::Name { args: None, .. } if float_target_ok(cx, e) => {
-            ir::FloatExpr::Field(float_target(cx, e, used)?)
+        Expr::Name { args: None, .. } if float_read_ok(cx, e) => {
+            ir::FloatExpr::Field(float_read(cx, e, used)?)
         }
         Expr::Bif(b, args) if b == "FLOAT" => {
             let [x] = args.as_slice() else {
@@ -5346,6 +5346,61 @@ fn float_target_ok(cx: &Cx<'_>, e: &Expr) -> bool {
     } else {
         !cx.prog.based.contains_key(&v.buf) && !cx.prog.occurs.iter().any(|o| o.buf == v.buf)
     }
+}
+
+/// A float field read (S2.190): as float_target, or a global float based
+/// on a pointer (not of multiple occurrences), which `value` reads where
+/// its pointer points (interp.rs sym's based_place). Not a target: the
+/// generated stores take no based place.
+fn float_read_ok(cx: &Cx<'_>, e: &Expr) -> bool {
+    if float_target_ok(cx, e) {
+        return true;
+    }
+    let Expr::Name { parts, args: None } = e else {
+        return false;
+    };
+    let Some(Sym::Var(v)) = sym(cx, &parts.join(".")) else {
+        return false;
+    };
+    matches!(v.dtype, DType::Float(_))
+        && v.dim == 0
+        && !v.local
+        && cx.prog.based.contains_key(&v.buf)
+        && !cx.prog.occurs.iter().any(|o| o.buf == v.buf)
+}
+
+fn float_read(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    if float_target_ok(cx, e) {
+        return float_target(cx, e, used);
+    }
+    if !float_read_ok(cx, e) {
+        return None;
+    }
+    let Expr::Name { parts, .. } = e else {
+        return None;
+    };
+    let name = parts.join(".");
+    let Some(Sym::Var(v)) = sym(cx, &name) else {
+        return None;
+    };
+    let DType::Float(n) = v.dtype else {
+        return None;
+    };
+    let pn = cx.prog.based.get(&v.buf)?;
+    let based = array_based(cx, &name, pn, v.dtype.size(), used)?;
+    used.push(format!(
+        "layout {name} {} {} Float({n}) based",
+        v.buf, v.off
+    ));
+    Some(ir::Operand::Var {
+        name,
+        buf: v.buf,
+        off: v.off,
+        ty: ir::Ty::Float(n),
+        local: false,
+        index: None,
+        based: Some(Box::new(based)),
+    })
 }
 
 fn float_target(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
