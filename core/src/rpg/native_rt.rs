@@ -1354,6 +1354,18 @@ impl Runtime for Rt<'_, '_> {
         self.disk_open_close_n(pc)
     }
 
+    fn sql_ts_literal(&mut self, v: &Value) -> NResult<String> {
+        // host_literal's timestamp arm: iso_timestamp of the characters
+        // without null bytes, trimmed, quotes doubled.
+        match v {
+            Value::Char(c) => {
+                let t = super::exec_sql::iso_timestamp(a(c).replace('\0', "").trim());
+                Ok(format!("CAST('{}' AS timestamp)", t.replace('\'', "''")))
+            }
+            other => rpgrt::native::sql_literal(other, None),
+        }
+    }
+
     fn assign_list(
         &mut self,
         arr: rpgrt::native::ArrPlace,
@@ -4119,6 +4131,10 @@ impl Rt<'_, '_> {
                                 )))
                             }
                         }
+                    } else if matches!(o.ty, super::data::DType::Timestamp(_)) {
+                        // assign_hosts: a timestamp target gets
+                        // db2_timestamp's text (S2.184).
+                        Value::str(&super::exec_sql::db2_timestamp(text))
                     } else {
                         Value::str(text)
                     };

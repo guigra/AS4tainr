@@ -4122,3 +4122,16 @@ async fn native_unit_lowered_dsply_float() {
         "NFLTDSP"
     );
 }
+
+// Stage 2, S2.184: timestamp host variables in EXEC SQL.
+// Source: golden capture tools/golden/native184 n184_tshost (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_sql_timestamp_hosts() {
+    let _ = require_db!();
+    expect(
+        "NSQLTS",
+        include_str!("native/NSQLTS.rpgle"),
+        &["2 2026-11-01-20.43.10.123456 0|2026-10-31-20.43.10.123456"],
+    )
+    .await;
+}

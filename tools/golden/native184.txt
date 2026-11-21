@@ -1,0 +1,5 @@
+# Captures for stage 2, S2.184: timestamp host variables in EXEC SQL (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native184.txt -f tools/golden/native184
+n184_tbl|!system -q "DLTF FILE(@LIB@/GN184T)"; system "RUNSQL SQL('CREATE TABLE @LIB@/GN184T (T TIMESTAMP NOT NULL)') COMMIT(*NONE)" && echo created
+n184_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN184TS) SRCSTMF('@HOME@/gld/gn184ts.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n184_tshost|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN184TS)"; cat gn1.out; rm -f gn1.out
