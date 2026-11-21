@@ -211,6 +211,7 @@ impl<'a> Rt<'_, 'a> {
         let mut values = Vec::new();
         let mut lengths = Vec::new();
         let mut files = std::collections::HashMap::new();
+        let mut omitted = Vec::new();
         let passed = args.len();
         for (p, arg) in pi.params.iter().zip(args) {
             match arg {
@@ -246,9 +247,15 @@ impl<'a> Rt<'_, 'a> {
                         alias.insert(b, (buf, off));
                     }
                 }
-                // Lowering passes *OMIT to no procedure of this module (S2.150).
+                // *OMIT (S2.195): call_proc's Arg::Omit, the parameter
+                // noted as omitted (args_for allows it only for
+                // OPTIONS(*OMIT)), counted in %PARMS; no descriptor.
                 CallArg::Omit => {
-                    anyhow::bail!("native: *OMIT for {proc}'s parameter {}", p.name)
+                    if !p.omit {
+                        anyhow::bail!("{proc}: *OMIT is not allowed for parameter {}", p.name);
+                    }
+                    lengths.push(None);
+                    omitted.push(p.name.clone());
                 }
                 // A LIKEFILE parameter (S2.185): args_for's Arg::File, the
                 // file the name is in the caller (file_idx, whose frame is
@@ -284,7 +291,7 @@ impl<'a> Rt<'_, 'a> {
             base,
             alias,
             passed,
-            omitted: Vec::new(),
+            omitted,
             files,
             lengths,
         });
@@ -1376,6 +1383,10 @@ impl Runtime for Rt<'_, '_> {
 
     fn disk_open_close(&mut self, pc: usize) -> NResult<()> {
         self.disk_open_close_n(pc)
+    }
+
+    fn omitted(&mut self, name: &str) -> NResult<bool> {
+        Ok(self.m.omitted(name))
     }
 
     fn dtaara_unlock(&mut self, pc: usize) -> NResult<()> {

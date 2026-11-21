@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.194");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.195.1");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -1211,6 +1211,12 @@ pub mod ir {
             of: Operand,
             skip: usize,
         },
+        /// %ADDR of an OPTIONS(*OMIT) parameter of the routine's
+        /// procedure (S2.195): *NULL when it was omitted, else the address.
+        AddrOmit {
+            name: String,
+            addr: Box<PtrVal>,
+        },
         /// Pointer arithmetic (S2.49): the base moved by each number in
         /// turn, back when `true` (ptr - n).
         Move {
@@ -2014,6 +2020,14 @@ fn ptr_val(pc: usize, pv: &ir::PtrVal, helpers: &mut String) -> Option<String> {
             }
             code.push_str("    p\n    }");
             code
+        }
+        ir::PtrVal::AddrOmit { name, addr } => {
+            let inner = ptr_val(pc, addr, helpers)?;
+            format!(
+                "{{\n    if rt.omitted({})? {{ {} }} else {{ {inner} }}\n    }}",
+                json_str(name),
+                fig(&ir::FigOp::Null)
+            )
         }
         ir::PtrVal::Null => fig(&ir::FigOp::Null),
         ir::PtrVal::Paddr(n) => format!("rt.paddr({})?", json_str(n)),

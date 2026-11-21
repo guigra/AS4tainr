@@ -4516,7 +4516,9 @@ fn call_of(
             let extpgm = proto(cx, &name).is_some_and(|pr| pr.extpgm.is_some());
             // A file parameter: args_for checks LIKEFILE first, and *OMIT
             // for it is an error (the review of 2026-11-20).
-            if !p.omit || p.file || local.is_some() || extpgm || prog.procs.contains_key(&name) {
+            // This module's procedure too (S2.195): call_proc's Arg::Omit,
+            // the parameter noted as omitted, counted as passed.
+            if !p.omit || p.file || extpgm {
                 return None;
             }
             let _ = std::fmt::Write::write_fmt(&mut layout, format_args!(" {}=omit", p.name));
@@ -5623,7 +5625,27 @@ fn ptr_val(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
                 (true, ir::Ty::Varchar(n)) => rpgrt::rpg::data::var_prefix(*n),
                 _ => 0,
             };
-            ir::PtrVal::Addr { of, skip }
+            // An OPTIONS(*OMIT) parameter of the routine's procedure
+            // (S2.195): bif ADDR's *NULL when the frame notes it omitted
+            // (bifs.rs omitted), by its name alone.
+            let omit_name = match args.first() {
+                Some(Expr::Name { parts, args: None }) if parts.len() == 1 => {
+                    let n = parts.first()?.to_ascii_uppercase();
+                    cx.proc
+                        .and_then(|p| cx.prog.procs.get(p))
+                        .is_some_and(|pi| pi.params.iter().any(|q| q.omit && q.name == n))
+                        .then_some(n)
+                }
+                _ => None,
+            };
+            let addr = ir::PtrVal::Addr { of, skip };
+            match omit_name {
+                Some(name) => ir::PtrVal::AddrOmit {
+                    name,
+                    addr: Box::new(addr),
+                },
+                None => addr,
+            }
         }
         v if is_pointer_name(cx, v) => ir::PtrVal::Var(variable(cx, v, used)?),
         // %ALLOC(n) and %REALLOC(p: n) (S2.50), the interpreter's bif

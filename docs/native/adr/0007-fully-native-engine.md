@@ -2225,3 +2225,14 @@ An argument for a VALUE or CONST character parameter with OPTIONS(*CONVERT) is l
 Anything else stays with the interpreter. That covers an expression or a literal, whose type args_for asks type_of for at run time, and a parameter with *VARSIZE, *TRIM or *STRING too.
 
 **Verified by** the native unit NCONVRT, under both engines, as captured on PUB400 (tools/golden/native194.txt n194_convert: `[-42][1234.50][2026-07-04][ab    ]`): an integer, a packed field, a date and a character field. The WHY pass lists none of NCONVRT's statements. rla_test.rs SQLOVR's `show(n)` is native now.
+
+## S2.195: *OMIT for a procedure of the module
+
+*OMIT for an OPTIONS(*OMIT) parameter of a procedure of the module is lowered. Before, S2.150 lowered *OMIT only for bound procedures, CEE APIs and procedure pointers. call_frame now does what call_proc does with Arg::Omit:
+- the parameter is noted in the frame's omitted list;
+- it is counted in %PARMS;
+- it has no operational descriptor.
+
+A *OMIT for a parameter without OPTIONS(*OMIT) is args_for's error, which lowering never passes on. In the procedure, %ADDR of an OPTIONS(*OMIT) parameter named alone is lowered as bif ADDR takes it (`PtrVal::AddrOmit`): *NULL when the frame notes the parameter omitted (bifs.rs omitted, `Runtime::omitted`), the parameter's address otherwise.
+
+**Verified by** the native unit NOMITLC, under both engines, as captured on PUB400 (tools/golden/native195.txt n195_omit: `1 2N 2x`). It calls a procedure with a *NOPASS and *OMIT parameter three ways: with the argument not passed, with *OMIT (%PARMS 2, its %ADDR *NULL) and with a value. The WHY pass lists none of NOMITLC's statements. rla_test.rs IMQNOPASS is native now.
