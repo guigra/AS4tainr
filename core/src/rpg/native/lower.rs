@@ -3365,7 +3365,11 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
     // Pointer expressions (S2.160): pointer arithmetic, %ADDR and the
     // like on a side, eval's values compared by data::compare (address
     // order, *NULL first), the left side evaluated first.
-    if !(operand_only(l) && operand_only(r)) && (ptr_expr(cx, l) || ptr_expr(cx, r)) {
+    // A call returning a pointer (S2.204) too, which the two operands'
+    // case above leaves to this one.
+    if (!(operand_only(l) && operand_only(r)) || has_call(cx, l, 0) || has_call(cx, r, 0))
+        && (ptr_expr(cx, l) || ptr_expr(cx, r))
+    {
         // *NULL: eval's Value::Fig(Null) (PtrVal::Null's value).
         let mut side_ptr = |e: &Expr, at: Vec<u8>| match e {
             Expr::Fig(Fig::Null) => Some(ir::PtrVal::Null),
@@ -3614,6 +3618,11 @@ fn ptr_expr(cx: &Cx<'_>, e: &Expr) -> bool {
     match e {
         Expr::Bif(b, _) => matches!(b.as_str(), "ADDR" | "ALLOC" | "REALLOC" | "PADDR"),
         Expr::Bin(BinOp::Add | BinOp::Sub, l, _) => ptr_expr(cx, l),
+        // A call returning a pointer (S2.204): ptr_val's S2.99 arm.
+        Expr::Name {
+            parts,
+            args: Some(_),
+        } if is_call(cx, parts) => call_returns(cx, &parts.join(".")) == Some(DType::Pointer),
         e => is_pointer_name(cx, e),
     }
 }

@@ -1,0 +1,4 @@
+# Captures for stage 2, S2.204: a C call returning a pointer in a comparison (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native204.txt -f tools/golden/native204
+n204_crt|!system -q "DLTPGM PGM(@LIB@/GN204LT)"; system "CRTSQLRPGI OBJ(@LIB@/GN204LT) SRCSTMF('@HOME@/gld/gn204lt.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n204_ptrcall|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN204LT)"; cat gn1.out; rm -f gn1.out
