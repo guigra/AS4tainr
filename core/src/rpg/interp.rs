@@ -332,6 +332,9 @@ pub struct Machine<'a> {
     frame_owner: u32,
     /// A pointer that addressed nothing during the statement running.
     ptr_fault: std::cell::RefCell<Option<String>>,
+    /// The division being evaluated is an operand of a comparison: its
+    /// quotient keeps the decimal places of 63 digits (`divide`).
+    cmp_quotient: std::cell::Cell<bool>,
     /// Heap blocks holding OPTIONS(*STRING) arguments of calls running.
     temp_strings: Vec<usize>,
     /// The heap block of errno (C runtime).
@@ -552,6 +555,7 @@ impl<'a> Machine<'a> {
             owner,
             frame_owner: owner,
             ptr_fault: Default::default(),
+            cmp_quotient: Default::default(),
             temp_strings: Vec::new(),
             errno_block: None,
             heap_lent: false,
@@ -1032,6 +1036,9 @@ impl<'a> Machine<'a> {
                 }
             }
             Expr::Bin(op, l, r) => {
+                // This division is a comparison's operand (taken here, so
+                // that the divisions inside it are not).
+                let wide = self.cmp_quotient.replace(false);
                 // AND and OR stop early (ILE RPG Reference: the right
                 // operand is not evaluated when the result is known).
                 if *op == BinOp::And {
@@ -1043,8 +1050,24 @@ impl<'a> Machine<'a> {
                 if *op == BinOp::In {
                     return self.eval_in(l, r);
                 }
-                let x = self.eval(l)?;
-                let y = self.eval(r)?;
+                // A quotient compared keeps the places of 63 digits (PUB400,
+                // IBM i 7.5, 2026-11-21: 10 / 3 is greater than 3.333...
+                // to 28, 29, 30 and 31 places, and 2 / 3 equals 0.666...
+                // to 62 places, truncated), where %CHAR of it shows the
+                // places of 30 digits.
+                let cmp = matches!(
+                    op,
+                    BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
+                );
+                let is_div = |e: &Expr| matches!(e, Expr::Bin(BinOp::Div, ..));
+                self.cmp_quotient.set(cmp && is_div(l));
+                let x = self.eval(l);
+                self.cmp_quotient.set(false);
+                let x = x?;
+                self.cmp_quotient.set(cmp && is_div(r));
+                let y = self.eval(r);
+                self.cmp_quotient.set(false);
+                let y = y?;
                 // Date, time and timestamp arithmetic with durations.
                 if matches!(op, BinOp::Add | BinOp::Sub)
                     && (matches!(y, Value::Dur(..)) || matches!(x, Value::Dur(..)))
@@ -1137,7 +1160,7 @@ impl<'a> Machine<'a> {
                     BinOp::Mul => Value::Num(self.to_rule_scale(ex, x.num()?.mul(&y.num()?)?)),
                     BinOp::Div => {
                         let (a, b) = (x.num()?, y.num()?);
-                        Value::Num(self.divide(l, r, &a, &b)?)
+                        Value::Num(self.divide(l, r, &a, &b, wide)?)
                     }
                     BinOp::Pow => {
                         let base = x.num()?;
@@ -1179,15 +1202,18 @@ impl<'a> Machine<'a> {
     /// decimals, %CHAR(100 / 3) 27, a 7,2 field / 3 25, an INT(10) / 3 20).
     /// Operands whose precision is not known count their own digits. Fewer
     /// places when the quotient would not fit in as4tainr's 38 digits.
-    fn divide(&self, l: &Expr, r: &Expr, a: &Dec, b: &Dec) -> Result<Dec> {
+    /// `wide`: the quotient is a comparison's operand, with M = 63 (up to
+    /// 62 decimal places).
+    fn divide(&self, l: &Expr, r: &Expr, a: &Dec, b: &Dec, wide: bool) -> Result<Dec> {
         let (l1, d1) = self
             .num_precision(l)
             .unwrap_or(((a.int_digits() + a.scale() as u32).max(1), a.scale() as u32));
         let (l2, d2) = self
             .num_precision(r)
             .unwrap_or(((b.int_digits() + b.scale() as u32).max(1), b.scale() as u32));
-        let m: u32 = if l1.max(l2) > 30 { 63 } else { 30 };
-        let mut dr = m.saturating_sub(l1.saturating_sub(d1) + d2).min(37);
+        let m: u32 = if wide || l1.max(l2) > 30 { 63 } else { 30 };
+        let cap = if wide { 62 } else { 37 };
+        let mut dr = m.saturating_sub(l1.saturating_sub(d1) + d2).min(cap);
         loop {
             match a.div_scale(b, dr as u8) {
                 Ok(q) => return Ok(q),
