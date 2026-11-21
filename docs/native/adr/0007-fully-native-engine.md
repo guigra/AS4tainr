@@ -2152,3 +2152,18 @@ Note on the generator version: rpgcg's VERSION stayed at `+stage2.171` from S2.1
 An EXCEPT whose output field's edit word is a named constant of the procedure it runs in is lowered. The native runtime's out_text_n now takes the constant as the interpreter's out_text does, through `Machine::sym`: the procedure's own first, as the frame finds it, then the module's. Before, it took the module's constant only, and lowering left a procedure's own constant with the interpreter (the review of 2026-11-18). Lowering still requires the name to be a named constant where the EXCEPT runs.
 
 **Verified by** the native unit NEXCPT2, under both engines, as captured on PUB400 (tools/golden/native92). Its EXCEPT in the procedure `local`, which declares the edit word `ew` itself, runs natively now (the WHY pass lists none of NEXCPT2's statements).
+
+## S2.188: calls of an OVERLOAD prototype
+
+A call of an OVERLOAD prototype is lowered as a call of the candidate bifs.rs overload_target chooses. The choice is made when lowering, from each argument's kinds as arg_kind gives them:
+- *ON and *OFF are an indicator or character;
+- a numeric literal is a number or a float;
+- a field with no index goes by its type: an indicator is also character, a float also a number, a number also a float.
+
+The first candidate whose parameters each take an argument's first kind wins; failing that, the first that takes one of its kinds; both count the arguments, with those not *NOPASS required. Other arguments are not lowered:
+- character literals, because arg_kind looks at their text as a possible date;
+- expressions, because arg_kind evaluates them.
+
+Nor is a call with no candidate, since that is the interpreter's error.
+
+**Verified by** the native unit NOVERLD, under both engines, as captured on PUB400 (tools/golden/native188.txt n188_overload: `N12.50|D04/03/26|Cabc|N-7.00`): a numeric literal, a date field, a character field and an integer field. The calls whose candidate is fmtNum or fmtChr run natively (the WHY pass lists only line 20). `fmt(d)`'s candidate fmtDate takes a CONST date parameter, which call_of does not lower yet, so that statement stays with the interpreter, as does rla_test.rs FREEFORM's `fmt(d)`; FREEFORM's `fmt(12.5)` is native now.
