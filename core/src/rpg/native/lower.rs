@@ -4542,7 +4542,37 @@ fn call_of(
             out.push(ir::CallArg::File(fname));
             continue;
         }
-        if (p.string && !string_ok) || (p.trim && matches!(a, Expr::Fig(_))) || p.convert {
+        // OPTIONS(*CONVERT) (S2.194): args_for's value path for a VALUE or
+        // CONST character parameter, %CHAR of an argument whose type is a
+        // number, date, time or timestamp (bif CHAR, as char_expr lowers
+        // it), the argument as it is when it is character data. Only a
+        // field whose type is known here; anything else stays with the
+        // interpreter.
+        if p.convert {
+            let ch = matches!(p.dtype, DType::Char(_) | DType::Varchar(_));
+            let field_ty = match a {
+                Expr::Name { parts, args: None } => match sym(cx, &parts.join(".")) {
+                    Some(Sym::Var(v)) if v.dim == 0 => Some(v.dtype),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if !(p.by_value || p.konst) || !ch || p.varsize || p.trim || p.string {
+                return None;
+            }
+            let t = field_ty?;
+            let mut ap = path.clone();
+            ap.push(u8::try_from(k).ok()?);
+            let c = if matches!(t, DType::Char(_) | DType::Varchar(_)) {
+                char_expr(cx, a, used, ap)?
+            } else {
+                char_expr(cx, &Expr::Bif("CHAR".into(), vec![a.clone()]), used, ap)?
+            };
+            let _ = std::fmt::Write::write_fmt(&mut layout, format_args!(" {}=convert", p.name));
+            out.push(ir::CallArg::Char(c));
+            continue;
+        }
+        if (p.string && !string_ok) || (p.trim && matches!(a, Expr::Fig(_))) {
             return None;
         }
         // A parameter that is a data structure (LIKEDS), or a whole data
