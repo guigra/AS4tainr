@@ -883,6 +883,9 @@ pub mod ir {
         /// %CHAR of a float field of this many bytes (S2.107, ADR 0008):
         /// its external display form.
         FloatChar(Operand, u32),
+        /// DSPLY of a float field (S2.183): Stmt::Dsply's float arm, the
+        /// value through num() then float_text of the field's size.
+        FloatDsply(Operand, u32),
         /// %STR(p[: max]) (S2.88): the pointer, then the maximum.
         StrAt {
             ptr: Box<PtrVal>,
@@ -4525,6 +4528,9 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
         ),
         ir::CharExpr::FloatChar(o, n) => {
             format!("rpgrt::native::float_char(&{}, {n})?", value(o))
+        }
+        ir::CharExpr::FloatDsply(o, n) => {
+            format!("rpgrt::native::float_dsply(&{}, {n})?", value(o))
         }
         ir::CharExpr::CondChar(c, path) => {
             // Named by its place in the statement; its sub-conditions'

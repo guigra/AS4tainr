@@ -1,0 +1,5 @@
+# Captures for stage 2, S2.183: DSPLY of float fields (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native183.txt -f tools/golden/native183
+n183_crt|!system "CRTSQLRPGI OBJ(@LIB@/GN183FD) SRCSTMF('@HOME@/gld/gn183fd.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n183_msgq|!system -q "DLTMSGQ MSGQ(@LIB@/GN183Q)"; system "CRTMSGQ MSGQ(@LIB@/GN183Q)"
+n183_fltdsply|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN183FD)"; cat gn1.out; rm -f gn1.out
