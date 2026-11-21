@@ -2254,3 +2254,9 @@ An EXCEPT whose exception records are written to a DISK file, without fetch over
 A read of a program-described DISK file into a result data structure is lowered, as file_op gives it to bifs.rs record_to_ds: the record image goes into the structure byte for byte, and is kept as the file's image. Following S2.191, lowering generates no field moves. The runtime's file_done_n calls record_to_ds with the statement's data structure, as the record's move. An externally described file with input specifications still stays with the interpreter when it is read into a data structure.
 
 **Verified by** the native unit NPDDS, under both engines, as captured on PUB400 (tools/golden/native198.txt n198_pdds: `[HELLO world         |HELLO][second   xy         |secon]`). A procedure with its own `disk(20)` file reads two records into a 20-byte structure with a subfield over part of it. The WHY pass lists none of NPDDS's statements. rla_test.rs CEEPGM's `read nosuch rec` is native now.
+
+## S2.199: pointer differences beyond two pointer fields
+
+A pointer minus a pointer where either side is not a pointer field, such as %ADDR of a field or of an array element, or a pointer expression, is lowered (`NumExpr::PtrDiffOf`). It is lowered as the whole value, as S2.98's PtrDiff is, or as the argument of %CHAR; neither gives the difference a precision of its own to matter. eval's operands come in order, then ptr_arith's Sub of two pointers, through S2.98's runtime ptr_diff: the offsets' difference within the same storage, or its error.
+
+**Verified by** the native unit NPTRDF2, under both engines, as captured on PUB400 (tools/golden/native199.txt n199_ptrdiff: `2 8 -2`). rla_test.rs PTRS's `%char(p - %addr(name))` is native now.

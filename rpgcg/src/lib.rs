@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.198");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.199");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -1071,6 +1071,9 @@ pub mod ir {
         /// A pointer field minus a pointer field (S2.98), ptrs.rs
         /// ptr_arith: the distance between them.
         PtrDiff(Operand, Operand),
+        /// The difference of two pointer values (S2.199): %ADDR, a pointer
+        /// field..., as eval's ptr_arith for Sub of two pointers.
+        PtrDiffOf(Box<PtrVal>, Box<PtrVal>),
         /// %DIFF(x : y : unit) and %SUBDT(x : unit) (S2.55): temporal
         /// values, and rpgrt::rpg::data::DurUnit's variant.
         TemporalDiff {
@@ -4938,7 +4941,19 @@ fn char_expr(pc: usize, e: &ir::CharExpr, helpers: &mut String) -> String {
 fn num_expr(pc: usize, e: &ir::NumExpr, helpers: &mut String) -> String {
     match e {
         ir::NumExpr::Leaf(o) => number(o),
-        ir::NumExpr::PtrDiff(a, b) => format!(
+ir::NumExpr::PtrDiffOf(a, b) => {
+            let (x, y) = match (ptr_val(pc, a, helpers), ptr_val(pc, b, helpers)) {
+                (Some(x), Some(y)) => (x, y),
+                _ => {
+                    return "{ return Err(anyhow::anyhow!(\"native: a pointer difference's operand\")); }"
+                        .to_string()
+                }
+            };
+            format!(
+                "{{\n    let x = {x};\n    let y = {y};\n    rpgrt::native::ptr_diff(&x, &y)?\n    }}"
+            )
+        }
+                ir::NumExpr::PtrDiff(a, b) => format!(
             "{{\n    let x = {};\n    let y = {};\n    rpgrt::native::ptr_diff(&x, &y)?\n    }}",
             value(a),
             value(b)

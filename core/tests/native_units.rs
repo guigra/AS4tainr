@@ -4379,3 +4379,11 @@ async fn native_unit_lowered_program_described_read_ds() {
     )
     .await;
 }
+
+// Stage 2, S2.199: pointer differences in %CHAR.
+// Source: golden capture tools/golden/native199 n199_ptrdiff (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_pointer_difference_char() {
+    let _ = require_db!();
+    expect("NPTRDF2", include_str!("native/NPTRDF2.rpgle"), &["2 8 -2"]).await;
+}
