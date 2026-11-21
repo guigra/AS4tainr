@@ -493,6 +493,18 @@ impl Machine<'_> {
             Some(e) => a(&self.eval(e)?.chars()?),
             None => String::new(),
         };
+        self.xml_sax_doc(&proc, &hargs[1], doc, &opts)
+    }
+
+    /// XML-SAX with the handler's procedure and communication area found
+    /// and the document's value and the options' text evaluated.
+    pub(super) fn xml_sax_doc(
+        &mut self,
+        proc: &str,
+        comm: &Expr,
+        doc: Value,
+        opts: &str,
+    ) -> Result<()> {
         let mut file = false;
         for w in opts.split_whitespace() {
             let (k, v) = w
@@ -524,7 +536,7 @@ impl Machine<'_> {
         } else {
             a(&doc.chars()?)
         };
-        let comm = hargs[1].clone();
+        let comm = comm.clone();
         let all = events(&text);
         for (i, (event, s, exc)) in all.iter().cloned().enumerate() {
             let bytes = event_bytes(event, &s);
@@ -553,7 +565,7 @@ impl Machine<'_> {
                 })),
                 Expr::Num(Dec::from_i64(exc)),
             ];
-            let r = self.call_named(&proc, &args);
+            let r = self.call_named(proc, &args);
             CURRENT.with(|c| c.borrow_mut().pop());
             // The buffer goes for good (a freed block otherwise stays
             // readable).

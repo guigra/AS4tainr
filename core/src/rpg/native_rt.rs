@@ -1476,13 +1476,26 @@ impl Runtime for Rt<'_, '_> {
         else {
             return Err(mismatch(pc, "an XML-INTO"));
         };
-        if code != "XML-INTO" {
+        if code != "XML-INTO" && code != "XML-SAX" {
             return Err(mismatch(pc, "an XML-INTO"));
         }
         let opts = match opts {
             Some(o) => a(&o.chars()?),
             None => String::new(),
         };
+        // XML-SAX (S2.181): xml_sax's procedure and area, then the rest
+        // of it.
+        if code == "XML-SAX" {
+            let Expr::Bif(_, hargs) = target else {
+                return Err(mismatch(pc, "an XML-SAX %HANDLER"));
+            };
+            let (Some(Expr::Name { parts, .. }), Some(comm)) = (hargs.first(), hargs.get(1)) else {
+                return Err(mismatch(pc, "an XML-SAX %HANDLER"));
+            };
+            let proc = parts.join(".");
+            let comm = comm.clone();
+            return self.m.xml_sax_doc(&proc, &comm, doc, &opts);
+        }
         // %HANDLER (S2.180): xml_into_handler's procedure, area and array
         // parameter, which lowering has checked, then the rest of it.
         if let Expr::Bif(b, hargs) = target {
