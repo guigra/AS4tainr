@@ -2284,3 +2284,9 @@ A float expression for a C function's float parameter passed by value is lowered
 A float argument of %DEC, %DECH, %INT or %INTH is lowered as those bif arms take eval's value of it: o.num(), then the arm's rescaling (`NumExpr::OfFloat`). The argument is a float field or a float expression, or a call alone as its returned value (S2.201).
 
 **Verified by** the native unit NFLTDEC, under both engines, as captured on PUB400 (tools/golden/native203.txt n203_floatdec: `-12.6 2.67 -8 -7 1`), less its last statement. That statement is %INTH(pow(2 : 0.5)): 1 on IBM i, and RNQ0103 in the interpreter, whose num() of that float does not fit 63 digits (fidelity.md). The unit covers QXXZTOD's float result, the WHY pass lists none of its statements, and rla_test.rs XSCRT's `%dech(QXXZTOD(...): 7: 2)` is native now.
+
+## S2.204: a call returning a pointer in a comparison
+
+A call returning a pointer is a pointer expression for comparisons (`ptr_expr`): it is S2.99's PtrVal::Call, and the comparison is S2.160's PtrCmp, eval's values compared by data::compare. Two operands where one is a call were left out by the two operands' case (it takes no call), and now reach this one.
+
+**Verified by** the native unit NPTRCAL, under both engines, as captured on PUB400 (tools/golden/native204.txt n204_ptrcall: `70 0 11 1970-01-11`): `localtime_r(secs : t) <> *null`, then strftime. rla_test.rs LOCALTR is native now (its WHY pass lists nothing).

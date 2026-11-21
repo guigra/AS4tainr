@@ -4446,3 +4446,16 @@ async fn native_unit_lowered_dec_of_float() {
     )
     .await;
 }
+
+// Stage 2, S2.204: a C call returning a pointer compared with *NULL.
+// Source: golden capture tools/golden/native204 n204_ptrcall (PUB400, IBM i 7.5, 2026-11-21)
+#[tokio::test]
+async fn native_unit_lowered_pointer_call_compare() {
+    let _ = require_db!();
+    expect(
+        "NPTRCAL",
+        include_str!("native/NPTRCAL.rpgle"),
+        &["70 0 11 1970-01-11"],
+    )
+    .await;
+}
