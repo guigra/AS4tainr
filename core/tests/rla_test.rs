@@ -29790,3 +29790,33 @@ async fn a_numeric_operand_of_concat_does_not_compile() {
     )
     .await;
 }
+
+/// A time plus a date: RNF7421 and RNF7416, severity 30
+/// (n217_timedate); a date plus a time compiles (n217_datetime).
+#[tokio::test]
+async fn a_time_plus_a_date_does_not_compile() {
+    let _ = require_db!();
+    let decl =
+        "dcl-s d date inz(d'2026-01-31');\ndcl-s t time inz(t'09.15.00');\ndcl-s z timestamp;\n\n";
+    refused_by_the_compiler("TPLUSD", &format!("{decl}z = t + d;\n"), "*RNF7421 30").await;
+    refused_by_the_compiler("TPLUSD", &format!("{decl}z = t + d;\n"), "*RNF7416 30").await;
+    // The date first: the program is created (n217_datetime: RNS9304).
+    use as4tainr_core::rpg;
+    let url = db_url().unwrap();
+    let (_client, lib) = setup(&url).await;
+    let src = format!("**FREE\nctl-opt dftactgrp(*no);\n{decl}z = d + t;\n*inlr = *on;\n");
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "DPLUST".into(),
+        src,
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+}

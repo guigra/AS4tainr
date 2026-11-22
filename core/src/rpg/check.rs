@@ -21,6 +21,8 @@
 //! - RNF7571 (30): %OCCUR set to a literal outside the occurrences (PUB400
 //!   2026-11-22);
 //! - RNF0203 (30): a numeric operand of %CONCAT (PUB400 2026-11-22);
+//! - RNF7421 (30): a time plus a date, with RNF7416 (30) on the EVAL
+//!   (PUB400 2026-11-22);
 //! - RNF2121 (30) and RNF2109 (40): an externally described file whose
 //!   record format has the file's name, without RENAME (PUB400
 //!   2026-11-05, tools/golden/verify47.txt p47_crtr).
@@ -182,6 +184,48 @@ impl Walker<'_> {
             });
         }
         self.concat_operands(line, e);
+        if self.time_plus_date(e) {
+            self.out.diags.push(Diag {
+                line,
+                id: "RNF7421".into(),
+                sev: 30,
+                text: "A time cannot be added to a date in this order: the operands do not fit the operator.".into(),
+                at: None,
+            });
+        }
+    }
+
+    /// The type of a field named without arguments.
+    fn field_type(&self, e: &Expr) -> Option<DType> {
+        match e {
+            Expr::Name { parts, args: None } => match self.sym(&parts.join("."))? {
+                Sym::Var(v) => Some(v.dtype),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// A time plus a date (the date must come first): RNF7421, severity 30
+    /// (PUB400 2026-11-20 and 2026-11-22, IBM i 7.5: `z = t + d` does not
+    /// compile; `z = d + t` does).
+    fn time_plus_date(&self, e: &Expr) -> bool {
+        match e {
+            Expr::Bin(BinOp::Add, l, r) => {
+                matches!(
+                    (self.field_type(l), self.field_type(r)),
+                    (Some(DType::Time(_)), Some(DType::Date(_)))
+                ) || self.time_plus_date(l)
+                    || self.time_plus_date(r)
+            }
+            Expr::Bin(_, l, r) => self.time_plus_date(l) || self.time_plus_date(r),
+            Expr::Unary(_, x) => self.time_plus_date(x),
+            Expr::Bif(_, args)
+            | Expr::Name {
+                args: Some(args), ..
+            } => args.iter().any(|a| self.time_plus_date(a)),
+            _ => false,
+        }
     }
 
     /// A numeric operand of %CONCAT: RNF0203, severity 30 (PUB400
@@ -312,6 +356,17 @@ impl Walker<'_> {
                     });
                 }
                 self.value(l, value);
+                // The EVAL's value is then not of the target's type either:
+                // RNF7416 too, as IBM i lists it.
+                if matches!(value, Expr::Bin(BinOp::Add, ..)) && self.time_plus_date(value) {
+                    self.out.diags.push(Diag {
+                        line: l,
+                        id: "RNF7416".into(),
+                        sev: 30,
+                        text: "The types of the target and the value of the EVAL operation do not match.".into(),
+                        at: None,
+                    });
+                }
                 if let (Some(t), Some(v)) = (self.class_of(target), self.class_of(value)) {
                     if t != v {
                         self.out.diags.push(Diag {
