@@ -23,6 +23,7 @@
 //! - RNF0203 (30): a numeric operand of %CONCAT (PUB400 2026-11-22);
 //! - RNF7421 (30): a time plus a date, with RNF7416 (30) on the EVAL
 //!   (PUB400 2026-11-22);
+//! - RNF7569 (20): a FOR limit with decimal places (PUB400 2026-11-22);
 //! - RNF2121 (30) and RNF2109 (40): an externally described file whose
 //!   record format has the file's name, without RENAME (PUB400
 //!   2026-11-05, tools/golden/verify47.txt p47_crtr).
@@ -195,6 +196,26 @@ impl Walker<'_> {
         }
     }
 
+    /// Whether a numeric expression has decimal places by the precision
+    /// rules, when that is known: a literal's or field's own, any
+    /// quotient, and +, - and * of operands with them.
+    fn has_decimals(&self, e: &Expr) -> Option<bool> {
+        match e {
+            Expr::Num(d) => Some(d.scale() > 0),
+            Expr::Name { args: None, .. } => match self.field_type(e)? {
+                DType::Packed(_, s) | DType::Zoned(_, s) | DType::Binary(_, s) => Some(s > 0),
+                DType::Int(_) | DType::Uns(_) => Some(false),
+                _ => None,
+            },
+            Expr::Unary(_, x) => self.has_decimals(x),
+            Expr::Bin(BinOp::Div, ..) => Some(true),
+            Expr::Bin(BinOp::Add | BinOp::Sub | BinOp::Mul, l, r) => {
+                Some(self.has_decimals(l)? || self.has_decimals(r)?)
+            }
+            _ => None,
+        }
+    }
+
     /// The type of a field named without arguments.
     fn field_type(&self, e: &Expr) -> Option<DType> {
         match e {
@@ -288,6 +309,21 @@ impl Walker<'_> {
                 self.value(l, from);
                 self.opt(l, to);
                 self.opt(l, by);
+                // A limit with decimal places: RNF7569, severity 20 (PUB400
+                // 2026-11-20 and 2026-11-22, IBM i 7.5: `for i = 0 to
+                // 10 / 4` does not compile).
+                if to
+                    .as_ref()
+                    .is_some_and(|t| self.has_decimals(t) == Some(true))
+                {
+                    self.out.diags.push(Diag {
+                        line: l,
+                        id: "RNF7569".into(),
+                        sev: 20,
+                        text: "The limit of the FOR operation must be a whole number.".into(),
+                        at: None,
+                    });
+                }
             }
             Line::ForEach { var, list } => {
                 self.expr(l, var);

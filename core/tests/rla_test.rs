@@ -29820,3 +29820,16 @@ async fn a_time_plus_a_date_does_not_compile() {
     .unwrap();
     assert!(r.error.is_none(), "{:?}", r.error);
 }
+
+/// A FOR limit with decimal places (a quotient): RNF7569, severity 20
+/// (n217_forlimit).
+#[tokio::test]
+async fn a_for_limit_that_is_not_whole_does_not_compile() {
+    let _ = require_db!();
+    refused_by_the_compiler(
+        "FORLIM",
+        "dcl-s i int(10);\ndcl-s c int(10);\n\nfor i = 0 to 10 / 4;\n  c += 1;\nendfor;\n",
+        "*RNF7569 20",
+    )
+    .await;
+}
