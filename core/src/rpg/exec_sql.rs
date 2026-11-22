@@ -231,7 +231,7 @@ pub(crate) fn sqlstate(code: i64) -> &'static str {
         -206 => "42703",
         -302 => "22003",
         -305 => "22002",
-        -501 => "24501",
+        -501 | -507 => "24501",
         -502 => "24502",
         -504 => "34000",
         // Db2 SQL codes: cursor not on a row; cursor cannot change the
@@ -1533,8 +1533,9 @@ impl Machine<'_> {
     /// UPDATE or DELETE WHERE CURRENT OF cursor (Db2 for i SQL Reference,
     /// UPDATE and DELETE, positioned): the row the cursor is on, found by
     /// its record number; SQLCODE -508 when the cursor is not on a row,
-    /// -501 when it is not open. A cursor over more than one table, or one
-    /// grouped or distinct, cannot be used (-510).
+    /// -507 when it is not open (PUB400, IBM i 7.5, 2026-11-18: DELETE
+    /// WHERE CURRENT OF a cursor after its CLOSE). A cursor over more than
+    /// one table, or one grouped or distinct, cannot be used (-510).
     fn positioned_change(&mut self, sql: &str, w: &[String]) -> Result<Outcome> {
         let at = w
             .windows(2)
@@ -1554,8 +1555,8 @@ impl Machine<'_> {
         .unwrap_or_default();
         let Some(c) = self.sql.cursors.get(&name) else {
             return Ok(Outcome::error(
-                -501,
-                format!("SQL0501: Cursor {name} is not open."),
+                -507,
+                format!("SQL0507: Cursor {name} is not open for the change."),
             ));
         };
         let Some(rrns) = &c.rrns else {

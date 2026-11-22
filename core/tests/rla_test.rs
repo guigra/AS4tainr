@@ -31700,3 +31700,87 @@ dsply ('LOWER ' + %char(sqlcode) + ' ' + res);
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["VALUES 0 TWO       !", "LOWER 0 one       !"]);
 }
+
+/// UPDATE and DELETE WHERE CURRENT OF a cursor: SQLCODE -508 before the
+/// first fetch and past the last row, a row changed after a fetch, and
+/// -507 after the cursor is closed. Expected values: PUB400, IBM i 7.5,
+/// 2026-11-18 (tools/golden/native73 n73_sql in the native fork, the
+/// table made in the test library).
+#[tokio::test]
+async fn positioned_change_through_a_closed_cursor_is_sqlcode_507() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s id int(10);
+dcl-s nm char(10);
+dcl-s line varchar(52);
+exec sql set option commit = *none;
+exec sql drop table LIB/GN73T;
+exec sql create table LIB/GN73T (id int not null, name char(10));
+exec sql insert into LIB/GN73T values (1, 'one'), (2, 'two'),
+  (3, 'three'), (4, 'four');
+exec sql declare c cursor for select id, name from LIB/GN73T
+  for update of name;
+exec sql open c;
+nm = 'NEW';
+exec sql update LIB/GN73T set name = :nm where current of c;
+line = 'BEFORE ' + %char(sqlcode);
+exec sql fetch c into :id, :nm;
+exec sql fetch c into :id, :nm;
+nm = 'TWO!';
+exec sql update LIB/GN73T set name = :nm where current of c;
+line += ' UPD ' + %char(sqlcode) + ' ' + %char(sqlerrd(3));
+exec sql fetch c into :id, :nm;
+exec sql delete from LIB/GN73T where current of c;
+line += ' DEL ' + %char(sqlcode) + ' ' + %char(sqlerrd(3));
+dsply (line);
+exec sql fetch c into :id, :nm;
+exec sql fetch c into :id, :nm;
+line = 'PAST ' + %char(sqlcode);
+exec sql update LIB/GN73T set name = :nm where current of c;
+line += ' ' + %char(sqlcode);
+exec sql close c;
+exec sql delete from LIB/GN73T where current of c;
+dsply (line + ' CLOSED ' + %char(sqlcode));
+exec sql declare l cursor for select id, name from LIB/GN73T
+  order by id;
+exec sql open l;
+line = 'LEFT';
+dow 1 = 1;
+  exec sql fetch l into :id, :nm;
+  if sqlcode <> 0;
+    leave;
+  endif;
+  line += ' ' + %char(id) + %trim(nm);
+enddo;
+exec sql close l;
+dsply (line);
+exec sql drop table LIB/GN73T;
+*inlr = *on;
+"#
+    .replace("LIB/", &format!("{lib}/"));
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "SQLPOS".into(),
+        src,
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(
+        r.messages,
+        [
+            "BEFORE -508 UPD 0 1 DEL 0 1",
+            "PAST 100 -508 CLOSED -507",
+            "LEFT 1one 2TWO! 4four",
+        ]
+    );
+}
