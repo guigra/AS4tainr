@@ -247,6 +247,9 @@ pub(crate) fn sqlstate(code: i64) -> &'static str {
         -811 => "21000",
         // Row or object in use (DB2 for i SQL Messages and Codes).
         -913 => "57033",
+        // COMMIT or ROLLBACK without commitment control (PUB400, IBM i
+        // 7.5, 2026-11-18).
+        -7007 => "51009",
         // The others SQL procedures know (sqlpl.rs: -438, -440, -802).
         other => crate::sqlpl::sqlstate_for(other),
     }
@@ -967,13 +970,23 @@ impl Machine<'_> {
                 return Ok(Outcome::ok(0))
             }
             // COMMIT and ROLLBACK: the unit of work of the commitment
-            // definition the program uses (with COMMIT(*NONE) each
-            // statement was committed when it ended: nothing to do).
+            // definition the program uses. With COMMIT(*NONE) and none
+            // started, they are not valid: SQLCODE -7007, SQLSTATE 51009
+            // (PUB400, IBM i 7.5, 2026-11-18: COMMIT in a program made with
+            // COMMIT(*NONE); RUNSQLSTM gives SQL7007 for both, verify2).
             "COMMIT" | "ROLLBACK" => {
                 let d = match self.sql.session.as_ref().and_then(|s| s.commitment()) {
                     Some(d) => Some(d.clone()),
                     None => crate::cmtctl::find(&self.io.job_key, &self.io.actgrp),
                 };
+                if d.is_none() && self.prog.sql_commit == "*NONE" {
+                    return Ok(Outcome::error(
+                        -7007,
+                        format!(
+                            "SQL7007: {first} is not valid: the program runs without commitment control (COMMIT(*NONE))."
+                        ),
+                    ));
+                }
                 if let Some(d) = d {
                     let r = if first == "COMMIT" {
                         self.block(d.commit())

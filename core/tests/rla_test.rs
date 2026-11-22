@@ -31784,3 +31784,36 @@ exec sql drop table LIB/GN73T;
         ]
     );
 }
+
+/// COMMIT in a program without commitment control (COMMIT(*NONE)) is
+/// SQLCODE -7007, SQLSTATE 51009. Expected values: PUB400, IBM i 7.5,
+/// 2026-11-18 (tools/golden/native69 n69_sql in the native fork:
+/// "COMMIT -7007 51009 0").
+#[tokio::test]
+async fn commit_without_commitment_control_is_sqlcode_7007() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+exec sql set option commit = *none;
+exec sql commit;
+dsply ('COMMIT ' + %char(sqlcode) + ' ' + sqlstate + ' ' + %char(sqlerrd(3)));
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "CMTNONE7".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["COMMIT -7007 51009 0"]);
+}
