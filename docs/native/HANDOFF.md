@@ -1,12 +1,12 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-22 01:25 UTC.
+Last update: 2026-11-22 02:40 UTC.
 
-## Now (2026-11-22, 01:25 UTC): plan step 2, the interpreter fixed in fork branches
+## Now (2026-11-22, 02:40 UTC): plan step 2, the interpreter fixed in fork branches
 
 Each fix is a branch `fix/<topic>` off upstream/main (dd47e28). It has one commit, signed, with a new rla_test whose expected values come from a PUB400 capture; the test fails without the fix. The branches are local and not pushed; nothing goes to Kyle until the end (memory: kyle-notify-last). They are worked in /home/ctl/data/as4tainr-fix-open (one worktree, branches switched in place). The running list is claude-mem's work state `phase2-interp-fixes`.
 
-**Done (14):**
+**Done (16 branches; fix/compile-checks has four commits):**
 - fix/open-already-open: OPEN(E) of an open file is 1215, READ(E) of a closed one is 1211, and a printer's second OPEN is an error;
 - fix/concat-blank: %CONCAT(*BLANK);
 - fix/list-array-rest: an array assigned %SPLIT or %LIST keeps its other elements (capture native212);
@@ -20,18 +20,24 @@ Each fix is a branch `fix/<topic>` off upstream/main (dd47e28). It has one commi
 - fix/sql-insert-zero-rows: -221;
 - fix/sql-null-indicator-default (capture native215);
 - fix/sql-commit-none-7007;
-- fix/test-needs-e: RNF5056 (capture native216).
+- fix/test-needs-e: RNF5056 (capture native216);
+- fix/compile-checks: RNF7571 for %OCCUR set to a literal, RNF0203 for %CONCAT of a number, RNF7421 and RNF7416 for a time plus a date, RNF7569 for a FOR limit that is not whole (capture native217);
+- fix/extpgm-var-case: an EXTPGM variable names the program as it is spelled.
 
 **Validated together on jsr-test-2:**
 - p2-a: the first 8 fixes;
-- p2-b: the first 13 (commit c5d1a3d, built from the branches' diffs).
+- p2-b: the first 13 (commit c5d1a3d, built from the branches' diffs);
+- p2-c: the first 15 (commit 2140611, rla_test 270 tests).
+
+fix/extpgm-var-case is not in a combined run yet.
 
 fmt, every test (rla_test 265) and demo pass. clippy stops at upstream's core/src/hostsrv.rs:105, a newer lint that fix/clippy-rust-1-100 covers. Local clippy is clean per branch.
 
 **Waiting for the user's decision.** Each fix would change an upstream test's expected value (CLAUDE.native.md section 11):
 - XML-SAX and XML-INTO %HANDLER returning non-zero is error 00351 (rla_test xml_sax_handler_gets_events and the XML-INTO %HANDLER test expect a quiet stop);
 - %SQRT keeps 30 digits: `%char(%sqrt(16))` is `4.00000000000000000000000000000` on IBM i (capture native213), and rpg_free_form_7x_features_and_builtins expects "4";
-- CALL of a procedure that does not exist is -204, not -440 (rla_test ~1998 expects SQL0440).
+- CALL of a procedure that does not exist is -204, not -440 (rla_test ~1998 expects SQL0440);
+- a 4-byte float's text is `+5.0000000E-01` on IBM i, with eight digits and a two-digit exponent (captures native183 and native107). data.rs float_display_form and rla_test ~5443 expect `+5.000000E-001`.
 
 **Not started (bigger):**
 - date and time literals in the DATFMT and TIMFMT forms, with %CHAR of a date expression as *ISO: the expression tokenizer needs the control specification;

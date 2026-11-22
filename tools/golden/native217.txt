@@ -1,0 +1,7 @@
+# Captures for the interpreter fix fix/compile-checks: sources IBM i's compiler refuses (one batch).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native217.txt -f tools/golden/native217
+n217_occur|!system "CRTBNDRPG PGM(@LIB@/GN217OC) SRCSTMF('@HOME@/gld/gn217oc.rpgle')"
+n217_concat|!system "CRTBNDRPG PGM(@LIB@/GN217CN) SRCSTMF('@HOME@/gld/gn217cn.rpgle')"
+n217_timedate|!system "CRTBNDRPG PGM(@LIB@/GN217TD) SRCSTMF('@HOME@/gld/gn217td.rpgle')"
+n217_forlimit|!system "CRTBNDRPG PGM(@LIB@/GN217FL) SRCSTMF('@HOME@/gld/gn217fl.rpgle')"
+n217_datetime|!system -q "DLTPGM PGM(@LIB@/GN217DT)"; system "CRTBNDRPG PGM(@LIB@/GN217DT) SRCSTMF('@HOME@/gld/gn217dt.rpgle')" && system "CALL PGM(@LIB@/GN217DT)"
