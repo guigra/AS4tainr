@@ -1,0 +1,3 @@
+# Capture for the interpreter fix fix/test-needs-e: TEST(D) without E or an error indicator.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native216.txt -f tools/golden/native216
+n216_crt|!system -q "DLTPGM PGM(@LIB@/GN216TN)"; system "CRTBNDRPG PGM(@LIB@/GN216TN) SRCSTMF('@HOME@/gld/gn216tn.rpgle')"

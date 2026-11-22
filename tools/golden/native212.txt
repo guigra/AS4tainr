@@ -1,0 +1,4 @@
+# Capture for the interpreter fix fix/split-array-rest: an array assigned fewer values (%SPLIT, %LIST, a smaller array).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native212.txt -f tools/golden/native212
+n212_crt|!system -q "DLTPGM PGM(@LIB@/GN212LA)"; system "CRTSQLRPGI OBJ(@LIB@/GN212LA) SRCSTMF('@HOME@/gld/gn212la.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n212_listassign|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN212LA)"; cat gn1.out; rm -f gn1.out

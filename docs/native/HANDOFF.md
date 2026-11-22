@@ -1,8 +1,48 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-21 21:00 UTC.
+Last update: 2026-11-22 01:25 UTC.
 
-## Now (2026-11-21, 21:00 UTC)
+## Now (2026-11-22, 01:25 UTC): plan step 2, the interpreter fixed in fork branches
+
+Each fix is a branch `fix/<topic>` off upstream/main (dd47e28). It has one commit, signed, with a new rla_test whose expected values come from a PUB400 capture; the test fails without the fix. The branches are local and not pushed; nothing goes to Kyle until the end (memory: kyle-notify-last). They are worked in /home/ctl/data/as4tainr-fix-open (one worktree, branches switched in place). The running list is claude-mem's work state `phase2-interp-fixes`.
+
+**Done (14):**
+- fix/open-already-open: OPEN(E) of an open file is 1215, READ(E) of a closed one is 1211, and a printer's second OPEN is an error;
+- fix/concat-blank: %CONCAT(*BLANK);
+- fix/list-array-rest: an array assigned %SPLIT or %LIST keeps its other elements (capture native212);
+- fix/dec-blank-date: %DEC of a blank date is 00112;
+- fix/out-unlocked-dtaara: OUT without a lock is 00412;
+- fix/quotient-compare: a compared quotient has M = 63 (capture native214);
+- fix/null-procptr-status: a call through *NULL is 00202;
+- fix/editc-blank-floating;
+- fix/qualified-format-io: WRITE and UPDATE of FILE.FORMAT;
+- fix/sql-closed-cursor-507;
+- fix/sql-insert-zero-rows: -221;
+- fix/sql-null-indicator-default (capture native215);
+- fix/sql-commit-none-7007;
+- fix/test-needs-e: RNF5056 (capture native216).
+
+**Validated together on jsr-test-2:**
+- p2-a: the first 8 fixes;
+- p2-b: the first 13 (commit c5d1a3d, built from the branches' diffs).
+
+fmt, every test (rla_test 265) and demo pass. clippy stops at upstream's core/src/hostsrv.rs:105, a newer lint that fix/clippy-rust-1-100 covers. Local clippy is clean per branch.
+
+**Waiting for the user's decision.** Each fix would change an upstream test's expected value (CLAUDE.native.md section 11):
+- XML-SAX and XML-INTO %HANDLER returning non-zero is error 00351 (rla_test xml_sax_handler_gets_events and the XML-INTO %HANDLER test expect a quiet stop);
+- %SQRT keeps 30 digits: `%char(%sqrt(16))` is `4.00000000000000000000000000000` on IBM i (capture native213), and rpg_free_form_7x_features_and_builtins expects "4";
+- CALL of a procedure that does not exist is -204, not -440 (rla_test ~1998 expects SQL0440).
+
+**Not started (bigger):**
+- date and time literals in the DATFMT and TIMFMT forms, with %CHAR of a date expression as *ISO: the expression tokenizer needs the control specification;
+- CREATE TABLE +7905 in a library with no journal: it may change many tests;
+- a CHAR host variable's trailing blanks in a string function;
+- EXEC SQL CREATE PROCEDURE with a compound body;
+- EXTPGM in lower case, and the others in fidelity.md.
+
+**After phase 2:** native/engine must follow each fix, because native code follows the interpreter. Each work-state item says what changes; the units NOPENE, NREADE, NINCONC, NSPLITA, NDECBAD, NDTAUNL, NCMPAR, NPROCPTR, NEDITC3, NDSIO and NSQL1-6 can then check the parts they leave out.
+
+## Earlier (2026-11-21, 21:00 UTC)
 
 **Committed up to S2.211** (3fe0658). The x86_64 run s7f-s2211 gives level 2 rust 816 of 816 as under the interpreter, coverage 99.7% (18 instructions left with the interpreter), and settle 646 of 646 routines route errors natively.
 
