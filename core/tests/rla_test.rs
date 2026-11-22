@@ -6084,7 +6084,11 @@ async fn rpg_free_form_7x_features_and_builtins() {
             "x, y, z",
             "93",
             " 1,234.50",
-            "4",
+            // %CHAR(%SQRT(16)): the root has 30 digits (the user's
+            // decision, 2026-11-22, to follow IBM i: PUB400, IBM i 7.5,
+            // tools/golden/native213 n213_sqrt in the native fork; this
+            // test expected "4" before).
+            "4.00000000000000000000000000000",
             "number 12.50",
             "date 31.01.2026",
             "caught CPF9898",
@@ -32118,4 +32122,44 @@ dsply (%char(%error) + ' ' + %char(%found(pkt)));
         out.extend(r.messages);
     }
     assert_eq!(out, ["0", "0 1 aa", "0 0"]);
+}
+
+/// %SQRT keeps 30 digits: half the operand's integer digits (rounded up)
+/// before the point, the rest after it, truncated. Expected values:
+/// PUB400, IBM i 7.5, 2026-11-22 (tools/golden/native213 n213_sqrt in the
+/// native fork).
+#[tokio::test]
+async fn sqrt_keeps_thirty_digits() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s p packed(5:2) inz(6.25);
+dcl-s i int(10) inz(16);
+dcl-s line varchar(300);
+
+line = %char(%sqrt(16)) + '|' + %char(%sqrt(10)) + '|' + %char(%sqrt(2))
+       + '|' + %char(%sqrt(p)) + '|' + %char(%sqrt(i));
+dsply line;
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "SQRT30".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(
+        r.messages,
+        ["4.00000000000000000000000000000|3.16227766016837933199889354443|1.41421356237309504880168872420|2.5000000000000000000000000000|4.0000000000000000000000000"]
+    );
 }

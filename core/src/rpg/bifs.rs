@@ -683,7 +683,19 @@ impl Machine<'_> {
                 if x.is_negative() {
                     bail!("RNQ0101: %SQRT of a negative number.");
                 }
-                Value::Num(ops::dec_sqrt(&x, 15)?.normalized())
+                // The root has 30 digits: half the operand's integer
+                // digits (rounded up) before the point, the rest after it,
+                // truncated (PUB400, IBM i 7.5, 2026-11-22: %CHAR of
+                // %SQRT(16), (10) and (2) has 29 places, of a packed(5:2)
+                // 6.25 28, of an int(10) 16 25). An operand of more than
+                // 30 digits takes 63, as the precision rules do.
+                let (p, d) = self
+                    .num_precision(&args[0])
+                    .unwrap_or(((x.int_digits() + x.scale() as u32).max(1), x.scale() as u32));
+                let m: u32 = if p > 30 { 63 } else { 30 };
+                let int = p.saturating_sub(d).div_ceil(2);
+                let scale = u8::try_from(m.saturating_sub(int).min(62)).unwrap_or(30);
+                Value::Num(x.sqrt_trunc(scale)?)
             }
             "UNS" | "UNSH" => {
                 let v = arg(self, 0)?;

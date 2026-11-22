@@ -221,6 +221,33 @@ impl Dec {
         })
     }
 
+    /// The square root of a value that is not negative, truncated to
+    /// `scale` decimal places (%SQRT): the integer square root of the
+    /// mantissa brought to twice that scale.
+    pub fn sqrt_trunc(&self, scale: u8) -> Result<Dec> {
+        if self.m < M::ZERO {
+            bail!("RNQ0101: the square root of a negative number.");
+        }
+        let e = 2 * scale as i32 - self.s as i32;
+        let n = if e >= 0 {
+            self.m.checked_mul(pow10(e as u32)?).ok_or_else(overflow)?
+        } else {
+            self.m / pow10((-e) as u32)?
+        };
+        if n < M::new(2) {
+            return Ok(Dec { m: n, s: scale });
+        }
+        // Newton's method from above: n / 2 + 1 is at least the root.
+        let two = M::new(2);
+        let mut x0 = n / two + M::ONE;
+        let mut x1 = (x0 + n / x0) / two;
+        while x1 < x0 {
+            x0 = x1;
+            x1 = (x0 + n / x0) / two;
+        }
+        Ok(Dec { m: x0, s: scale })
+    }
+
     /// The remainder of the integer division (RPG %REM, MVR): same sign
     /// as the dividend.
     pub fn rem(&self, o: &Dec) -> Result<Dec> {
