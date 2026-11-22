@@ -1018,12 +1018,16 @@ pub fn float_dec(x: f64) -> Result<Dec> {
 /// a sign, one digit, a decimal point, 15 digits (8-byte) or 6 digits
 /// (4-byte), E, and a signed three-digit exponent: +1.230000000000000E+002.
 pub fn float_text(x: f64, bytes: u32) -> String {
-    let digits = if bytes == 4 { 6 } else { 15 };
+    // A 4-byte float: eight significant digits and a two-digit exponent
+    // (PUB400, IBM i 7.5: DSPLY of 0.5 is +5.0000000E-01, 2026-11-21;
+    // %CHAR of 7 and -2.5 are +7.0000000E+00 and -2.5000000E+00,
+    // 2026-11-19). An 8-byte float: sixteen digits and three.
+    let (digits, width) = if bytes == 4 { (7, 2) } else { (15, 3) };
     let s = format!("{:.*e}", digits, x.abs());
     let (mant, exp) = s.split_once('e').unwrap_or((&s, "0"));
     let e: i32 = exp.parse().unwrap_or(0);
     format!(
-        "{}{mant}E{}{:03}",
+        "{}{mant}E{}{:0width$}",
         if x.is_sign_negative() && x != 0.0 {
             '-'
         } else {
@@ -1054,7 +1058,12 @@ mod float_tests {
         // numbers"): +1.230000000000000E+002 for 123 in an 8-byte float.
         assert_eq!(float_text(123.0, 8), "+1.230000000000000E+002");
         assert_eq!(float_text(-0.00125, 8), "-1.250000000000000E-003");
-        assert_eq!(float_text(0.5, 4), "+5.000000E-001");
+        // A 4-byte float (PUB400, IBM i 7.5: DSPLY of 0.5, 2026-11-21,
+        // tools/golden/native183 n183_fltdsply; %CHAR of 7 and -2.5,
+        // 2026-11-19, native107 n107_floateval, in the native fork).
+        assert_eq!(float_text(0.5, 4), "+5.0000000E-01");
+        assert_eq!(float_text(7.0, 4), "+7.0000000E+00");
+        assert_eq!(float_text(-2.5, 4), "-2.5000000E+00");
         assert_eq!(float_text(0.0, 8), "+0.000000000000000E+000");
         // Stored and read back through the field's bytes.
         let mut b = vec![0u8; 8];

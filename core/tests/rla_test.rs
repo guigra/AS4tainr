@@ -5434,13 +5434,17 @@ async fn sql_float_binary_graphic_lob() {
     .unwrap();
     assert!(r.error.is_none(), "{:?}", r.error);
     // C1C2C3C4 is 'ABCD' in EBCDIC; the program gets the bytes as they are.
+    // A REAL is a 4-byte float: eight digits and a two-digit exponent
+    // (PUB400, IBM i 7.5, 2026-11-21: DSPLY of a float(4) holding 0.5 is
+    // +5.0000000E-01, tools/golden/native183 n183_fltdsply in the native
+    // fork).
     assert_eq!(
         r.messages,
         [
             "2147483647",
             "4",
             "+1.230000000000000E+002",
-            "+5.000000E-001",
+            "+5.0000000E-01",
             "ABCD",
             "Zürich"
         ]
@@ -30521,4 +30525,60 @@ async fn fixed_form_alloc_and_realloc_run() {
     .unwrap();
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["FIXED [FIXED]", "NULL"]);
+}
+
+/// %CHAR of floats: an 8-byte float has sixteen digits and a three-digit
+/// exponent, a 4-byte one eight digits and two. Expected values: PUB400,
+/// IBM i 7.5, 2026-11-19 (tools/golden/native107 n107_floateval in the
+/// native fork).
+#[tokio::test]
+async fn char_of_4_and_8_byte_floats() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s f8 float(8);
+dcl-s f4 float(4);
+dcl-s n int(10) inz(7);
+dcl-s p packed(7:2) inz(12.25);
+dcl-s line varchar(200);
+f8 = p * 3;
+line = %char(f8);
+f8 = 10 / 4;
+line += ' ' + %char(f8);
+f4 = n;
+line += ' ' + %char(f4);
+f4 = -2.5;
+line += ' ' + %char(f4);
+line += ' ' + local();
+dsply line;
+*inlr = *on;
+
+dcl-proc local;
+  dcl-pi *n varchar(40);
+  end-pi;
+  dcl-s lf float(8);
+  lf = 1 / 3;
+  return %char(lf);
+end-proc;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "FLTCHAR".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(
+        r.messages,
+        ["+3.675000000000000E+001 +2.500000000000000E+000 +7.0000000E+00 -2.5000000E+00 +3.333333333333333E-001"]
+    );
 }
