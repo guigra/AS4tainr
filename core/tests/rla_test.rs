@@ -8377,13 +8377,19 @@ async fn rpg_set_and_restore_directives() {
 /// elements the path names go into the handler's array parameter as many
 /// at a time as it holds; the handler gets the communication area, the
 /// array and how many were filled (here 2 and then 1), and a non-zero
-/// return ends the operation. "9 2 abc" is PUB400's result for the same
-/// program (2026-11-09, tools/golden/verify65.txt g65_handler).
+/// return ends the operation in error, status 00351. "9 2 abc" is
+/// PUB400's result for the same program (2026-11-09,
+/// tools/golden/verify65.txt g65_handler). The second XML-INTO has E, and
+/// "5 1 ab 1 351" is PUB400's result for it (2026-11-20,
+/// tools/golden/native180 n180_handler in the native fork); without E the
+/// program ends (RNX9998 unmonitored). The user decided (2026-11-22) to
+/// follow IBM i: before, this test's second XML-INTO had no E and
+/// expected a quiet stop ("5 1 ab").
 #[tokio::test]
 async fn rpg_xml_into_handler() {
     let url = require_db!();
     let (_client, lib) = setup(&url).await;
-    let src = "**FREE\nctl-opt dftactgrp(*no);\ndcl-ds itemT qualified template;\n  name char(10);\n  qty packed(5:0);\nend-ds;\ndcl-s total packed(7:0);\ndcl-s calls int(10);\ndcl-s names varchar(30);\ndcl-s stopAt int(10);\ndcl-s xml varchar(500);\nxml = '<order><item><name>a</name><qty>2</qty></item><item><name>b</name><qty>3</qty></item><item><name>c</name><qty>4</qty></item></order>';\nxml-into %handler(take : total) %xml(xml : 'path=order/item');\ndsply (%char(total) + ' ' + %char(calls) + ' ' + names);\ntotal = 0;\ncalls = 0;\nnames = '';\nstopAt = 1;\nxml-into %handler(take : total) %xml(xml : 'path=order/item');\ndsply (%char(total) + ' ' + %char(calls) + ' ' + names);\n*inlr = *on;\ndcl-proc take;\n  dcl-pi *n int(10);\n    tot packed(7:0);\n    items likeds(itemT) dim(2) const;\n    n uns(10) value;\n  end-pi;\n  dcl-s i int(10);\n  calls += 1;\n  for i = 1 to n;\n    tot += items(i).qty;\n    names += %trim(items(i).name);\n  endfor;\n  if stopAt > 0 and calls >= stopAt;\n    return 1;\n  endif;\n  return 0;\nend-proc;\n";
+    let src = "**FREE\nctl-opt dftactgrp(*no);\ndcl-ds itemT qualified template;\n  name char(10);\n  qty packed(5:0);\nend-ds;\ndcl-s total packed(7:0);\ndcl-s calls int(10);\ndcl-s names varchar(30);\ndcl-s stopAt int(10);\ndcl-s xml varchar(500);\nxml = '<order><item><name>a</name><qty>2</qty></item><item><name>b</name><qty>3</qty></item><item><name>c</name><qty>4</qty></item></order>';\nxml-into %handler(take : total) %xml(xml : 'path=order/item');\ndsply (%char(total) + ' ' + %char(calls) + ' ' + names);\ntotal = 0;\ncalls = 0;\nnames = '';\nstopAt = 1;\nxml-into(e) %handler(take : total) %xml(xml : 'path=order/item');\ndsply (%char(total) + ' ' + %char(calls) + ' ' + names + ' ' + %char(%error) + ' ' + %char(%status));\n*inlr = *on;\ndcl-proc take;\n  dcl-pi *n int(10);\n    tot packed(7:0);\n    items likeds(itemT) dim(2) const;\n    n uns(10) value;\n  end-pi;\n  dcl-s i int(10);\n  calls += 1;\n  for i = 1 to n;\n    tot += items(i).qty;\n    names += %trim(items(i).name);\n  endfor;\n  if stopAt > 0 and calls >= stopAt;\n    return 1;\n  endif;\n  return 0;\nend-proc;\n";
     let r = run_rpg(&url, &lib, "QSECOFR", "XMLHND", src, None, None).await;
     assert!(r.error.is_none(), "{:?}", r.error);
     let m: Vec<String> = r
@@ -8391,7 +8397,7 @@ async fn rpg_xml_into_handler() {
         .iter()
         .map(|m| m.trim_start_matches("DSPLY").trim().to_string())
         .collect();
-    assert_eq!(m, ["9 2 abc", "5 1 ab"]);
+    assert_eq!(m, ["9 2 abc", "5 1 ab 1 351"]);
 }
 
 /// XML-INTO (ILE RPG Reference, XML-INTO, "%XML options for the XML-INTO
@@ -14610,7 +14616,12 @@ dsply (%char(d.avail) + ' [' + %subst(d: 75: 2) + '] ' + %char(d.logsev) + ' '
 /// (ILE RPG Reference, XML-SAX and "XML events"): the handler gets each
 /// event with the communication area, a pointer to the event's string
 /// and its length; it compares the event with the *XML_xxx special
-/// words. A handler that returns a value other than 0 ends the parsing.
+/// words. A handler that returns a value other than 0 ends the parsing in
+/// error, status 00351: with E, %ERROR is on (PUB400, IBM i 7.5,
+/// 2026-11-21, this program with E, tools/golden/native181 n181_sax in
+/// the native fork: "<order<itempen<itemink & nib|id=7 14 1 351").
+/// The user decided (2026-11-22) to follow IBM i: before, this test's
+/// XML-SAX had no E and expected a quiet stop.
 #[tokio::test]
 async fn xml_sax_handler_gets_events() {
     use as4tainr_core::rpg;
@@ -14624,9 +14635,10 @@ dcl-ds info qualified inz;
 end-ds;
 dcl-s doc varchar(200)
   inz('<order id="7"><item>pen</item><item>ink &amp; nib</item><stop/><item>x</item></order>');
-xml-sax %handler(hdl : info) %xml(doc);
+xml-sax(e) %handler(hdl : info) %xml(doc);
 dsply info.path;
 dsply (info.attrs + ' ' + %char(info.count));
+dsply (%char(%error) + ' ' + %char(%status));
 *inlr = *on;
 dcl-proc hdl;
   dcl-pi *n int(10);
@@ -14674,7 +14686,10 @@ end-proc;
     assert!(r.error.is_none(), "{:?}", r.error);
     // The events up to <stop/>: START_DOCUMENT, order, id's three, item,
     // pen, END item, item, ink , &, nib, END item, stop.
-    assert_eq!(r.messages, ["<order<itempen<itemink & nib", "id=7 14"]);
+    assert_eq!(
+        r.messages,
+        ["<order<itempen<itemink & nib", "id=7 14", "1 351"]
+    );
 }
 
 /// stat() with its buffer declared CONST in the prototype (iRPGUnit's

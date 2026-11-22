@@ -283,7 +283,8 @@ impl Machine<'_> {
     /// handler's array parameter as many at a time as it has elements;
     /// the handler is called with the communication area, the array and
     /// how many elements were filled, after each full array and for the
-    /// last ones; a handler that returns other than 0 ends the operation.
+    /// last ones; a handler that returns other than 0 ends the operation in
+    /// error (status 00351).
     pub(super) fn xml_into_handler(&mut self, handler: &Expr, xml: &[Expr]) -> Result<()> {
         let Expr::Bif(_, hargs) = handler else {
             bail!("XML-INTO needs %HANDLER(procedure : communication area)");
@@ -360,8 +361,13 @@ impl Machine<'_> {
                     let el = *el;
                     self.in_handler_frame(&proc, buf, |m| m.xml_fill(&o, el, &target))?;
                 }
-                if self.call_handler(&proc, &comm, buf, chunk.len())? != 0 {
-                    break;
+                // A handler that returns other than 0 ends the operation in
+                // error, status 00351 (PUB400, IBM i 7.5, 2026-11-20:
+                // XML-INTO(E) after the handler returned 1 has %ERROR on
+                // and %STATUS 351).
+                let rc = self.call_handler(&proc, &comm, buf, chunk.len())?;
+                if rc != 0 {
+                    bail!("RNX0351: The XML-INTO handler {proc} returned {rc}: the operation ends in error.");
                 }
             }
             Ok(())

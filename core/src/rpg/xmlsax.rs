@@ -3,7 +3,8 @@
 //! procedure with the communication area %HANDLER names:
 //! handler(commArea : event : pointer to the event's string : its
 //! length : exception ID). The string is in the job's CCSID (37). A
-//! handler that returns a value other than 0 ends the parsing.
+//! handler that returns a value other than 0 ends the parsing in error
+//! (status 00351).
 //!
 //! Events: *XML_START_DOCUMENT; *XML_VERSION_INFO, *XML_ENCODING_DECL and
 //! *XML_STANDALONE_DECL from the XML declaration; *XML_DOCTYPE_DECL;
@@ -574,8 +575,13 @@ impl Machine<'_> {
             if exc != 0 && !(more_exceptions && rc == 0) {
                 bail!("RNX0351: The XML document is not well formed.");
             }
+            // A handler that returns other than 0 ends the operation in
+            // error, status 00351 (PUB400, IBM i 7.5, 2026-11-21: XML-SAX(E)
+            // after the handler returned 1 has %ERROR on and %STATUS 351).
             if rc != 0 {
-                break;
+                bail!(
+                    "RNX0351: The XML-SAX handler {proc} returned {rc}: the parsing ends in error."
+                );
             }
         }
         Ok(())
