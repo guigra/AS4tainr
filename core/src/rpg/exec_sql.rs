@@ -1200,8 +1200,14 @@ impl Machine<'_> {
         let Some(Sym::Ds(d)) = self.sym(&host) else {
             bail!("SQL0312: {host} must be a host structure array for n ROWS");
         };
+        // The number of rows is 1 to the array's elements: 0 is SQLCODE
+        // -221 as more rows than the elements are (PUB400, IBM i 7.5,
+        // 2026-11-18: INSERT ... :n ROWS with n = 0).
         if n == 0 {
-            return Ok(Outcome::ok(0));
+            return Ok(Outcome::error(
+                -221,
+                format!("SQL0221: The number of rows for {host} is 0; it must be 1 or more."),
+            ));
         }
         if n > d.dim.max(1) as usize {
             return Ok(Outcome::error(

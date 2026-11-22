@@ -31895,3 +31895,91 @@ exec sql drop procedure LIB/GN75S;
         ["CALL 0 42 hi! LIT 0 10 hi!! 0", "OK 0 SIGNAL -438 75001"]
     );
 }
+
+/// A multiple-row INSERT of 3 and :n rows from a host structure array;
+/// 0 rows and more rows than its elements are SQLCODE -221; a scrollable
+/// cursor fetched 2 rows at a time. Expected values: PUB400, IBM i 7.5,
+/// 2026-11-18 (tools/golden/native74 n74_sql in the native fork, the
+/// table made in the test library).
+#[tokio::test]
+async fn insert_of_zero_rows_is_sqlcode_221() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-ds rows qualified dim(4);
+  id int(10);
+  name char(8);
+  amt packed(5:2);
+end-ds;
+dcl-ds got likeds(rows) dim(2);
+dcl-s n int(10);
+dcl-s i int(10);
+dcl-s line varchar(52);
+exec sql set option commit = *none;
+exec sql drop table LIB/GN74T;
+exec sql create table LIB/GN74T (id int not null, name char(8),
+                                       amt decimal(5, 2));
+for i = 1 to 4;
+  rows(i).id = i;
+  rows(i).name = 'n' + %char(i);
+  rows(i).amt = i * 1.25;
+endfor;
+exec sql insert into LIB/GN74T 3 rows values(:rows);
+line = 'INS3 ' + %char(sqlcode) + ' ' + %char(sqlerrd(3));
+rows(1).id = 5;
+rows(2).id = 6;
+n = 2;
+exec sql insert into LIB/GN74T :n rows values(:rows);
+line += ' INS2 ' + %char(sqlcode) + ' ' + %char(sqlerrd(3));
+n = 0;
+exec sql insert into LIB/GN74T :n rows values(:rows);
+line += ' INS0 ' + %char(sqlcode);
+n = 5;
+exec sql insert into LIB/GN74T :n rows values(:rows);
+dsply (line + ' INS5 ' + %char(sqlcode));
+exec sql declare c scroll cursor for select id, name, amt from LIB/GN74T
+  order by id;
+exec sql open c;
+line = 'F';
+for i = 1 to 3;
+  exec sql fetch next from c for 2 rows into :got;
+  line += ' ' + %char(sqlcode) + '/' + %char(sqlerrd(3)) + '/'
+       + %char(sqlerrd(5)) + ':' + %char(got(1).id) + %trim(got(1).name)
+       + ',' + %char(got(2).id);
+endfor;
+dsply (line);
+exec sql fetch next from c for 2 rows into :got;
+line = 'END ' + %char(sqlcode);
+n = 3;
+exec sql fetch first from c for :n rows into :got;
+dsply (line + ' TOO ' + %char(sqlcode) + ' ' + %char(got(2).amt));
+exec sql close c;
+exec sql drop table LIB/GN74T;
+*inlr = *on;
+"#
+    .replace("LIB/", &format!("{lib}/"));
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "SQLINS0".into(),
+        src,
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(
+        r.messages,
+        [
+            "INS3 0 3 INS2 0 2 INS0 -221 INS5 -221",
+            "F 0/2/0:1n1,2 0/2/0:3n3,5 0/1/100:6n2,5",
+            "END 100 TOO -221 1.25",
+        ]
+    );
+}
