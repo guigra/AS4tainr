@@ -459,18 +459,28 @@ impl Lines<'_> {
                     pending.push(' ');
                     pending.push_str(&text);
                 }
-                // Statements end with ';' outside literals.
+                // Statements end with ';' outside literals; in embedded SQL,
+                // outside a compound statement's BEGIN ... END too.
                 loop {
-                    let mut quoted = false;
-                    let mut at = None;
-                    for (i, c) in pending.char_indices() {
-                        if c == '\'' {
-                            quoted = !quoted;
-                        } else if c == ';' && !quoted {
-                            at = Some(i);
-                            break;
+                    let sql = pending
+                        .trim_start()
+                        .to_ascii_uppercase()
+                        .starts_with("EXEC SQL");
+                    let at = if sql {
+                        sql_statement_end(&pending)
+                    } else {
+                        let mut quoted = false;
+                        let mut at = None;
+                        for (i, c) in pending.char_indices() {
+                            if c == '\'' {
+                                quoted = !quoted;
+                            } else if c == ';' && !quoted {
+                                at = Some(i);
+                                break;
+                            }
                         }
-                    }
+                        at
+                    };
                     let Some(i) = at else { break };
                     let st = pending[..i].trim().to_string();
                     pending = pending[i + 1..].to_string();
@@ -3407,4 +3417,66 @@ mod corpus {
         }
         println!("parsed {ok}, failed {bad}");
     }
+}
+
+/// Where an embedded SQL statement in free form ends: its first ';' outside
+/// literals and outside the BEGIN ... END of a compound statement (CREATE
+/// PROCEDURE ... BEGIN ... END; PUB400, IBM i 7.5, 2026-11-18: the SQL
+/// precompiler takes `exec sql create or replace procedure P (...)
+/// language sql begin set b = a * 2; set c = c concat '!'; end;`). CASE
+/// ... END counts as a block too; END IF, END LOOP, END WHILE, END FOR and
+/// END REPEAT close no block, END CASE closes a CASE, and BEGIN DECLARE
+/// SECTION opens none.
+fn sql_statement_end(text: &str) -> Option<usize> {
+    let mut quoted = false;
+    let mut depth: usize = 0;
+    let mut words: Vec<(usize, String)> = Vec::new();
+    let mut word = String::new();
+    let mut start = 0;
+    let mut ends = Vec::new();
+    for (i, c) in text.char_indices() {
+        if c == '\'' {
+            quoted = !quoted;
+        }
+        if !quoted && (c.is_ascii_alphanumeric() || c == '_') {
+            if word.is_empty() {
+                start = i;
+            }
+            word.push(c.to_ascii_uppercase());
+            continue;
+        }
+        if !word.is_empty() {
+            words.push((start, std::mem::take(&mut word)));
+        }
+        if c == ';' && !quoted {
+            ends.push((i, words.len()));
+        }
+    }
+    // Depth at each ';', from the words before it.
+    let mut w = 0;
+    for (at, upto) in ends {
+        while w < upto {
+            let cur = words[w].1.as_str();
+            let next = words.get(w + 1).map(|x| x.1.as_str());
+            match cur {
+                "BEGIN" if next != Some("DECLARE") => depth += 1,
+                "CASE" => depth += 1,
+                "END" => match next {
+                    // The word after END belongs to it.
+                    Some("IF" | "LOOP" | "WHILE" | "FOR" | "REPEAT" | "DECLARE") => w += 1,
+                    Some("CASE") => {
+                        depth = depth.saturating_sub(1);
+                        w += 1;
+                    }
+                    _ => depth = depth.saturating_sub(1),
+                },
+                _ => {}
+            }
+            w += 1;
+        }
+        if depth == 0 {
+            return Some(at);
+        }
+    }
+    None
 }

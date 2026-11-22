@@ -31817,3 +31817,78 @@ dsply ('COMMIT ' + %char(sqlcode) + ' ' + sqlstate + ' ' + %char(sqlerrd(3)));
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["COMMIT -7007 51009 0"]);
 }
+
+/// EXEC SQL CREATE PROCEDURE with a compound body (BEGIN ... END, its
+/// statements ending in ';', an IF ... END IF and SIGNAL in it) is one
+/// statement; the procedures are called with host variables and
+/// literals, and SIGNAL gives SQLCODE -438 with its SQLSTATE. Expected
+/// values: PUB400, IBM i 7.5, 2026-11-18 (tools/golden/native75 n75_sql
+/// in the native fork, without its last CALL: "CALL 0 42 hi! LIT 0 10 hi!!
+/// 0", "OK 0 SIGNAL -438 75001").
+#[tokio::test]
+async fn embedded_create_procedure_with_a_compound_body() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s a int(10);
+dcl-s b int(10);
+dcl-s c varchar(20);
+dcl-s ci int(5);
+dcl-s line varchar(52);
+exec sql set option commit = *none;
+exec sql create or replace procedure LIB/GN75P
+  (in a int, out b int, inout c varchar(20))
+  language sql
+  begin
+    set b = a * 2;
+    set c = c concat '!';
+  end;
+exec sql create or replace procedure LIB/GN75S (in a int)
+  language sql
+  begin
+    if a > 1 then
+      signal sqlstate '75001' set message_text = 'too big';
+    end if;
+  end;
+a = 21;
+b = 0;
+c = 'hi';
+exec sql call LIB/GN75P(:a, :b, :c);
+line = 'CALL ' + %char(sqlcode) + ' ' + %char(b) + ' ' + c;
+exec sql call LIB/GN75P(5, :b, :c :ci);
+line += ' LIT ' + %char(sqlcode) + ' ' + %char(b) + ' ' + c + ' '
+     + %char(ci);
+dsply line;
+a = 1;
+exec sql call LIB/GN75S(:a);
+line = 'OK ' + %char(sqlcode);
+a = 2;
+exec sql call LIB/GN75S(:a);
+line += ' SIGNAL ' + %char(sqlcode) + ' ' + sqlstate;
+dsply line;
+exec sql drop procedure LIB/GN75P;
+exec sql drop procedure LIB/GN75S;
+*inlr = *on;
+"#
+    .replace("LIB/", &format!("{lib}/"));
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "SQLCOMP".into(),
+        src,
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(
+        r.messages,
+        ["CALL 0 42 hi! LIT 0 10 hi!! 0", "OK 0 SIGNAL -438 75001"]
+    );
+}
