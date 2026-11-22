@@ -38,7 +38,7 @@ fix/extpgm-var-case is not in a combined run yet.
 
 fmt, every test (rla_test 265) and demo pass. clippy stops at upstream's core/src/hostsrv.rs:105, a newer lint that fix/clippy-rust-1-100 covers. Local clippy is clean per branch.
 
-Combined run p2-d (all 20 branches, commit f2e7e8c) is on jsr-test-2. Build a combined tree with scratchpad combo.py: source diffs with `git apply --3way`; changes to existing tests with context; every test added at the end of rla_test.rs appended whole.
+Combined run p2-d (all 20 branches, commit f2e7e8c) is on jsr-test-2. Build a combined tree with /home/ctl/data/as4tainr-up-logs/combo.py (run in a worktree at upstream/main; vm-p2.sh is next to it): source diffs with `git apply --3way`; changes to existing tests with context; every test added at the end of rla_test.rs appended whole.
 
 **Not started (bigger):**
 - date and time literals in the DATFMT and TIMFMT forms, with %CHAR of a date expression as *ISO: the expression tokenizer needs the control specification;
