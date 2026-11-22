@@ -34,6 +34,8 @@
 //! - RNF0530 (20) and RNF7563 (30): a constant index past a DIM(*AUTO)
 //!   array's dimension, %ELEM of a DIM(*VAR) array set past its
 //!   dimension (PUB400 2026-11-23);
+//! - RNF5056 (30): TEST(D), TEST(T) or TEST(Z) with neither E nor an
+//!   error indicator (PUB400 2026-11-20 and 2026-11-22);
 //! - RNF2121 (30) and RNF2109 (40): an externally described file whose
 //!   record format has the file's name, without RENAME (PUB400
 //!   2026-11-05, tools/golden/verify47.txt p47_crtr).
@@ -627,6 +629,23 @@ impl Walker<'_> {
                     id: "RNF7547".into(),
                     sev: 30,
                     text: "MOVE and MOVEL do not take a float field.".into(),
+                    at: None,
+                });
+            }
+            // TEST(D), TEST(T) or TEST(Z) needs the E extender or an error
+            // indicator: RNF5056, severity 30 (PUB400 2026-11-20 and
+            // 2026-11-22, IBM i 7.5: `test(d) *iso c;` does not compile).
+            Stmt::Op { code, ext, ind, .. }
+                if code == "TEST"
+                    && !ext.error
+                    && ind.lo.is_none()
+                    && ext.other.chars().any(|c| matches!(c, 'D' | 'T' | 'Z')) =>
+            {
+                self.out.diags.push(Diag {
+                    line: l,
+                    id: "RNF5056".into(),
+                    sev: 30,
+                    text: "TEST needs the E extender or an error indicator.".into(),
                     at: None,
                 });
             }

@@ -32163,3 +32163,63 @@ dsply line;
         ["4.00000000000000000000000000000|3.16227766016837933199889354443|1.41421356237309504880168872420|2.5000000000000000000000000000|4.0000000000000000000000000"]
     );
 }
+
+/// TEST(D) with neither the E extender nor an error indicator does not
+/// compile: CRTBNDRPG fails with RNF5056, severity 30, on the TEST
+/// (PUB400 2026-11-22, IBM i 7.5, tools/golden/native216 n216_crt in the
+/// native fork, this source). With E it compiles.
+#[tokio::test]
+async fn test_without_e_or_an_error_indicator_does_not_compile() {
+    use as4tainr_core::commands::{Environment, Job};
+    use as4tainr_core::source;
+    let url = require_db!();
+    let (client, lib) = setup(&url).await;
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some(lib.clone()),
+        libl: vec![lib.clone(), "QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    cl_cmd(&mut job, format!("CRTSRCPF FILE({lib}/QSRC) RCDLEN(112)"))
+        .await
+        .unwrap();
+    for (name, test) in [("TESTD", "test(d)"), ("TESTDE", "test(de)")] {
+        let src = format!(
+            "**FREE\nctl-opt dftactgrp(*no);\ndcl-s c char(10) inz('2026-02-30');\n\n{test} *iso c;\n*inlr = *on;\n"
+        );
+        source::put_member(
+            &client,
+            &source::Member {
+                library: lib.clone(),
+                file: "QSRC".into(),
+                name: name.into(),
+                srctype: "RPGLE".into(),
+                source: src,
+                ..Default::default()
+            },
+            false,
+        )
+        .await
+        .unwrap();
+    }
+    job.calls.printed.clear();
+    let e = job
+        .run(&format!("CRTBNDRPG PGM({lib}/TESTD) SRCFILE({lib}/QSRC)"))
+        .await
+        .err()
+        .map(|e| format!("{e:#}"))
+        .unwrap_or_default();
+    assert!(e.contains("RNS9308"), "{e}");
+    let listing = std::mem::take(&mut job.calls.printed).join("\n");
+    assert!(listing.contains("*RNF5056 30"), "{listing}");
+    job.run(&format!("CRTBNDRPG PGM({lib}/TESTDE) SRCFILE({lib}/QSRC)"))
+        .await
+        .unwrap();
+}
