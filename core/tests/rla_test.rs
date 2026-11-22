@@ -31983,3 +31983,90 @@ exec sql drop table LIB/GN74T;
         ]
     );
 }
+
+/// A null fetched into a host variable with an indicator: the indicator
+/// is -1 and the variable gets its type's empty value, zero for a number,
+/// blanks for characters, nothing for a varying field; a date keeps its
+/// own. A value fetched sets the indicator to 0. Expected values: PUB400,
+/// IBM i 7.5 (tools/golden/native70 n70_sql, 2026-11-18: a packed field
+/// that held 9 shows .00, "NULL 0 -1 .00", "VAL 0 0 30.25"; and
+/// tools/golden/native215 n215_nullind, 2026-11-22, in the native fork).
+#[tokio::test]
+async fn a_null_fetched_with_an_indicator_empties_the_host_variable() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let packed = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s amt packed(7:2);
+dcl-s amti int(5);
+exec sql set option commit = *none;
+exec sql create table LIB/GN70T (id int not null, name char(10),
+                                 amt decimal(7, 2));
+exec sql insert into LIB/GN70T values (1, 'one', 1.50),
+  (2, 'two', null), (3, 'three', 30.25);
+amt = 9;
+exec sql select amt into :amt :amti from LIB/GN70T where id = 2;
+dsply ('NULL ' + %char(sqlcode) + ' ' + %char(amti) + ' ' + %char(amt));
+exec sql select amt into :amt indicator :amti from LIB/GN70T
+  where id = 3;
+dsply ('VAL ' + %char(sqlcode) + ' ' + %char(amti) + ' ' + %char(amt));
+*inlr = *on;
+"#
+    .replace("LIB/", &format!("{lib}/"));
+    let types = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s c char(5) inz('abcde');
+dcl-s v varchar(10) inz('xyz');
+dcl-s d date inz(d'2026-01-31');
+dcl-s i int(10) inz(7);
+dcl-s z zoned(5:1) inz(12.5);
+dcl-s ci int(5);
+dcl-s vi int(5);
+dcl-s di int(5);
+dcl-s ii int(5);
+dcl-s zi int(5);
+dcl-s line varchar(200);
+
+exec sql set option commit = *none;
+exec sql drop table LIB/GN215T;
+exec sql create table LIB/GN215T (k int not null, c char(5),
+  v varchar(10), d date, i int, z decimal(5, 1));
+exec sql insert into LIB/GN215T (k) values (1);
+exec sql select c, v, d, i, z into :c :ci, :v :vi, :d :di, :i :ii, :z :zi
+  from LIB/GN215T where k = 1;
+line = %char(sqlcode) + ' ' + %char(ci) + %char(vi) + %char(di) + %char(ii)
+  + %char(zi) + ' [' + c + '][' + v + '][' + %char(d) + '][' + %char(i)
+  + '][' + %char(z) + ']';
+dsply line;
+exec sql drop table LIB/GN215T;
+*inlr = *on;
+"#
+    .replace("LIB/", &format!("{lib}/"));
+    let mut got = Vec::new();
+    for (name, src) in [("SQLNUL1", packed), ("SQLNUL2", types)] {
+        let r = rpg::call(
+            &url,
+            vec![lib.clone()],
+            "QSECOFR".into(),
+            None,
+            None,
+            None,
+            name.into(),
+            src,
+            vec![],
+        )
+        .await
+        .unwrap();
+        assert!(r.error.is_none(), "{:?}", r.error);
+        got.extend(r.messages);
+    }
+    assert_eq!(
+        got,
+        [
+            "NULL 0 -1 .00",
+            "VAL 0 0 30.25",
+            "0 -1-1-1-1-1 [     ][][2026-01-31][0][.0]",
+        ]
+    );
+}

@@ -851,12 +851,31 @@ impl Machine<'_> {
                 };
                 match v {
                     None => match ind {
-                        Some(i) => self.assign(
-                            &crate::rpg::expr::parse(i)?,
-                            &Value::Num(Dec::from_i64(-1)),
-                            Fit::Truncate { half_adjust: false },
-                            false,
-                        )?,
+                        Some(i) => {
+                            self.assign(
+                                &crate::rpg::expr::parse(i)?,
+                                &Value::Num(Dec::from_i64(-1)),
+                                Fit::Truncate { half_adjust: false },
+                                false,
+                            )?;
+                            // The host variable gets its type's empty
+                            // value: zero for a number, blanks for
+                            // characters (none in a varying field); a date,
+                            // time or timestamp keeps its own (PUB400,
+                            // IBM i 7.5, 2026-11-18 and 2026-11-22: a
+                            // packed field that held 9 shows .00; CHAR,
+                            // VARCHAR, INT, ZONED and DATE fields that held
+                            // values show blanks, nothing, 0, .0 and the
+                            // date).
+                            let empty = match self.type_of(&t) {
+                                Some(ty) if ty.is_numeric() => Some(Value::Num(Dec::ZERO)),
+                                Some(DType::Char(_) | DType::Varchar(_)) => Some(Value::str("")),
+                                _ => None,
+                            };
+                            if let Some(e) = empty {
+                                self.assign(&t, &e, Fit::Truncate { half_adjust: false }, false)?;
+                            }
+                        }
                         None => {
                             return Ok(Some(Outcome::error(
                                 -305,
