@@ -6760,12 +6760,13 @@ impl<'a> Machine<'a> {
             return self.call_named(&target, args);
         }
         if let Some(pgm) = &pr.extpgm {
-            // The program name may be a named constant or a variable.
+            // The program name may be a named constant or a variable. A
+            // variable's value is the name as it is spelled: in lower case
+            // it names another program (PUB400, IBM i 7.5, 2026-11-21: with
+            // 'qdcxlate' the call is status 00211, the program not found).
             let pgm = match self.sym(pgm) {
                 Some(Sym::Const(v)) => a(&v.chars()?).trim().to_ascii_uppercase(),
-                Some(Sym::Var(_)) => a(&self.eval(&Expr::name(pgm))?.chars()?)
-                    .trim()
-                    .to_ascii_uppercase(),
+                Some(Sym::Var(_)) => a(&self.eval(&Expr::name(pgm))?.chars()?).trim().to_string(),
                 _ => pgm.clone(),
             };
             let call_args = self.args_for(name, &pr.params, args)?;

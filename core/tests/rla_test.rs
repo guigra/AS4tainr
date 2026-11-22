@@ -30431,3 +30431,51 @@ async fn except_to_a_program_described_file_named_by_extfile() {
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["[Tabc     00042      ][XY                 7]"]);
 }
+
+/// EXTPGM naming a variable calls the program its value names as it is
+/// spelled: QDCXLATE converts, and 'qdcxlate' is another name, a program
+/// not found (status 00211). Expected values: PUB400, IBM i 7.5,
+/// 2026-11-21 (tools/golden/native200 n200_pgmvar in the native fork:
+/// "1 0 hello 0 hello 211").
+#[tokio::test]
+async fn extpgm_variable_names_the_program_as_spelled() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s pname char(10) inz('QDCXLATE');
+dcl-pr xlate extpgm(pname);
+  len packed(5:0) const;
+  data char(5);
+  table char(10) const;
+end-pr;
+dcl-s data char(5) inz('hello');
+dcl-s line varchar(200);
+
+callp(e) xlate(5 : data : 'QTCPASC');
+line = %char(data <> 'hello') + ' ' + %char(%status);
+callp(e) xlate(5 : data : 'QTCPEBC');
+line += ' ' + data + ' ' + %char(%status);
+pname = 'qdcxlate';
+callp(e) xlate(5 : data : 'QTCPASC');
+line += ' ' + data + ' ' + %char(%status);
+dsply line;
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "PGMVAR".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["1 0 hello 0 hello 211"]);
+}
