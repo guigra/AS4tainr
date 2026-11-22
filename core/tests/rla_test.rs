@@ -29715,3 +29715,66 @@ dsply %char(d);
         ]
     );
 }
+
+/// Sources IBM i's compiler refuses that as4tainr compiled: CRTBNDRPG
+/// fails with the message, severity and RNS9308 (PUB400 2026-11-22, IBM i
+/// 7.5, tools/golden/native217 in the native fork, these sources).
+async fn refused_by_the_compiler(name: &str, body: &str, msg: &str) {
+    use as4tainr_core::commands::{Environment, Job};
+    use as4tainr_core::source;
+    let url = db_url().unwrap();
+    let (client, lib) = setup(&url).await;
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some(lib.clone()),
+        libl: vec![lib.clone(), "QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    cl_cmd(&mut job, format!("CRTSRCPF FILE({lib}/QSRC) RCDLEN(112)"))
+        .await
+        .unwrap();
+    source::put_member(
+        &client,
+        &source::Member {
+            library: lib.clone(),
+            file: "QSRC".into(),
+            name: name.into(),
+            srctype: "RPGLE".into(),
+            source: format!("**FREE\nctl-opt dftactgrp(*no);\n{body}*inlr = *on;\n"),
+            ..Default::default()
+        },
+        false,
+    )
+    .await
+    .unwrap();
+    job.calls.printed.clear();
+    let e = job
+        .run(&format!("CRTBNDRPG PGM({lib}/{name}) SRCFILE({lib}/QSRC)"))
+        .await
+        .err()
+        .map(|e| format!("{e:#}"))
+        .unwrap_or_default();
+    assert!(e.contains("RNS9308"), "{name}: {e}");
+    let listing = std::mem::take(&mut job.calls.printed).join("\n");
+    assert!(listing.contains(msg), "{name}: {listing}");
+}
+
+/// %OCCUR set to a literal past the data structure's OCCURS: RNF7571,
+/// severity 30 (n217_occur).
+#[tokio::test]
+async fn occur_set_past_the_occurrences_does_not_compile() {
+    let _ = require_db!();
+    refused_by_the_compiler(
+        "OCCUR4",
+        "dcl-ds rec occurs(3);\n  f char(2);\nend-ds;\n\n%occur(rec) = 4;\n",
+        "*RNF7571 30",
+    )
+    .await;
+}

@@ -18,6 +18,8 @@
 //!   (PUB400 2026-10-30, tools/golden/verify26.txt s26_dsply60);
 //! - RNF7547 (30): a float field as an operand of MOVE or MOVEL (PUB400
 //!   2026-11-12);
+//! - RNF7571 (30): %OCCUR set to a literal outside the occurrences (PUB400
+//!   2026-11-22);
 //! - RNF2121 (30) and RNF2109 (40): an externally described file whose
 //!   record format has the file's name, without RENAME (PUB400
 //!   2026-11-05, tools/golden/verify47.txt p47_crtr).
@@ -228,6 +230,33 @@ impl Walker<'_> {
     fn stmt(&mut self, l: usize, s: &Stmt) {
         match s {
             Stmt::Eval { target, value, .. } => {
+                // %OCCUR(ds) set to a literal outside the data structure's
+                // occurrences: RNF7571, severity 30 (PUB400 2026-11-17 and
+                // 2026-11-22, IBM i 7.5: `%occur(rec) = 4` for OCCURS(3)).
+                if let (Expr::Bif(b, args), Expr::Num(n)) = (target, value) {
+                    if let (true, Some(Expr::Name { parts, .. })) = (b == "OCCUR", args.first()) {
+                        let name = parts.join(".");
+                        let count = self
+                            .prog
+                            .occurs
+                            .iter()
+                            .find(|o| o.name == name)
+                            .map(|o| o.count);
+                        if let (Some(c), Ok(v)) = (count, n.to_i128()) {
+                            if v < 1 || v > i128::from(c) {
+                                self.out.diags.push(Diag {
+                                    line: l,
+                                    id: "RNF7571".into(),
+                                    sev: 30,
+                                    text: format!(
+                                        "%OCCUR of {name} cannot be {v}: it has {c} occurrences."
+                                    ),
+                                    at: None,
+                                });
+                            }
+                        }
+                    }
+                }
                 // A subfield of a data structure without subfields
                 // (RNF3546) as the target: RNF7503 too (verify12
                 // n12_rpgp: `outr.ID = id;` RNF7030 and RNF7503).
