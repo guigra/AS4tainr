@@ -2265,12 +2265,11 @@ impl<'a, 'e> Run<'a, 'e> {
                 return r.map(|_| ());
             }
         }
-        let r = found.ok_or_else(|| {
-            anyhow!(
-                "SQL0440: Procedure {name} with {} parameters not found.",
-                args.len()
-            )
-        })?;
+        // No procedure of that name: SQL0204 (PUB400, IBM i 7.5,
+        // 2026-11-18: CALL of a procedure that does not exist is SQLCODE
+        // -204, SQLSTATE 42704); SQL0440 is for one whose parameters do
+        // not fit.
+        let r = found.ok_or_else(|| anyhow!("SQL0204: Procedure {name} not found."))?;
         let mut values = Vec::new();
         for (p, a) in r.parms.iter().zip(args) {
             values.push(if p.mode == "OUT" {
@@ -2853,11 +2852,13 @@ pub async fn call_exprs(
             return r;
         }
     }
+    // No procedure of that name: SQL0204 (PUB400, IBM i 7.5, 2026-11-18,
+    // SQLCODE -204 and SQLSTATE 42704); SQL0440 is for one whose
+    // parameters do not fit.
     let r = found.ok_or_else(|| {
         anyhow!(
-            "SQL0440: Procedure {} with {} parameters not found.",
-            name.to_ascii_uppercase(),
-            args.len()
+            "SQL0204: Procedure {} not found.",
+            name.to_ascii_uppercase()
         )
     })?;
     if args.len() > r.parms.len() {

@@ -2000,7 +2000,11 @@ UPDATE {lib}.CUSTMAST SET CUSBAL = CUSBAL WHERE CUSNO = 4;"
         other => panic!("unexpected {other:?}"),
     }
 
-    // DROP: the procedure is gone (SQL0440).
+    // DROP: the procedure is gone. CALL of a procedure that does not
+    // exist is SQL0204 (the user's decision, 2026-11-22, to follow IBM i:
+    // PUB400, IBM i 7.5, 2026-11-18, embedded CALL of a missing procedure
+    // is SQLCODE -204, SQLSTATE 42704, tools/golden/native75 n75_sql in
+    // the native fork; this test expected SQL0440 before).
     job.run("RUNSQL SQL('DROP PROCEDURE CHECKAMT')")
         .await
         .unwrap();
@@ -2008,7 +2012,7 @@ UPDATE {lib}.CUSTMAST SET CUSBAL = CUSBAL WHERE CUSNO = 4;"
         .await
         .unwrap_err()
         .to_string();
-    assert!(e.starts_with("SQL0440"), "{e}");
+    assert!(e.starts_with("SQL0204"), "{e}");
     job.run("RUNSQL SQL('DROP FUNCTION GRADE')").await.unwrap();
     let e = run(format!("SELECT GRADE(CUSBAL) FROM {lib}.CUSTMAST"))
         .await
@@ -31626,4 +31630,32 @@ end-proc;
     assert_eq!(r.messages, ["start", "caught from sub"]);
     let e = r.error.map(|e| format!("{e:#}")).unwrap_or_default();
     assert!(e.contains("CPF9898"), "{e}");
+}
+
+/// Embedded CALL of a procedure that does not exist: SQLCODE -204,
+/// SQLSTATE 42704. Expected values: PUB400, IBM i 7.5, 2026-11-18
+/// (tools/golden/native75 n75_sql in the native fork: "NONE -204 42704").
+#[tokio::test]
+async fn call_of_a_missing_procedure_is_sqlcode_204() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = format!(
+        "**free\nctl-opt dftactgrp(*no);\ndcl-s a int(10) inz(1);\nexec sql set option commit = *none;\nexec sql call {lib}/GN75NONE(:a);\ndsply ('NONE ' + %char(sqlcode) + ' ' + sqlstate);\n*inlr = *on;\n"
+    );
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "CALLNONE".into(),
+        src,
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["NONE -204 42704"]);
 }
