@@ -29778,3 +29778,15 @@ async fn occur_set_past_the_occurrences_does_not_compile() {
     )
     .await;
 }
+
+/// A numeric operand of %CONCAT: RNF0203, severity 30 (n217_concat).
+#[tokio::test]
+async fn a_numeric_operand_of_concat_does_not_compile() {
+    let _ = require_db!();
+    refused_by_the_compiler(
+        "CONCATN",
+        "dcl-s n packed(3:0) inz(7);\ndcl-s s varchar(20);\n\ns = %concat(',' : 'a' : n);\n",
+        "*RNF0203 30",
+    )
+    .await;
+}

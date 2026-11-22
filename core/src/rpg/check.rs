@@ -20,6 +20,7 @@
 //!   2026-11-12);
 //! - RNF7571 (30): %OCCUR set to a literal outside the occurrences (PUB400
 //!   2026-11-22);
+//! - RNF0203 (30): a numeric operand of %CONCAT (PUB400 2026-11-22);
 //! - RNF2121 (30) and RNF2109 (40): an externally described file whose
 //!   record format has the file's name, without RENAME (PUB400
 //!   2026-11-05, tools/golden/verify47.txt p47_crtr).
@@ -179,6 +180,47 @@ impl Walker<'_> {
                 text: "The expression has an operand that is not defined.".into(),
                 at: None,
             });
+        }
+        self.concat_operands(line, e);
+    }
+
+    /// A numeric operand of %CONCAT: RNF0203, severity 30 (PUB400
+    /// 2026-11-21 and 2026-11-22, IBM i 7.5: `%concat(',' : 'a' : n)` with
+    /// N packed(3:0)); its operands must be character, graphic or UCS-2.
+    fn concat_operands(&mut self, line: usize, e: &Expr) {
+        match e {
+            Expr::Bif(b, args) => {
+                if b == "CONCAT" {
+                    for a in args.iter().skip(1) {
+                        if self.class_of(a) == Some(true) {
+                            self.out.diags.push(Diag {
+                                line,
+                                id: "RNF0203".into(),
+                                sev: 30,
+                                text: "An operand of %CONCAT must be character, graphic or UCS-2."
+                                    .into(),
+                                at: None,
+                            });
+                        }
+                    }
+                }
+                for a in args {
+                    self.concat_operands(line, a);
+                }
+            }
+            Expr::Name {
+                args: Some(args), ..
+            } => {
+                for a in args {
+                    self.concat_operands(line, a);
+                }
+            }
+            Expr::Unary(_, x) => self.concat_operands(line, x),
+            Expr::Bin(_, l, r) => {
+                self.concat_operands(line, l);
+                self.concat_operands(line, r);
+            }
+            _ => {}
         }
     }
 
