@@ -30110,3 +30110,73 @@ dsply %char(d);
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["2026-11-16", "2026-11-17"]);
 }
+
+/// Date and time literals are written in the control specification's
+/// DATFMT and TIMFMT forms, in INZ and in calculations; *ISO ones under
+/// DATFMT(*EUR) TIMFMT(*USA) do not compile (RNF0305, RNF0306). Expected
+/// values: PUB400, IBM i 7.5, 2026-11-23 (tools/golden/native220
+/// n220_lic in the native fork: "EQ 31.01.2026 09:15 AM"; n220_crt_lit:
+/// RNF0305 and RNF0306, severity 20) and 2026-11-19 (native134
+/// n134_crt: inz(d'31.01.2026') and inz(t'09:15 AM') compile).
+#[tokio::test]
+async fn date_literals_are_in_the_datfmt_form() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let ok = r#"**FREE
+ctl-opt dftactgrp(*no) datfmt(*eur) timfmt(*usa);
+dcl-s d date;
+dcl-s t time;
+dcl-s d0 date inz(d'31.01.2026');
+dcl-s t0 time inz(t'09:15 AM');
+d = d'31.01.2026';
+t = t'09:15 AM';
+if d = d'31.01.2026';
+  dsply ('EQ ' + %char(d) + ' ' + %char(t));
+endif;
+dsply (%char(d0 : *iso) + ' ' + %char(t0 : *iso));
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "LITEUR".into(),
+        ok.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(
+        r.messages,
+        ["EQ 31.01.2026 09:15 AM", "2026-01-31 09.15.00"]
+    );
+    for (name, def, id) in [
+        ("LITISOD", "dcl-s d date inz(d'2026-01-31');", "RNF0305"),
+        ("LITISOT", "dcl-s t time inz(t'09.15.00');", "RNF0306"),
+    ] {
+        let src = format!(
+            "**FREE\nctl-opt dftactgrp(*no) datfmt(*eur) timfmt(*usa);\n{def}\n*inlr = *on;\n"
+        );
+        let e = rpg::call(
+            &url,
+            vec![lib.clone()],
+            "QSECOFR".into(),
+            None,
+            None,
+            None,
+            name.into(),
+            src,
+            vec![],
+        )
+        .await
+        .err()
+        .map(|e| format!("{e:#}"))
+        .unwrap_or_default();
+        assert!(e.contains(id), "{name}: {e}");
+    }
+}

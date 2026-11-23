@@ -2333,6 +2333,13 @@ pub fn bind(
     displays: &HashMap<String, (String, Arc<DisplayFile>)>,
     printers: &HashMap<String, PrinterInfo>,
 ) -> Result<Program> {
+    // The literals of the definitions (INZ) are in the control
+    // specification's DATFMT and TIMFMT forms.
+    let _kept = super::expr::LiteralFormats::keep();
+    super::expr::set_literal_formats(
+        control_datfmt(&src.control).unwrap_or(super::dates::DateFmt::iso()),
+        control_timfmt(&src.control).unwrap_or(super::dates::TimeFmt::iso()),
+    );
     let mut b = Binder {
         syms: SymMap::default(),
         bufs: vec![],

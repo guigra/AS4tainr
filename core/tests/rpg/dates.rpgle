@@ -1,7 +1,10 @@
      H DATFMT(*USA)
       * Date and time formats (ILE RPG Reference, "Date Data Type", "Time
       * Data Type", DATFMT, TIMFMT, "Moving Date-Time Data").
-     D d               S               D   INZ(D'2026-10-21')
+      * A literal in the control specification's DATFMT form (*ISO is
+      * RNF0305 under DATFMT(*USA): PUB400, IBM i 7.5, 2026-11-23,
+      * native fork tools/golden/native220 n220_crt_lit).
+     D d               S               D   INZ(D'10/21/2026')
      D m               S               D   DATFMT(*MDY)
      D j               S               D   DATFMT(*JUL)
      D e               S               D   DATFMT(*EUR)

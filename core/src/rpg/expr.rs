@@ -7,6 +7,7 @@ use super::ast::{BinOp, Expr, UnOp};
 /// The index `(*)`: all the elements of an array of data structures.
 pub const ALL_ELEMENTS: &str = "*ALLELEMENTS";
 use super::data::{e, Fig};
+use super::dates::{format_date, format_time, parse_date, parse_time, DateFmt, TimeFmt};
 use super::dec::Dec;
 use anyhow::{anyhow, bail, Result};
 
@@ -25,6 +26,34 @@ pub enum Tok {
 
 fn is_name_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '_' | '#' | '@' | '$')
+}
+
+thread_local! {
+    /// The control specification's DATFMT and TIMFMT, the forms date and
+    /// time literals are written in while a source is compiled.
+    static LITERAL_FORMATS: std::cell::Cell<(DateFmt, TimeFmt)> =
+        const { std::cell::Cell::new((DateFmt::iso(), TimeFmt::iso())) };
+}
+
+/// Date and time literals are in these forms (CTL-OPT DATFMT and TIMFMT)
+/// in the expressions parsed after this on this thread.
+pub fn set_literal_formats(d: DateFmt, t: TimeFmt) {
+    LITERAL_FORMATS.with(|f| f.set((d, t)));
+}
+
+/// The literal forms as they were, put back when this is dropped.
+pub struct LiteralFormats((DateFmt, TimeFmt));
+
+impl LiteralFormats {
+    pub fn keep() -> LiteralFormats {
+        LiteralFormats(LITERAL_FORMATS.with(|f| f.get()))
+    }
+}
+
+impl Drop for LiteralFormats {
+    fn drop(&mut self) {
+        LITERAL_FORMATS.with(|f| f.set(self.0));
+    }
 }
 
 /// Split expression text into tokens.
@@ -51,6 +80,29 @@ pub fn tokens(text: &str) -> Result<Vec<Tok>> {
                 bail!("a literal is not ended: {text}");
             };
             let v: String = cs[i + 2..i + 2 + end].iter().collect();
+            // In the control specification's DATFMT or TIMFMT form, taken
+            // as its *ISO text: an *ISO literal under DATFMT(*EUR) is
+            // RNF0305, under TIMFMT(*USA) RNF0306, severity 20; one in
+            // those forms compiles (PUB400, IBM i 7.5, 2026-11-23, native
+            // fork tools/golden/native220 n220_crt_lit, n220_lic).
+            let (dfmt, tfmt) = LITERAL_FORMATS.with(|f| f.get());
+            let v = match kind {
+                'D' if !dfmt.is_iso() => match parse_date(&v, &dfmt) {
+                    Ok(d) => format_date(d, &DateFmt::iso()),
+                    Err(_) => bail!(
+                        "RNF0305: D'{v}' is not a valid date literal in {} form.",
+                        dfmt.code()
+                    ),
+                },
+                'T' if !tfmt.is_iso() => match parse_time(&v, &tfmt) {
+                    Ok(t) => format_time(t, &TimeFmt::iso()),
+                    Err(_) => bail!(
+                        "RNF0306: T'{v}' is not a valid time literal in {} form.",
+                        tfmt.code()
+                    ),
+                },
+                _ => v,
+            };
             let shape = |pattern: &str| {
                 v.len() == pattern.len()
                     && v.chars().zip(pattern.chars()).all(|(a, p)| {

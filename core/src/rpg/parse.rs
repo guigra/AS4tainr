@@ -885,6 +885,15 @@ impl Ctx {
 
 /// Parse a source member. `includes` gives the text of `/COPY` and
 /// `/INCLUDE` members by the id written in the directive.
+/// Date and time literals after the control specification are in its
+/// DATFMT and TIMFMT forms.
+fn literal_formats(control: &[Keyword]) {
+    super::expr::set_literal_formats(
+        super::program::control_datfmt(control).unwrap_or(super::dates::DateFmt::iso()),
+        super::program::control_timfmt(control).unwrap_or(super::dates::TimeFmt::iso()),
+    );
+}
+
 pub fn parse(source: &str, includes: &dyn Fn(&str) -> Option<String>) -> Result<Source> {
     parse_defined(source, includes, &[])
 }
@@ -895,6 +904,8 @@ pub fn parse_defined(
     includes: &dyn Fn(&str) -> Option<String>,
     defines: &[String],
 ) -> Result<Source> {
+    let _kept = super::expr::LiteralFormats::keep();
+    literal_formats(&[]);
     let mut lines = Lines {
         includes,
         defined: [
@@ -954,6 +965,7 @@ pub fn parse_defined(
                 let r = match kind {
                     'H' => {
                         ctx.src.control.extend(keywords(&col(cs, 7, 80))?);
+                        literal_formats(&ctx.src.control);
                         Ok(())
                     }
                     'F' => fixed_f(&mut ctx, cs, *lineno),
@@ -2505,6 +2517,7 @@ fn free(ctx: &mut Ctx, text: &str, lineno: usize) -> Result<()> {
     match first.as_str() {
         "CTL-OPT" => {
             ctx.src.control.extend(keywords(&rest)?);
+            literal_formats(&ctx.src.control);
             return Ok(());
         }
         "DCL-F" => {
