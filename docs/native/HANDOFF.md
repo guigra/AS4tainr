@@ -1,8 +1,23 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-23 02:10 UTC.
+Last update: 2026-11-23 06:00 UTC.
 
-## Now (2026-11-23, 02:10 UTC): 100% native coverage
+## Now (2026-11-23, 06:00 UTC): S2.223 validated on both platforms; phase 2 continues
+
+**S2.223** (e05d082) closes the codex review of S2.167-S2.222: 14 native fixes, the four interpreter findings in fidelity.md. s7f-s2223 on jsr-test-2 (x86_64): coverage 100.0%, settle 647/647, generated lints pass, level 2 rust 817/817. The ARM run s7f-s2222 on jsr-test-arm (aarch64) gives the same; its logs are under target/evidence/vm/jsr-test-arm. Manifests: 1582848.
+
+**Phase 2 (interpreter fixes, local fix/* branches off upstream/main dd47e28)** now has 26 branches. New since the last update:
+- fix/max-min-places: %MAX and %MIN have the arguments' greatest decimal places (native42);
+- fix/date-overflow-113: a date past 9999-12-31 by a duration is 00113 (native56);
+- fix/varying-dim-124: DIM(*AUTO) past its dimension and %ELEM set past it are 00124 (native47b);
+- fix/date-loval-hival: *LOVAL and *HIVAL of a date are 0001-01-01 and 9999-12-31 (native53);
+- fix/compile-checks has three more commits: RNF7421 for a duration before a date (native56), RNF0605 for %DATE(*SYS) (native55), RNF7030 and RNF7018 for EXSR of the main procedure's subroutine in a subprocedure (native45); a fourth, RNF0640 for more than 100 levels of parentheses (native47), is being validated.
+
+**Held for the user:** %DATE with no format takes *ISO on IBM i (native55, and IBM Docs bbdate.htm), but the upstream test core/tests/rpg/dates.rpgle (H DATFMT(*USA), `%DATE('01/02/2027')`) expects DATFMT's. Not changed. *NULL plus a number (native50) is not changed either: the capture shows no error but not what pointer results.
+
+**Next:** the combined validation of every fix branch (combo.py, vm-p2.sh), then the rebase of native/engine on them and native code following each fix (work state `phase2-interp-fixes`), then phase B.
+
+## Earlier (2026-11-23, 02:10 UTC): 100% native coverage
 
 **Committed up to S2.222** (8ff3db9). On the x86_64 run s7f-s2222, native-diff gives:
 - coverage 100.0%: 6209 instructions native, none with the interpreter;
