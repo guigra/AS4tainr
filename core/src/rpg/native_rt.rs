@@ -2646,6 +2646,18 @@ impl Rt<'_, '_> {
     /// errors.rs file_idx: the file a name refers to, one declared in the
     /// running procedure first, then the program's.
     fn file_idx_n(&self, name: &str) -> Option<usize> {
+        // FILE.FORMAT: a qualified file's record format, as WRITE and
+        // UPDATE name it (file_idx since the fork's fix/qualified-format-io).
+        if let Some((file, format)) = name.split_once('.') {
+            let i = self.file_idx_n(file)?;
+            return self
+                .m
+                .prog
+                .files
+                .get(i)
+                .is_some_and(|f| f.format == format)
+                .then_some(i);
+        }
         if let Some(i) = self.m.frames.last().and_then(|f| f.files.get(name)) {
             return Some(*i);
         }
@@ -3088,7 +3100,9 @@ impl Rt<'_, '_> {
             if by_name {
                 fi.format.clone()
             } else {
-                file.to_string()
+                // FILE.FORMAT: the format (file_op since the fork's
+                // fix/qualified-format-io).
+                file.rsplit('.').next().unwrap_or(file).to_string()
             }
         } else {
             String::new()

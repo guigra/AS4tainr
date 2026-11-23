@@ -351,7 +351,7 @@ On a qualified file, `WRITE gn120f.gn120f o` and `UPDATE gn120f.gn120f r` name t
 - **IBM i:** the program compiles and runs (tools/golden/native120 n120_dsio: `50:zz 6:de`).
 - **The interpreter:** it fails at run time with "GN120F.GN120F is not a file of this program". errors.rs file_idx compares the whole qualified name with the files' names and formats.
 
-Native code follows the interpreter: lowering finds no file either, and leaves the statement to it. This is an upstream interpreter defect, held for Kyle with the capture. The unit NDSIO takes the program with the file not qualified and its format renamed (n120_dsiou), which IBM i runs with the same result.
+Native code follows the interpreter: lowering finds no file either, and leaves the statement to it. This is an upstream interpreter defect, held for Kyle with the capture. Fixed in the fork's interpreter (`fix/qualified-format-io`: file_idx takes FILE.FORMAT, file_op's record name is the format); the native engine follows it (lower.rs file_of and native_rt.rs file_idx_n take FILE.FORMAT, file_end_n names the format): rla_test `write_and_update_of_a_qualified_files_format` passes under rust, the WRITE and UPDATE now native (2026-11-23). The unit NDSIO takes the program with the file not qualified and its format renamed (n120_dsiou), which IBM i runs with the same result.
 
 ## %CHAR of a date or time expression under DATFMT and TIMFMT (found 2026-11-19)
 

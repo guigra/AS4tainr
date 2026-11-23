@@ -8912,6 +8912,16 @@ fn printer_file(cx: &Cx<'_>, file: &str) -> bool {
 /// (S2.164: the frame holds its procedure's file parameters only).
 fn file_of(cx: &Cx<'_>, file: &str) -> Option<usize> {
     let prog = cx.prog;
+    // FILE.FORMAT: a qualified file's record format, as WRITE and UPDATE
+    // name it (file_idx since the fork's fix/qualified-format-io).
+    if let Some((f, format)) = file.split_once('.') {
+        let i = file_of(cx, f)?;
+        return prog
+            .files
+            .get(i)
+            .is_some_and(|fi| fi.format == format)
+            .then_some(i);
+    }
     // A LIKEFILE parameter of the routine's own procedure (S2.185): the
     // runtime's file_idx_n finds the caller's file in the frame, as
     // file_idx does; lowering takes the record format of LIKEFILE's file,
