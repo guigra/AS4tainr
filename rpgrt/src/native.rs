@@ -249,6 +249,24 @@ pub trait Runtime {
     /// kept for the loop (interp.rs list_of of an array, then the
     /// EachInit arm's state).
     fn each_array(&mut self, pc: usize, arr: ArrPlace) -> NResult<()>;
+    /// Stage 2 (S2.213): FOR-EACH over values generated code made (a
+    /// varying-dimension array's elements in use, %SPLIT's pieces): the
+    /// EachInit arm's state with them.
+    fn each_values(&mut self, pc: usize, vals: Vec<Value>) -> NResult<()>;
+    /// Stage 2 (S2.214): ENDSR's return point: always an error, the
+    /// interpreter's return point signal.
+    fn return_point(&mut self, point: String) -> NResult<()>;
+    /// Stage 2 (S2.221): a procedure local array's element at `off`: its
+    /// place (`local`), then interp.rs elem_off's reach, `size` bytes there
+    /// in that storage (MCH0601 otherwise; for a parameter, the caller's).
+    fn local_elem(&mut self, buf: usize, off: usize, size: usize) -> NResult<(usize, usize)>;
+    /// Stage 2 (S2.218): a program call with its parameters' storage (the
+    /// interpreter's call_program service, a phase B dependency).
+    fn call_pgm(&mut self, name: &str, args: Vec<CallArg>) -> NResult<()>;
+    /// Stage 2 (S2.216): CLEAR of a data structure (interp.rs clear_ds, its
+    /// data structure subfields' elements as the first), or of the element
+    /// at `index` of a data structure array (ds_element, ds_clear_image).
+    fn clear_ds(&mut self, name: &str, index: Option<Dec>) -> NResult<()>;
     /// Stage 2 (S2.89): the loop's next value (the EachNext arm), or none
     /// at its end (its state dropped).
     fn each_take(&mut self, pc: usize) -> NResult<Option<Value>>;

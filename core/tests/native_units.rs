@@ -4568,3 +4568,16 @@ async fn native_unit_lowered_float_graphic_record() {
     )
     .await;
 }
+
+// Stage 2, S2.213: FOR-EACH over %SPLIT and over a DIM(*AUTO) array.
+// Source: golden capture tools/golden/native218 n218_foreach (PUB400, IBM i 7.5, 2026-11-22)
+#[tokio::test]
+async fn native_unit_lowered_for_each_split_and_varying() {
+    let _ = require_db!();
+    expect(
+        "NEACHSP",
+        include_str!("native/NEACHSP.rpgle"),
+        &["[a][b][c]|[a][b][][c]|[the][quick][fox]|[x][y][z]|3"],
+    )
+    .await;
+}

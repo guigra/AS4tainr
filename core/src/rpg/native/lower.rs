@@ -260,13 +260,172 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             let Some(Sym::Var(v)) = sym(cx, &name) else {
                 return None;
             };
-            if v.dim == 0 || v.local || cx.prog.varying.contains_key(&name) || global_moved(cx, v) {
+            // A based array (S2.217): list_of's array_ref places it where
+            // its pointer points (an element's size, as SORTA's).
+            let based_on = cx.prog.based.get(&v.buf);
+            if v.dim == 0
+                || v.local
+                || (based_on.is_none() && global_moved(cx, v))
+                || cx.prog.occurs.iter().any(|o| o.buf == v.buf)
+            {
                 return None;
             }
+            let based =
+                match based_on {
+                    Some(pn) if !cx.prog.varying.contains_key(&name) => Some(Box::new(
+                        array_based(cx, &name, pn, v.dtype.size(), &mut used)?,
+                    )),
+                    Some(_) => return None,
+                    None => None,
+                };
             let ty = global_elem_ty(v.dtype, true)?;
             used.push(format!("each {name} stride {} dim {}", v.stride, v.dim));
-            ir::Lowered::EachArray {
-                arr: (v.buf, v.off, v.stride, v.dim, ty),
+            // A varying-dimension array (S2.213): its elements in use.
+            if cx.prog.varying.contains_key(&name) {
+                ir::Lowered::EachVarying {
+                    arr: (v.buf, v.off, v.stride, v.dim, ty),
+                    name,
+                }
+            } else {
+                ir::Lowered::EachArray {
+                    arr: (v.buf, v.off, v.stride, v.dim, ty),
+                    based,
+                }
+            }
+        }
+        // Fixed-form CALL (S2.218): interp.rs stmt's CALL arm, the program
+        // named by a literal (or a name that is no field) or a character
+        // field, each PARM's factor 2 (an operand) into its result field
+        // (a field), and the error indicator; the call through the
+        // runtime's program call service.
+        Ins::Stmt(Stmt::Call {
+            program,
+            parms,
+            ind,
+        }) if ind.hi.is_none() && ind.eq.is_none() => {
+            let name = match program {
+                Expr::Name { parts, args: None } if sym(cx, &parts.join(".")).is_none() => {
+                    ir::PgmName::Lit(parts.join("."))
+                }
+                Expr::Str(b) => {
+                    ir::PgmName::Lit(super::super::data::a(b).trim().to_ascii_uppercase())
+                }
+                other => ir::PgmName::Expr(Box::new(char_expr(cx, other, &mut used, Vec::new())?)),
+            };
+            let mut ps = Vec::with_capacity(parms.len());
+            for p in parms {
+                let t = variable(cx, &p.target, &mut used)?;
+                if !matches!(&t, ir::Operand::Var { .. }) {
+                    return None;
+                }
+                let v = match &p.value {
+                    Some(v) => Some(operand(cx, v, &mut used)?),
+                    None => None,
+                };
+                ps.push((v, t));
+            }
+            used.push("call program".into());
+            ir::Lowered::CallPgm {
+                name,
+                parms: ps,
+                lo: ind.lo.clone(),
+            }
+        }
+        // CABxx (S2.215): native_rt cab, to a TAG of this routine or to
+        // none (only the indicators); a TAG outside it (the GOTO signal)
+        // stays with the runtime.
+        Ins::Cab {
+            cmp,
+            f1,
+            f2,
+            ind,
+            out: None,
+            ..
+        } => {
+            let cmp = match cmp {
+                None => None,
+                Some(BinOp::Eq) => Some(ir::CmpOp::Eq),
+                Some(BinOp::Ne) => Some(ir::CmpOp::Ne),
+                Some(BinOp::Lt) => Some(ir::CmpOp::Lt),
+                Some(BinOp::Le) => Some(ir::CmpOp::Le),
+                Some(BinOp::Gt) => Some(ir::CmpOp::Gt),
+                Some(BinOp::Ge) => Some(ir::CmpOp::Ge),
+                Some(_) => return None,
+            };
+            let l = operand(cx, f1, &mut used)?;
+            let r = operand(cx, f2, &mut used)?;
+            used.push("cab".into());
+            ir::Lowered::CabCmp {
+                l,
+                r,
+                cmp,
+                hi: ind.hi.clone(),
+                lo: ind.lo.clone(),
+                eq: ind.eq.clone(),
+            }
+        }
+        // ENDSR with a return point (S2.214): native_rt end_sr, the point a
+        // character field or literal, the field blanked after it.
+        Ins::EndSr(p) => {
+            let point = char_expr(cx, p, &mut used, Vec::new())?;
+            let clear = match p {
+                Expr::Name { .. } => {
+                    let v = variable(cx, p, &mut used)?;
+                    if !matches!(
+                        &v,
+                        ir::Operand::Var {
+                            ty: ir::Ty::Char(_) | ir::Ty::Varchar(_),
+                            based: None,
+                            ..
+                        }
+                    ) {
+                        return None;
+                    }
+                    Some(v)
+                }
+                Expr::Str(_) => None,
+                _ => return None,
+            };
+            used.push("endsr point".into());
+            ir::Lowered::EndSrPoint {
+                point: Box::new(point),
+                clear,
+            }
+        }
+        // FOR-EACH over %SPLIT (S2.213): list_of's eval of the bif, its
+        // pieces as split_pieces makes them (the string, the separators,
+        // *ALLSEP; another special value is not lowered).
+        Ins::EachInit {
+            list: Expr::Bif(b, args),
+        } if b == "SPLIT" && matches!(args.len(), 1..=3) => {
+            let special = |e: &Expr| match e {
+                Expr::Name { parts, args: None } if parts.len() == 1 => parts
+                    .first()
+                    .filter(|p| p.starts_with('*'))
+                    .map(|p| p.to_ascii_uppercase()),
+                _ => None,
+            };
+            if args
+                .iter()
+                .skip(1)
+                .any(|e| special(e).is_some_and(|x| x != "*ALLSEP"))
+            {
+                return None;
+            }
+            let text = char_expr(cx, args.first()?, &mut used, vec![0])?;
+            let seps = match args.get(1) {
+                Some(e) if special(e).is_none() => Some(char_expr(cx, e, &mut used, vec![1])?),
+                _ => None,
+            };
+            let allsep = args
+                .iter()
+                .skip(1)
+                .any(|e| special(e).as_deref() == Some("*ALLSEP"));
+            used.push("each split".into());
+            ir::Lowered::EachSplit {
+                text: Box::new(text),
+                seps: seps.map(Box::new),
+                allsep,
             }
         }
         Ins::EachNext { var, .. } => {
@@ -732,7 +891,37 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 inds: (1..=99).map(|n| format!("{n:02}")).collect(),
             },
             Expr::Name { parts, args: None } => {
-                ir::Lowered::Clear(clear_areas(cx, &parts.join("."), &mut used)?)
+                let name = parts.join(".");
+                match clear_areas(cx, &name, &mut used) {
+                    Some(areas) => ir::Lowered::Clear(areas),
+                    // A data structure with data structure subfields
+                    // (S2.216): clear_ds through the runtime.
+                    None if matches!(sym(cx, &name), Some(Sym::Ds(_))) => {
+                        used.push(format!("clear ds {name}"));
+                        ir::Lowered::ClearDs { name, index: None }
+                    }
+                    None => return None,
+                }
+            }
+            // One element of a data structure array (S2.216): its index,
+            // then ds_element and ds_clear_image through the runtime.
+            Expr::Name {
+                parts,
+                args: Some(args),
+            } if args.len() == 1 => {
+                let name = parts.join(".");
+                let Some(Sym::Ds(d)) = sym(cx, &name) else {
+                    return None;
+                };
+                if d.dim == 0 {
+                    return None;
+                }
+                let index = operand(cx, args.first()?, &mut used)?;
+                used.push(format!("clear ds element {name}"));
+                ir::Lowered::ClearDs {
+                    name,
+                    index: Some(index),
+                }
             }
             _ => return None,
         },
@@ -2077,7 +2266,7 @@ fn clear_areas(cx: &Cx<'_>, name: &str, used: &mut Vec<String>) -> Option<Vec<ir
 fn reset_area(cx: &Cx<'_>, name: &str, used: &mut Vec<String>) -> Option<ir::ClearArea> {
     let prog = cx.prog;
     if cx.based.is_some() && cx.syms.contains_key(name) {
-        return None;
+        return reset_local_area(cx, name, used);
     }
     let (buf, off, len) = match prog.syms.get(name)? {
         Sym::Var(v) => {
@@ -2110,6 +2299,53 @@ fn reset_area(cx: &Cx<'_>, name: &str, used: &mut Vec<String>) -> Option<ir::Cle
         buf,
         off,
         local: false,
+        image,
+        count: 1,
+        stride: len,
+    })
+}
+
+/// RESET of a procedure's own field or data structure (S2.214): interp.rs
+/// reset_to_initial's local arm, the procedure's initial frame image of
+/// it copied back. Not a parameter (the caller's storage), based storage,
+/// a varying-dimension array or one of multiple occurrences.
+fn reset_local_area(cx: &Cx<'_>, name: &str, used: &mut Vec<String>) -> Option<ir::ClearArea> {
+    let pi = cx.prog.procs.get(cx.proc?)?;
+    if cx
+        .params
+        .is_some_and(|ps| ps.iter().any(|p| p.name == name))
+    {
+        return None;
+    }
+    let (buf, off, len) = match pi.syms.get(name)? {
+        Sym::Var(v) => {
+            if !v.local || cx.prog.varying.contains_key(name) {
+                return None;
+            }
+            let last = usize::try_from(v.dim.max(1)).ok()?.checked_sub(1)?;
+            let len = v.stride.checked_mul(last)?.checked_add(v.dtype.size())?;
+            (v.buf, v.off, len)
+        }
+        Sym::Ds(d) => {
+            if !d.local {
+                return None;
+            }
+            let n = usize::try_from(d.dim.max(1)).ok()?;
+            (d.buf, d.off, d.size.checked_mul(n)?)
+        }
+        _ => return None,
+    };
+    if pi.based.contains_key(&buf) || len > 4096 {
+        return None;
+    }
+    let image = pi.frame.get(buf)?.get(off..off.checked_add(len)?)?.to_vec();
+    // The image is part of the layout (ADR 0002's key), as for a global.
+    let hex: String = image.iter().map(|b| format!("{b:02X}")).collect();
+    used.push(format!("reset local {name} {buf} {off} {len} {hex}"));
+    Some(ir::ClearArea {
+        buf,
+        off,
+        local: true,
         image,
         count: 1,
         stride: len,
@@ -2485,6 +2721,12 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                     }
                 }
                 Expr::Str(b) => b.clone(),
+                // *BLANK as the parser gives it, a figurative constant
+                // (S2.220): the interpreter's bif CONCAT takes its
+                // characters, none, as the separator (fidelity.md: IBM i
+                // puts one blank; fixed upstream-side in the fork branch
+                // fix/concat-blank, which this follows when it lands).
+                Expr::Fig(Fig::Blanks) => Vec::new(),
                 _ => return None,
             };
             let mut parts = Vec::with_capacity(args.len().saturating_mul(2));
@@ -4116,7 +4358,11 @@ fn variable(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand
             }
             Some(usize::try_from(k).ok()?)
         }
-        Some([ix]) if v.dim > 0 && local_array_ok(cx, v) && !name.starts_with("TAB") => {
+        Some([ix])
+            if v.dim > 0
+                && (local_array_ok(cx, v) || param_array_ok(cx, v))
+                && !name.starts_with("TAB") =>
+        {
             let of = operand(cx, ix, used)?;
             let vary = cx.prog.varying.get(name).map(|k| (name.clone(), *k == 'A'));
             // A local varying-dimension array is not lowered (S2.63).
@@ -4299,6 +4545,17 @@ fn local_array_ok(cx: &Cx<'_>, v: &super::super::program::VarInfo) -> bool {
         && cx
             .params
             .is_some_and(|ps| ps.iter().all(|p| p.buf != Some(v.buf)))
+}
+
+/// A procedure's array parameter (S2.221), indexed at run time: its
+/// elements are in the storage passed (`rt.local`), and elem_off's reach
+/// is checked there (`local_elem`). Not based.
+fn param_array_ok(cx: &Cx<'_>, v: &super::super::program::VarInfo) -> bool {
+    v.local
+        && cx.based.is_some_and(|b| !b.contains_key(&v.buf))
+        && cx
+            .params
+            .is_some_and(|ps| ps.iter().any(|p| p.buf == Some(v.buf)))
 }
 
 /// A scalar subfield of an element of a data structure array, global
@@ -4838,6 +5095,11 @@ fn call_of(
             return None;
         }
     }
+    // A program's prototype (EXTPGM): its arguments by reference go as
+    // loc_of gives them, whatever the parameter's length (S2.219).
+    let to_program = local.is_none()
+        && !prog.procs.contains_key(&name)
+        && proto(cx, &name).is_some_and(|pr| pr.extpgm.is_some());
     // A C function takes arguments past its prototype's, as values
     // (call_named_inner: printf's list); S2.56.
     let c_extra = local.is_none()
@@ -5163,6 +5425,15 @@ fn call_of(
                     ty: ir::Ty::Char(_),
                     ..
                 } if p.varsize && matches!(ty, ir::Ty::Char(_)) => {}
+                // A character field of another length for a program's
+                // character parameter by reference (S2.219): args_for's
+                // loc_of, the field's own storage and size, which
+                // call_program passes (IBM i's compiler refuses it; the
+                // interpreter runs it: rla_test.rs SYSAPI).
+                ir::Operand::Var {
+                    ty: ir::Ty::Char(_),
+                    ..
+                } if by_ref && to_program && matches!(ty, ir::Ty::Char(_)) => {}
                 // A CONST field of another type goes by value.
                 _ if const_ref => {
                     out.push(value_arg(cx, &ty, a, used, ap)?);
@@ -5240,9 +5511,29 @@ fn value_arg(
         return Some(ir::CallArg::Float(float_expr(cx, a, used, path, 0)?));
     }
     match ty {
-        // A date, time or timestamp parameter's value (args_for's eval
-        // stored in the parameter's type) is not lowered (S2.189).
-        ir::Ty::Date(..) | ir::Ty::Time(..) | ir::Ty::Timestamp(_) => None,
+        // A date, time or timestamp parameter's value (S2.212): a field of
+        // the same kind in another format, as args_for's eval gives it
+        // (data::load, its text in its own format), which call_proc stores
+        // in the parameter's type. Other values are not lowered (S2.189).
+        ir::Ty::Date(..) | ir::Ty::Time(..) | ir::Ty::Timestamp(_) => {
+            let _ = path;
+            let v = variable(cx, a, used)?;
+            let same_kind = match &v {
+                ir::Operand::Var { ty: aty, index, .. } => {
+                    index.is_none()
+                        && matches!(
+                            (ty, aty),
+                            (ir::Ty::Date(..), ir::Ty::Date(..))
+                                | (ir::Ty::Time(..), ir::Ty::Time(..))
+                                | (ir::Ty::Timestamp(_), ir::Ty::Timestamp(_))
+                        )
+                }
+                _ => false,
+            };
+            // The field's value as eval loads it (char_expr leaves temporal
+            // operands out of character expressions; here it is the value).
+            same_kind.then_some(ir::CallArg::Char(ir::CharExpr::Leaf(v)))
+        }
         ir::Ty::Char(_) | ir::Ty::Varchar(_) => {
             Some(ir::CallArg::Char(char_expr(cx, a, used, path)?))
         }

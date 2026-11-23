@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.211");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.222");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -216,6 +216,15 @@ pub mod ir {
         Le,
         Gt,
         Ge,
+    }
+
+    /// A program's name in a CALL (S2.218).
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum PgmName {
+        /// Known when lowered (a literal, or a name that is no field).
+        Lit(String),
+        /// A field's or expression's characters, trimmed, in upper case.
+        Expr(Box<CharExpr>),
     }
 
     /// A lowered condition.
@@ -636,7 +645,56 @@ pub mod ir {
         StrOp(Box<StrOpData>),
         /// FOR-EACH over a whole array (S2.89): the array (buf, off,
         /// stride, dim, type).
-        EachArray { arr: (usize, usize, usize, u32, Ty) },
+        EachArray {
+            arr: (usize, usize, usize, u32, Ty),
+            /// The pointer a based array is based on (S2.217).
+            based: Option<Box<Based>>,
+        },
+        /// Fixed-form CALL of a program (S2.218): its name (a literal, or a
+        /// character expression), each PARM's factor 2 and result field,
+        /// and the error indicator (positions 73-74).
+        CallPgm {
+            name: PgmName,
+            parms: Vec<(Option<Operand>, Operand)>,
+            lo: Option<String>,
+        },
+        /// CLEAR of a data structure with data structure subfields, or of
+        /// one element of a data structure array (S2.216): the runtime's
+        /// clear_ds service, with the element's index when it is one.
+        ClearDs {
+            name: String,
+            index: Option<Operand>,
+        },
+        /// CABxx to a TAG of this routine, or to none (S2.215): the two
+        /// operands, the comparison (none: CAB, always), the high, low and
+        /// equal indicators.
+        CabCmp {
+            l: Operand,
+            r: Operand,
+            cmp: Option<CmpOp>,
+            hi: Option<String>,
+            lo: Option<String>,
+            eq: Option<String>,
+        },
+        /// ENDSR with a return point (S2.214): the point's characters, and
+        /// the field to blank after it when it is one.
+        EndSrPoint {
+            point: Box<CharExpr>,
+            clear: Option<Operand>,
+        },
+        /// FOR-EACH over a global array of varying dimension (S2.213):
+        /// list_of's elements in use (the array, its name for their count).
+        EachVarying {
+            arr: (usize, usize, usize, u32, Ty),
+            name: String,
+        },
+        /// FOR-EACH over %SPLIT (S2.213): list_of's eval of the bif, the
+        /// string, the separators and *ALLSEP.
+        EachSplit {
+            text: Box<CharExpr>,
+            seps: Option<Box<CharExpr>>,
+            allsep: bool,
+        },
         /// FOR-EACH's next value into its item (S2.89).
         EachNext { var: Operand },
         /// SORTA (S2.86): the array (buf, off, stride, dim, type, lead),
@@ -1754,6 +1812,7 @@ fn place_of(o: &ir::Operand) -> Option<(String, String, String)> {
         ir::Operand::Var {
             buf,
             off,
+            ty: t,
             index: Some(ix),
             local: true,
             ..
@@ -1761,8 +1820,9 @@ fn place_of(o: &ir::Operand) -> Option<(String, String, String)> {
             Some(_) => None,
             None => Some((
                 format!(
-                    "    let o = {};\n    let (sb, so) = rt.local({buf}, o)?;\n",
-                    elem_at(*off, ix)
+                    "    let o = {};\n    let (sb, so) = rt.local_elem({buf}, o, {}.size())?;\n",
+                    elem_at(*off, ix),
+                    ty(t)
                 ),
                 "sb".to_string(),
                 "so".to_string(),
@@ -1819,9 +1879,11 @@ fn temporal_fmt_code(fmt: &ir::TemporalFmt) -> String {
 
 /// The buffer of an array element whose offset `o` is worked out (S2.63):
 /// a global's buffer, or for a procedure local its place in the frame.
-fn elem_place(buf: usize, local: bool) -> String {
+fn elem_place(buf: usize, local: bool, size: &str) -> String {
+    // A local's element (S2.221): elem_off's reach too, in the storage the
+    // array is in (a parameter's: the caller's).
     if local {
-        format!("let (b, o) = rt.local({buf}, o)?;")
+        format!("let (b, o) = rt.local_elem({buf}, o, {size})?;")
     } else {
         format!("let b = {buf};")
     }
@@ -2064,7 +2126,7 @@ fn value(o: &ir::Operand) -> String {
         } => format!(
             "{{ let o = {}; {} rpgrt::native::load(rt.mem(), b, o, {})? }}",
             elem_at(*off, ix),
-            elem_place(*buf, *local),
+            elem_place(*buf, *local, &format!("{}.size()", ty(t))),
             ty(t)
         ),
         ir::Operand::Var {
@@ -2176,7 +2238,7 @@ fn number(o: &ir::Operand) -> String {
         } => format!(
             "{{ let o = {}; {} rpgrt::native::load_num(rt.mem(), b, o, {})? }}",
             elem_at(*off, ix),
-            elem_place(*buf, *local),
+            elem_place(*buf, *local, &format!("{}.size()", ty(t))),
             ty(t)
         ),
         ir::Operand::Var {
@@ -2473,14 +2535,220 @@ fn lowered_step(
             ir::Kind::EachInit,
             ir::Lowered::EachArray {
                 arr: (b, o, st, d, t),
+                based,
             },
-        ) => guarded(
-            format!("rt.each_init({pc}).map(|()| {next})"),
-            format!(
-                "rt.each_array({pc}, rpgrt::native::ArrPlace {{ buf: {b}, off: {o}, stride: {st}, dim: {d}, ty: {}, lead: 0 }}).map(|()| {next})",
+        ) => {
+            // A based array (S2.217): its place where its pointer points
+            // now, first, as Sorta's.
+            let (pre, b, o) = match based {
+                Some(x) => (
+                    format!("let (abuf, aoff) = {}; ", based_at(x, *o)),
+                    "abuf".to_string(),
+                    "aoff".to_string(),
+                ),
+                None => (String::new(), b.to_string(), o.to_string()),
+            };
+            guarded(
+                format!("rt.each_init({pc}).map(|()| {next})"),
+                format!(
+                    "{{ {pre}rt.each_array({pc}, rpgrt::native::ArrPlace {{ buf: {b}, off: {o}, stride: {st}, dim: {d}, ty: {}, lead: 0 }}) }}.map(|()| {next})",
+                    ty(t)
+                ),
+            )
+        }
+        (
+            ir::Kind::EachInit,
+            ir::Lowered::EachVarying {
+                arr: (b, o, st, d, t),
+                name,
+            },
+        ) => {
+            // list_of of a varying-dimension array: its elements in use,
+            // loaded in order (bifs.rs list_of, elems_in_use).
+            let _ = writeln!(
+                helpers,
+                "\nfn ev{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let n = rt.elems({}).min({d});\n    let mut vals = Vec::new();\n    for k in 0..usize::try_from(n)? {{\n        let at = k.checked_mul({st}).and_then(|x| x.checked_add({o})).ok_or_else(|| anyhow::anyhow!(\"native: an element's place\"))?;\n        vals.push(rpgrt::native::load(rt.mem(), {b}, at, {})?);\n    }}\n    rt.each_values({pc}, vals)\n}}",
+                json_str(name),
                 ty(t)
-            ),
-        ),
+            );
+            guarded(
+                format!("rt.each_init({pc}).map(|()| {next})"),
+                format!("ev{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::EachInit, ir::Lowered::EachSplit { text, seps, allsep }) => {
+            // list_of of %SPLIT: the bif's pieces (the string, then the
+            // separators), as EvalSplit takes them.
+            let x = char_expr(pc, text, helpers);
+            let sp = match seps {
+                Some(c) => format!("Some({})", char_expr(pc, c, helpers)),
+                None => "None".to_string(),
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn es{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let s = {x};\n    let p = {sp};\n    let pieces = rpgrt::native::split_pieces(&s, p.as_ref(), {allsep})?;\n    rt.each_values({pc}, pieces)\n}}"
+            );
+            guarded(
+                format!("rt.each_init({pc}).map(|()| {next})"),
+                format!("es{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Cab { to },
+            ir::Lowered::CabCmp {
+                l,
+                r,
+                cmp,
+                hi,
+                lo,
+                eq,
+            },
+        ) => {
+            // native_rt cab: eval of both, data::compare, the resulting
+            // indicators (set_result_inds), then the branch.
+            let mut inds = String::new();
+            for (n, c) in [(hi, "Greater"), (lo, "Less"), (eq, "Equal")] {
+                if let Some(n) = n {
+                    let _ = writeln!(
+                        inds,
+                        "    rt.set_ind({}, o == std::cmp::Ordering::{c});",
+                        json_str(n)
+                    );
+                }
+            }
+            let hit = match cmp {
+                None => "true".to_string(),
+                Some(ir::CmpOp::Eq) => "o == std::cmp::Ordering::Equal".into(),
+                Some(ir::CmpOp::Ne) => "o != std::cmp::Ordering::Equal".into(),
+                Some(ir::CmpOp::Lt) => "o == std::cmp::Ordering::Less".into(),
+                Some(ir::CmpOp::Le) => "o != std::cmp::Ordering::Greater".into(),
+                Some(ir::CmpOp::Gt) => "o == std::cmp::Ordering::Greater".into(),
+                Some(ir::CmpOp::Ge) => "o != std::cmp::Ordering::Less".into(),
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn cb{pc}(rt: &mut dyn Runtime) -> NResult<bool> {{\n    let x = {};\n    let y = {};\n    let o = rpgrt::rpg::data::compare(&x, &y)?;\n{inds}    Ok({hit})\n}}",
+                value(l),
+                value(r)
+            );
+            let fallback = match to {
+                Some(t) => {
+                    format!("rt.cab({pc}).map(|branch| if branch {{ {t} }} else {{ {next} }})")
+                }
+                None => format!("rt.cab({pc}).map(|_| {next})"),
+            };
+            let native = match to {
+                Some(t) => {
+                    format!("cb{pc}(rt).map(|branch| if branch {{ {t} }} else {{ {next} }})")
+                }
+                None => format!("cb{pc}(rt).map(|_| {next})"),
+            };
+            guarded(fallback, native)
+        }
+        (ir::Kind::Stmt, ir::Lowered::CallPgm { name, parms, lo }) => {
+            // interp.rs stmt's CALL arm: the name, each PARM's factor 2
+            // into its result field (the strict fit), the call with the
+            // result fields' storage, then the error indicator.
+            let mut body = String::new();
+            match name {
+                ir::PgmName::Lit(n) => {
+                    let _ = writeln!(body, "    let name = {}.to_string();", json_str(n));
+                }
+                ir::PgmName::Expr(e) => {
+                    let x = char_expr(pc, e, helpers);
+                    let _ = writeln!(
+                        body,
+                        "    let name = rpgrt::rpg::data::a(&{x}.chars()?).trim().to_ascii_uppercase();"
+                    );
+                }
+            }
+            // No PARM: an empty list (no `mut`, for the generated lints).
+            if parms.is_empty() {
+                let _ = writeln!(body, "    let args = Vec::new();");
+            } else {
+                let _ = writeln!(body, "    let mut args = Vec::new();");
+            }
+            for (v, t) in parms {
+                let ir::Operand::Var { ty: tt, .. } = t else {
+                    return Err(bad());
+                };
+                let (pre, sb, so) = place_of(t).ok_or_else(bad)?;
+                if let Some(v) = v {
+                    let _ = writeln!(
+                        body,
+                        "    {{\n        let v = {};\n{pre}        rpgrt::native::store(rt.mem(), {sb}, {so}, {}, &v, rpgrt::rpg::data::Fit::Strict {{ half_adjust: false }}, false)?;\n    }}",
+                        value(v),
+                        ty(tt)
+                    );
+                }
+                let _ = writeln!(
+                    body,
+                    "    args.push({{\n{pre}    rpgrt::native::CallArg::Ref {{ buf: {sb}, off: {so}, dtype: {} }}\n    }});",
+                    ty(tt)
+                );
+            }
+            match lo {
+                Some(l) => {
+                    let _ = writeln!(
+                        body,
+                        "    let ok = rt.call_pgm(&name, args).is_ok();\n    rt.set_ind({}, !ok);\n    Ok(())",
+                        json_str(l)
+                    );
+                }
+                None => {
+                    let _ = writeln!(body, "    rt.call_pgm(&name, args)");
+                }
+            }
+            let _ = writeln!(
+                helpers,
+                "\nfn cp{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}}}"
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("cp{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::Stmt, ir::Lowered::ClearDs { name, index }) => {
+            let ix = match index {
+                Some(o) => format!("Some({}.num()?)", value(o)),
+                None => "None".to_string(),
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn cd{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let ix = {ix};\n    rt.clear_ds({}, ix)\n}}",
+                json_str(name)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("cd{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (ir::Kind::EndSr, ir::Lowered::EndSrPoint { point, clear }) => {
+            // native_rt end_sr: the point (trimmed, upper case), then the
+            // field blank again, then the return point's signal.
+            let x = char_expr(pc, point, helpers);
+            let blank = match clear {
+                Some(var) => {
+                    let ir::Operand::Var { ty: t, .. } = var else {
+                        return Err(bad());
+                    };
+                    let (prelude, sb, so) = place_of(var).ok_or_else(bad)?;
+                    format!(
+                        "{prelude}    rpgrt::native::store(\n        rt.mem(),\n        {sb},\n        {so},\n        {},\n        &rpgrt::rpg::data::Value::str(\"\"),\n        rpgrt::rpg::data::Fit::Truncate {{ half_adjust: false }},\n        false,\n    )?;\n",
+                        ty(t)
+                    )
+                }
+                None => String::new(),
+            };
+            let _ = writeln!(
+                helpers,
+                "\nfn er{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n    let v = {x};\n    let point = rpgrt::rpg::data::a(&v.chars()?).trim().to_ascii_uppercase();\n{blank}    if point.is_empty() {{\n        return Ok(());\n    }}\n    rt.return_point(point)\n}}"
+            );
+            guarded(
+                format!("rt.end_sr({pc}).map(|()| {next})"),
+                format!("er{pc}(rt).map(|()| {next})"),
+            )
+        }
         (ir::Kind::EachNext { end }, ir::Lowered::EachNext { var }) => {
             // The EachNext arm: the next value into the item with the
             // strict fit, or the loop's end.

@@ -765,6 +765,72 @@ impl Runtime for Rt<'_, '_> {
         Ok(())
     }
 
+    fn clear_ds(&mut self, name: &str, index: Option<Dec>) -> NResult<()> {
+        // interp.rs stmt's CLEAR arms for a data structure and for one
+        // element of a data structure array (S2.216).
+        let Some(super::super::program::Sym::Ds(d)) = self.m.sym(name) else {
+            return Err(anyhow!("native: CLEAR of {name}: not a data structure"));
+        };
+        match index {
+            None => {
+                self.m.clear_ds(name, &d);
+                Ok(())
+            }
+            Some(i) => {
+                let args = Some(vec![Expr::Num(i)]);
+                let at = self.m.ds_element(&d, &args)?;
+                let img = self.m.ds_clear_image(name, &d);
+                let end = at
+                    .checked_add(d.size)
+                    .ok_or_else(|| anyhow!("native: an element's place"))?;
+                let dst = self
+                    .m
+                    .bufs
+                    .get_mut(d.buf)
+                    .and_then(|b| b.get_mut(at..end))
+                    .ok_or_else(|| anyhow!("native: an element's place"))?;
+                if dst.len() != img.len() {
+                    return Err(anyhow!("native: CLEAR of {name}: the element's size"));
+                }
+                dst.copy_from_slice(&img);
+                Ok(())
+            }
+        }
+    }
+
+    fn call_pgm(&mut self, name: &str, args: Vec<CallArg>) -> NResult<()> {
+        // interp.rs stmt's CALL arm (S2.218): each PARM's result field as
+        // loc_of gives it, then the program call service.
+        let mut locs = Vec::with_capacity(args.len());
+        for a in args {
+            let CallArg::Ref { buf, off, dtype } = a else {
+                return Err(anyhow!("native: a PARM of CALL {name} is not a field"));
+            };
+            locs.push(super::Loc {
+                buf,
+                off,
+                size: dtype.size(),
+                dtype,
+            });
+        }
+        self.m.call_program(name, &locs)
+    }
+
+    fn return_point(&mut self, point: String) -> NResult<()> {
+        // end_sr's signal (S2.214).
+        Err(ReturnPointSignal(point).into())
+    }
+
+    fn each_values(&mut self, pc: usize, vals: Vec<Value>) -> NResult<()> {
+        // The EachInit arm's state with list_of's values (S2.213).
+        if !matches!(&at(self.code, pc)?.ins, Ins::EachInit { .. }) {
+            return Err(mismatch(pc, "a FOR-EACH start"));
+        }
+        let key = (self.code.as_ptr().addr(), pc, self.m.frames.len());
+        self.m.each.insert(key, (vals, 0));
+        Ok(())
+    }
+
     fn each_take(&mut self, pc: usize) -> NResult<Option<Value>> {
         let Ins::EachNext { init, .. } = &at(self.code, pc)?.ins else {
             return Err(mismatch(pc, "a FOR-EACH step"));
@@ -962,6 +1028,21 @@ impl Runtime for Rt<'_, '_> {
             ),
         };
         self.m.check_buf(b)?;
+        Ok((b, o))
+    }
+
+    fn local_elem(&mut self, buf: usize, off: usize, size: usize) -> NResult<(usize, usize)> {
+        // interp.rs elem_off's reach (S2.221), after Machine::sym's place.
+        let (b, o) = self.local(buf, off)?;
+        if b != rpgrt::rpg::mem::BAD_BUF {
+            if let Some(len) = self.m.bufs.get(b).map(|x| x.len()) {
+                if o.checked_add(size).is_none_or(|end| end > len) {
+                    anyhow::bail!(
+                        "MCH0601: {size} bytes at offset {o} are outside the {len} bytes of storage the pointer addresses."
+                    );
+                }
+            }
+        }
         Ok((b, o))
     }
 

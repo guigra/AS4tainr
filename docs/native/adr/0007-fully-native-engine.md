@@ -2365,3 +2365,40 @@ Each generated routine now carries its own table, `static ROUTING: rpgrt::native
 The source map says `"settle": "native"`, and native-coverage.sh counts such routines. The services above are runtime services on the machine's state (the PSDS, the call stack, the job log), the same kind as calls and files. Writing them again with no Machine is phase B.
 
 **Verified by** the native units and native-diff under both engines: MONITOR groups (status codes, *PROGRAM, *FILE, MSG: entries), nested groups, *PSSR, GOTO from a subroutine, RETURN in a group and the return point. No behavior change: the order and the outcomes are the old settle's, so no new IBM i capture is needed.
+
+## S2.212-S2.220: the last instructions with the interpreter, but one
+
+The x86_64 run s7f-s2211 left 18 instructions with the interpreter. Their maps, a WHY pass and a dump of the sources rla_test compiles (AS4TAINR_DUMP_SOURCE) tie each to its program.
+
+- **S2.212: a date, time or timestamp CONST parameter given a field of the same kind in another format** (NDTPARM:18). value_arg passes the field's value as eval loads it (data::load, its text in its own format), and call_proc stores it in the parameter's type. char_expr leaves temporal operands out of character expressions; here the value is a leaf.
+- **S2.213: FOR-EACH over %SPLIT and over a varying-dimension array** (rla_test.rs FREEFORM:48 and 66).
+  - %SPLIT's pieces come from split_pieces, as EvalSplit's (S2.179).
+  - A varying-dimension array gives its elements in use (rt.elems).
+  - Both go to the runtime's each_values, the EachInit arm's state.
+  - Verified by the native unit NEACHSP under both engines, as captured on PUB400 (tools/golden/native218.txt n218_foreach: `[a][b][c]|[a][b][][c]|[the][quick][fox]|[x][y][z]|3`).
+- **S2.214: ENDSR with a return point** (rla_test.rs PSSRBLK, PSSRCAN, PSSRCYC). It reproduces native_rt end_sr: the point's characters, trimmed and in upper case, then the field blanked, then the runtime's return_point signal.
+- **RESET of a procedure's own field or data structure** (NRESET:48, RESETT:22). reset_local_area copies back the procedure's initial frame image, as reset_to_initial's local arm. It is not done for parameters, based storage or varying arrays.
+- **S2.215: CABxx to a TAG of the routine, or to none** (GOTOTAG:6 and 7). It reproduces native_rt cab: both operands, data::compare, the resulting indicators (set_result_inds), then the branch. A TAG outside the routine stays with the GOTO signal.
+- **S2.216: CLEAR of a data structure with data structure subfields, and of one element of a data structure array** (CLRNEST:15, IMQCLR:16). These go through the runtime's clear_ds service, which is interp.rs clear_ds, ds_element and ds_clear_image. The element's index is the generated code's. A static image cannot do it: clear_ds copies each nested array's first element over the others, including bytes no subfield covers.
+- **S2.217: FOR-EACH over a based array** (NBASARR:30). Its place is where its pointer points, as SORTA's (S2.186).
+- **S2.218: fixed-form CALL with PARM** (rla_test.rs CALLER:3 and 8). It reproduces interp.rs stmt's CALL arm:
+  - the name (a literal, or a field's characters);
+  - each PARM's factor 2 into its result field;
+  - the program call service (call_pgm, the interpreter's call_program, a phase B dependency);
+  - the error indicator: on when the call fails, off otherwise.
+- **S2.219: a character field of another length for a program's character parameter by reference** (rla_test.rs SYSAPI:23 and 27). It goes as loc_of gives it, the field's own storage and size. IBM i's compiler refuses it (fidelity.md); the interpreter runs it.
+- **S2.220: %CONCAT(*BLANK)** (NINCONC:38). The separator is the figurative constant's characters, none, as the interpreter's bif CONCAT takes them. That is an interpreter defect: IBM i puts one blank (fidelity.md), and it is fixed in the fork branch fix/concat-blank, which native code follows when it lands.
+
+**Verified by** the native units under both engines (196) and the WHY pass. Every instruction of the rla_test.rs programs above is native in their maps (CALLER, SYSAPI, CLRNEST, IMQCLR, RESETT, the PSSR programs, FREEFORM). native-diff runs them under rust.
+
+## S2.221: an element of a procedure's array parameter (rpgcg 0.1.0+stage2.221)
+
+NWHOLEA:35, `keys(i)` of an `int(10) CONST DIM(5) OPTIONS(*VARSIZE)` parameter. interp.rs elem_off checks the index against the dimension (RNQ0121), then calls reach. reach checks the element's bytes against the whole storage the array is in: for a parameter by reference, the caller's buffer, not the argument's extent (MCH0601 past it).
+
+The runtime's local_elem does reach after Machine::sym's place (`local`), and every element of a procedure's local array is placed through it. For the procedure's own arrays, reach cannot fail once the index is checked, so they behave as before. An array parameter indexed at run time is lowered now (param_array_ok). A literal index into one still is not.
+
+**Verified by** the native units under both engines: NWHOLEA's WHY pass lists nothing now, and the native units have no instruction left with the interpreter.
+
+## S2.222: a CALL with no PARM (rpgcg 0.1.0+stage2.222)
+
+native-diff's generated-lints step on s7f-s2220 found that a fixed-form CALL with no PARM (rla_test.rs CALLER's `CALL 'NOSUCH'`) declared its argument list `mut` with nothing pushed (unused_mut). Such a CALL now gets an empty list. Checked by clippy on that test's generated code.
