@@ -4568,6 +4568,29 @@ impl Rt<'_, '_> {
             &mut None,
             sql,
         )) {
+            // A table made in a library without the journal QSQJRN is not
+            // journaled: the warning +7905, SQLSTATE 01567 (sql_ddl since
+            // the fork's fix/sql-create-table-7905).
+            Ok(Some(text))
+                if {
+                    let w: Vec<String> = sql
+                        .split_whitespace()
+                        .take(4)
+                        .map(|x| x.to_ascii_uppercase())
+                        .collect();
+                    let w: Vec<&str> = w.iter().map(String::as_str).collect();
+                    matches!(
+                        w.as_slice(),
+                        ["CREATE", "TABLE", ..] | ["CREATE", "OR", "REPLACE", "TABLE", ..]
+                    ) && !text.ends_with(crate::ddl::JOURNALED)
+                } =>
+            {
+                Ok(Some(SqlOut {
+                    code: 7905,
+                    state: "01567".into(),
+                    ..sql_ok(0)
+                }))
+            }
             Ok(Some(_)) => Ok(Some(sql_ok(0))),
             Ok(None) => Ok(None),
             Err(e) => match sql_error_n(&e) {
