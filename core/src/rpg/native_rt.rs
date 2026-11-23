@@ -5777,6 +5777,27 @@ impl Rt<'_, '_> {
                 "*DTAARA",
                 crate::authority::Aut::Change,
             ))?;
+            // OUT needs the data area locked by the job (interp.rs
+            // data_area since the fork's fix/out-unlocked-dtaara): IN
+            // *LOCK in this program, or kept from an earlier call.
+            // Otherwise status 00412, and the data area keeps its value.
+            let locked = held || {
+                let t = crate::objlock::Target {
+                    library: d.library.clone(),
+                    name: d.name.clone(),
+                    objtype: "*DTAARA".into(),
+                };
+                let owner = self.m.io.job_key.clone();
+                self.m
+                    .block(crate::objlock::holds(client, &t, "*EXCLRD", &owner))?
+            };
+            if !locked {
+                return Err(anyhow!(
+                    "RNX0412: Data area {} in library {} is not locked: OUT needs it locked with IN *LOCK.",
+                    d.name,
+                    crate::qtemp::logical(&d.library)
+                ));
+            }
             let slot = &f.field;
             let v = rpgrt::native::load(&self.m.bufs, slot.buf, slot.off, slot.ty)?;
             let text = match v {
