@@ -2474,9 +2474,8 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
         }
         // %CHAR of a date, time or timestamp expression (S2.134): %DATE,
         // %TIME, %TIMESTAMP, or arithmetic with a duration. bif_override's
-        // format then comes from temporal_type, the control
-        // specification's DATFMT or TIMFMT for a date or a time (not a
-        // field's), or the explicit special value.
+        // format is then *ISO for a date or a time (not a field's, nor the
+        // control specification's), or the explicit special value.
         Expr::Bif(b, args)
             if b == "CHAR"
                 && matches!(args.len(), 1 | 2)
@@ -2485,7 +2484,7 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                     .is_some_and(|a| !matches!(a, Expr::Name { .. }))
                 && args.first().is_some_and(|a| temporal_kind(cx, a).is_some()) =>
         {
-            temporal_char_of(cx, args, used, path)
+            temporal_char_of(cx, args, used, path, true)
         }
         // %CHAR of a numeric expression (S2.14). The program's DECEDIT is
         // part of the code, so it goes into the fingerprint's layout.
@@ -3312,7 +3311,7 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
             let c = if is_temporal_name(cx, x) {
                 temporal_char(cx, args, used)?
             } else {
-                temporal_char_of(cx, args, used, path)?
+                temporal_char_of(cx, args, used, path, false)?
             };
             let nosep = |f: ir::TemporalFmt| match f {
                 ir::TemporalFmt::Date(n, _) => ir::TemporalFmt::Date(n, None),
@@ -6698,14 +6697,18 @@ fn temporal_kind_at(cx: &Cx<'_>, e: &Expr, depth: usize) -> Option<char> {
 }
 
 /// %CHAR of a temporal expression (S2.134), as bif_override: the value
-/// (temporal_value), the explicit format or the control specification's
-/// (temporal_type gives an expression the default type, whose format is
+/// (temporal_value), the explicit format or, with none, *ISO for %CHAR
+/// (`iso`: its arm gives an expression, a built-in's result or date
+/// arithmetic, *ISO whatever DATFMT and TIMFMT say; x is never a name
+/// here) and the control specification's for %DEC (its arm's
+/// temporal_type gives an expression the default type, whose format is
 /// that one); a timestamp only *ISO0 or not.
 fn temporal_char_of(
     cx: &Cx<'_>,
     args: &[Expr],
     used: &mut Vec<String>,
     path: Vec<u8>,
+    iso: bool,
 ) -> Option<ir::CharExpr> {
     use rpgrt::rpg::dates::{DateFmt, TimeFmt};
     let (x, explicit) = match args {
@@ -6723,6 +6726,7 @@ fn temporal_char_of(
         'D' => {
             let f = match &explicit {
                 Some(e) => DateFmt::parse(e).ok()?,
+                None if iso => DateFmt::iso(),
                 None => cx.prog.datfmt().ok()?,
             };
             ir::TemporalFmt::Date(f.name, f.sep)
@@ -6730,6 +6734,7 @@ fn temporal_char_of(
         'T' => {
             let f = match &explicit {
                 Some(e) => TimeFmt::parse(e).ok()?,
+                None if iso => TimeFmt::iso(),
                 None => cx.prog.timfmt().ok()?,
             };
             ir::TemporalFmt::Time(f.name, f.sep)

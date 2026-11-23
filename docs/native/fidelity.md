@@ -361,6 +361,8 @@ Source: tools/golden/native134 n134_tchar (PUB400, IBM i 7.5, 2026-11-19), a pro
 
 Under the default formats (*ISO) the two agree (n134_tchariso).
 
+Fixed in the fork's interpreter (`fix/char-temporal-expr-iso`): bif_override gives an expression *ISO. The native engine follows it (lower.rs temporal_char_of; %DEC of an expression keeps the control specification's format, as its arm does): rla_test `char_of_a_date_expression_is_iso_whatever_datfmt` and `rpg_date_and_time_formats` pass under `AS4TAINR_RPG_ENGINE=rust` (2026-11-23).
+
 ## Date and time literals under DATFMT and TIMFMT (found 2026-11-19)
 
 Source: tools/golden/native134 n134_crt (PUB400, IBM i 7.5, 2026-11-19).
