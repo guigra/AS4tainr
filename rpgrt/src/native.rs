@@ -1850,7 +1850,9 @@ pub fn editc(
 /// %EDITC's third argument (S2.81), as interp.rs's EDITC arm applies it
 /// to the edited text: *ASTFILL puts asterisks for its leading blanks;
 /// *CURSYM a '$', or another (a literal's text without its trailing
-/// blanks), right before its first character that is not blank.
+/// blanks), right before its first character that is not blank; another
+/// on an edited text that is all blanks gives only one blank more
+/// (fix/editc-blank-floating).
 pub fn editc_third(edited: &Value, third: &str) -> NResult<Value> {
     let out = data::a(&edited.chars()?);
     let body = out.trim_start();
@@ -1859,6 +1861,7 @@ pub fn editc_third(edited: &Value, third: &str) -> NResult<Value> {
     Ok(Value::str(&match third {
         "*ASTFILL" => format!("{}{body}", "*".repeat(lead)),
         "*CURSYM" => format!("{head}${body}"),
+        _ if lead == out.len() => format!("{out} "),
         sym => format!("{head}{}{body}", sym.trim_end()),
     }))
 }
