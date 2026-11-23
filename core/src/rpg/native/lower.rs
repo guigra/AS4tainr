@@ -2728,11 +2728,9 @@ fn char_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Op
                 }
                 Expr::Str(b) => b.clone(),
                 // *BLANK as the parser gives it, a figurative constant
-                // (S2.220): the interpreter's bif CONCAT takes its
-                // characters, none, as the separator (fidelity.md: IBM i
-                // puts one blank; fixed upstream-side in the fork branch
-                // fix/concat-blank, which this follows when it lands).
-                Expr::Fig(Fig::Blanks) => Vec::new(),
+                // (S2.220): the interpreter's bif CONCAT puts one blank
+                // between the values, as IBM i does (fix/concat-blank).
+                Expr::Fig(Fig::Blanks) => vec![super::super::data::BLANK],
                 _ => return None,
             };
             let mut parts = Vec::with_capacity(args.len().saturating_mul(2));
