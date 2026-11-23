@@ -31505,3 +31505,67 @@ dsply ('GT2 RPE2 ' + %trim(NAME));
         ]
     );
 }
+
+/// READ(E) of a USROPN file that is not open sets %ERROR and status
+/// 01211, and the program goes on (no MONITOR takes it). Expected value:
+/// PUB400, IBM i 7.5, 2026-11-20 (tools/golden/native171 n171_reade in
+/// the native fork: "3 0 1 1 1211").
+#[tokio::test]
+async fn read_e_of_a_file_not_open_is_status_1211() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (mut client, lib) = setup(&url).await;
+    let dds = "     A          R RNOF\n     A            N              9B 0\n     A            S              2A\n";
+    let pf = dds::parse_pf("RNOF", dds).unwrap();
+    catalog::create_physical_file(&mut client, &lib, &pf)
+        .await
+        .unwrap();
+    let mut f = open(&client, &lib, "RNOF").await;
+    for (n, s) in [("1", "aa"), ("2", "bb"), ("3", "cc")] {
+        let rec: rla::Record = [("N", n), ("S", s)]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        f.write(&client, &rec).await.unwrap();
+    }
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-f rnof usage(*input) rename(rnof : rnofr);
+dcl-f rnok usage(*input) usropn extfile('RNOF') extdesc('RNOF') rename(rnof : rnofs);
+dcl-ds r likerec(rnofr);
+dcl-s c int(10);
+dcl-s line varchar(80);
+read(e) rnof r;
+dow not %eof(rnof);
+  c += 1;
+  read(e) rnof r;
+enddo;
+line = %char(c) + ' ' + %char(%error) + ' ' + %char(%eof(rnof));
+if c < 0;
+  open rnok;
+endif;
+monitor;
+  read(e) rnok;
+  line += ' ' + %char(%error) + ' ' + %char(%status(rnok));
+on-error;
+  line += ' caught ' + %char(%status);
+endmon;
+dsply line;
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "RNOTOPEN".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["3 0 1 1 1211"]);
+}

@@ -2530,7 +2530,18 @@ impl<'a> Machine<'a> {
             );
         }
         if self.files[i].open.is_none() && !matches!(op, FileOp::Open | FileOp::Close) {
-            bail!("CPF4135: File {file} is not open.");
+            // The E extender and the error indicator take it as any
+            // other error on the operation: status 01211 (PUB400, IBM i
+            // 7.5, 2026-11-20: READ(E) of a USROPN file not open).
+            let err = anyhow!("CPF4135: File {file} is not open.");
+            if ext.error || ind.lo.is_some() {
+                self.file_failed(i, &err);
+                if let Some(lo) = &ind.lo {
+                    self.set_ind(lo, true);
+                }
+                return Ok(());
+            }
+            return Err(err);
         }
         let lock = !ext.no_lock;
         let cmt = self.files[i].cmt.clone();
