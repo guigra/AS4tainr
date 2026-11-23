@@ -30479,3 +30479,46 @@ dsply line;
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["1 0 hello 0 hello 211"]);
 }
+
+/// Fixed-form ALLOC and REALLOC: the length in factor 2, the pointer in
+/// the result field; REALLOC keeps the storage's bytes. Expected values:
+/// PUB400, IBM i 7.5, 2026-11-16 (tools/golden/native51 n51_heap in the
+/// native fork: "FIXED [FIXED]", "FIXED DEALLOC NULL").
+#[tokio::test]
+async fn fixed_form_alloc_and_realloc_run() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"     H DFTACTGRP(*NO)
+     D r               s               *
+     D c5              s              5    based(r)
+     D n               s             10i 0 inz(0)
+     C                   ALLOC     5             R
+     C                   EVAL      C5 = 'FIXED'
+     C                   EVAL      N = 5
+     C                   REALLOC   N             R
+     C     'FIXED ['     CAT       C5:0          T                20
+     C                   CAT       ']':0         T
+     C     T             DSPLY
+     C                   DEALLOC(N)              R
+     C                   IF        R = *NULL
+     C     'NULL'        DSPLY
+     C                   ENDIF
+     C                   SETON                                        LR
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "FIXALLOC".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["FIXED [FIXED]", "NULL"]);
+}

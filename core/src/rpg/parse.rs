@@ -1976,8 +1976,8 @@ fn fixed_c(ctx: &mut Ctx, cs: &[char], ext2: &str, lineno: usize) -> Result<()> 
         }),
         "CAT" | "SUBST" | "SCAN" | "CHECK" | "CHECKR" | "XLATE" | "LOOKUP" | "TIME" | "IN"
         | "OUT" | "MOVEA" | "XFOOT" | "SQRT" | "TESTN" | "TESTZ" | "TESTB" | "BITON" | "BITOFF"
-        | "EXCEPT" | "OCCUR" | "SORTA" | "DEALLOC" | "MHHZO" | "MHLZO" | "MLHZO" | "MLLZO"
-        | "SHTDN" | "TEST" => {
+        | "EXCEPT" | "OCCUR" | "SORTA" | "DEALLOC" | "ALLOC" | "REALLOC" | "MHHZO" | "MHLZO"
+        | "MLHZO" | "MLLZO" | "SHTDN" | "TEST" => {
             // Factors written `value:value` (SCAN 'ab':2, SUBST base:start,
             // XLATE from:to, CAT text:blanks).
             let f2v = if op == "EXCEPT" {
