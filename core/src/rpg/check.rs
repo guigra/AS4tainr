@@ -29,6 +29,11 @@
 //! - RNF7030 and RNF7018 (30): EXSR in a subprocedure of a subroutine it
 //!   does not have (PUB400 2026-11-15);
 //! - RNF7569 (20): a FOR limit with decimal places (PUB400 2026-11-22);
+//! - RNF7503 and RNF7030 (30): a numeric indicator used in an expression
+//!   and set nowhere (PUB400 2026-11-23);
+//! - RNF0530 (20) and RNF7563 (30): a constant index past a DIM(*AUTO)
+//!   array's dimension, %ELEM of a DIM(*VAR) array set past its
+//!   dimension (PUB400 2026-11-23);
 //! - RNF2121 (30) and RNF2109 (40): an externally described file whose
 //!   record format has the file's name, without RENAME (PUB400
 //!   2026-11-05, tools/golden/verify47.txt p47_crtr).
@@ -89,6 +94,11 @@ struct Walker<'a> {
     bad_ds: Vec<String>,
     /// Record formats a file operation with such a data structure named.
     invalid_io: Vec<String>,
+    /// Numeric indicators (01-99) used in expressions, with their lines.
+    ind_uses: Vec<(usize, String)>,
+    /// Numeric indicators passed to a procedure or program, which may set
+    /// them.
+    ind_passed: Vec<String>,
 }
 
 impl Walker<'_> {
@@ -128,6 +138,13 @@ impl Walker<'_> {
                     self.undefined(line, &name);
                     bad = true;
                 }
+                if self.prog.procs.contains_key(&name) || self.prog.protos.contains_key(&name) {
+                    for a in args.iter().flatten() {
+                        if let Expr::Ind(n) = a {
+                            self.ind_passed.push(n.clone());
+                        }
+                    }
+                }
                 for a in args.iter().flatten() {
                     bad |= self.expr(line, a);
                 }
@@ -145,6 +162,9 @@ impl Walker<'_> {
                 }
             }
             Expr::IndArray(Some(x)) => bad |= self.expr(line, x),
+            Expr::Ind(n) if n.len() == 2 && n.bytes().all(|b| b.is_ascii_digit()) => {
+                self.ind_uses.push((line, n.clone()));
+            }
             Expr::Bif(b, args) if !NAME_BIFS.contains(&b.to_ascii_uppercase().as_str()) => {
                 for a in args {
                     bad |= self.expr(line, a);
@@ -175,6 +195,74 @@ impl Walker<'_> {
                 text: format!("Name or indicator {name} is not defined."),
                 at: None,
             });
+        }
+    }
+
+    /// A constant index past a DIM(*AUTO) array's dimension as the target
+    /// of an assignment: RNF0530, severity 20; %ELEM of a DIM(*VAR) array
+    /// set to a constant past its dimension: RNF7563, severity 30
+    /// (tools/golden/native220 n220_crt_aut and n220_crt_var, PUB400,
+    /// IBM i 7.5, 2026-11-23: `au(6) = 1` for DIM(*AUTO:5), `%elem(va) =
+    /// 5` for DIM(*VAR:4)).
+    fn varying_past_dim(&mut self, l: usize, target: &Expr, value: &Expr) {
+        let dim_of = |w: &Self, name: &str, kind: char| -> Option<i128> {
+            let (k, _) = w
+                .prog
+                .varying
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(name))?;
+            if w.prog.varying.get(k) != Some(&kind) {
+                return None;
+            }
+            match w.sym(&name.to_ascii_uppercase())? {
+                Sym::Var(v) => Some(i128::from(v.dim)),
+                _ => None,
+            }
+        };
+        match (target, value) {
+            (
+                Expr::Name {
+                    parts,
+                    args: Some(a),
+                },
+                _,
+            ) if a.len() == 1 => {
+                let name = parts.join(".");
+                if let (Some(d), Some(Expr::Num(n))) = (dim_of(self, &name, 'A'), a.first()) {
+                    if let Ok(k) = n.to_i128() {
+                        if k > d {
+                            self.out.diags.push(Diag {
+                                line: l,
+                                id: "RNF0530".into(),
+                                sev: 20,
+                                text: format!(
+                                    "The index {k} of {name} is past its dimension, {d}."
+                                ),
+                                at: None,
+                            });
+                        }
+                    }
+                }
+            }
+            (Expr::Bif(b, args), Expr::Num(n)) if b.eq_ignore_ascii_case("ELEM") => {
+                if let Some(Expr::Name { parts, args: None }) = args.first() {
+                    let name = parts.join(".");
+                    if let (Some(d), Ok(k)) = (dim_of(self, &name, 'V'), n.to_i128()) {
+                        if k > d {
+                            self.out.diags.push(Diag {
+                                line: l,
+                                id: "RNF7563".into(),
+                                sev: 30,
+                                text: format!(
+                                    "%ELEM of {name} cannot be set to {k}: its dimension is {d}."
+                                ),
+                                at: None,
+                            });
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -432,6 +520,7 @@ impl Walker<'_> {
                         }
                     }
                 }
+                self.varying_past_dim(l, target, value);
                 // A subfield of a data structure without subfields
                 // (RNF3546) as the target: RNF7503 too (verify12
                 // n12_rpgp: `outr.ID = id;` RNF7030 and RNF7503).
@@ -614,6 +703,8 @@ pub fn check(src: &Source, prog: &Program, text: &str) -> Checked {
         out: Checked::default(),
         bad_ds: Vec::new(),
         invalid_io: Vec::new(),
+        ind_uses: Vec::new(),
+        ind_passed: Vec::new(),
     };
     let global_bad = self_likerec(&src.defs, text, &mut w.out.diags);
     w.bad_ds = global_bad.clone();
@@ -670,6 +761,26 @@ pub fn check(src: &Source, prog: &Program, text: &str) -> Checked {
                     at: None,
                 });
             }
+        }
+    }
+    // A numeric indicator used in an expression and set nowhere in the
+    // program: RNF7503 and RNF7030, severity 30 (tools/golden/native220
+    // n220_crt_ind, PUB400, IBM i 7.5, 2026-11-23: `if *in60;`).
+    if let Some(set) = indicators_set(src) {
+        let mut seen: Vec<(usize, String)> = Vec::new();
+        for (line, n) in std::mem::take(&mut w.ind_uses) {
+            if set.contains(&n) || w.ind_passed.contains(&n) || seen.contains(&(line, n.clone())) {
+                continue;
+            }
+            seen.push((line, n.clone()));
+            w.out.diags.push(Diag {
+                line,
+                id: "RNF7503".into(),
+                sev: 30,
+                text: "The expression has an operand that is not defined.".into(),
+                at: None,
+            });
+            w.undefined(line, &format!("*IN{n}"));
         }
     }
     // A record format whose only file operations were not valid: not
@@ -845,4 +956,60 @@ fn blocking(src: &Source) -> Vec<Diag> {
         }
     }
     out
+}
+
+/// The numeric indicators (01-99) the program sets: resulting indicators,
+/// SETON and SETOFF, and those that are the target of an assignment, a
+/// result field, a parameter or CLEAR/RESET. None when the program can set
+/// indicators in ways not seen here (a display or printer file, input
+/// specifications, INDDS or INDARA, the *IN array), so that no indicator
+/// is taken as set nowhere.
+fn indicators_set(src: &Source) -> Option<Vec<String>> {
+    if !src.inputs.is_empty()
+        || src.files.iter().any(|f| {
+            f.device != "DISK"
+                || keyword(&f.keywords, "INDDS").is_some()
+                || keyword(&f.keywords, "INDARA").is_some()
+        })
+    {
+        return None;
+    }
+    let text = format!(
+        "{:?}",
+        (&src.calcs, &src.procs, &src.plists, &src.entry, &src.defs)
+    );
+    if text.contains("IndArray(") {
+        return None;
+    }
+    let mut set = Vec::new();
+    let mut quoted_after = |marker: &str, list: bool| {
+        let mut rest = text.as_str();
+        while let Some(i) = rest.find(marker) {
+            rest = &rest[i + marker.len()..];
+            let end = if list { rest.find(']').unwrap_or(0) } else { 4 };
+            let part = rest.get(..end.min(rest.len())).unwrap_or("");
+            for q in part.split('"').skip(1).step_by(2) {
+                if q.len() == 2 && q.bytes().all(|b| b.is_ascii_digit()) {
+                    set.push(q.to_string());
+                }
+                if !list {
+                    break;
+                }
+            }
+        }
+    };
+    for m in [
+        "hi: Some(",
+        "lo: Some(",
+        "eq: Some(",
+        "result: Some(Ind(",
+        "target: Ind(",
+        "Clear(Ind(",
+        "Reset(Ind(",
+        "response: Some(Ind(",
+    ] {
+        quoted_after(m, false);
+    }
+    quoted_after("inds: [", true);
+    Some(set)
 }

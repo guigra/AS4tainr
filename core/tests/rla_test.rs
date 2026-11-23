@@ -29967,3 +29967,66 @@ async fn date_of_a_value_too_short_for_iso_does_not_compile() {
     )
     .await;
 }
+
+/// A numeric indicator used in an expression and set nowhere in the
+/// program: RNF7503 and RNF7030, severity 30 (tools/golden/native220
+/// n220_crt_ind in the native fork, PUB400, IBM i 7.5, 2026-11-23:
+/// `if *in60;`). Set by an assignment or by SETON, it compiles and runs.
+#[tokio::test]
+async fn an_indicator_set_nowhere_does_not_compile() {
+    let _ = require_db!();
+    let body = "dcl-s x int(10);\nif *in60;\n  x = 1;\nendif;\n";
+    refused_by_the_compiler("IND60", body, "*RNF7503 30").await;
+    refused_by_the_compiler("IND60", body, "*RNF7030 30").await;
+    use as4tainr_core::rpg;
+    let url = db_url().unwrap();
+    let (_client, lib) = setup(&url).await;
+    for (name, src) in [
+        (
+            "INDSET1",
+            "**FREE\nctl-opt dftactgrp(*no);\n*in60 = *on;\nif *in60;\n  dsply 'ON';\nendif;\n*inlr = *on;\n",
+        ),
+        (
+            "INDSET2",
+            "     C                   SETON                                        60\n     C                   IF        *IN60\n     C     'ON'          DSPLY\n     C                   ENDIF\n     C                   SETON                                        LR\n",
+        ),
+    ] {
+        let r = rpg::call(
+            &url,
+            vec![lib.clone()],
+            "QSECOFR".into(),
+            None,
+            None,
+            None,
+            name.into(),
+            src.into(),
+            vec![],
+        )
+        .await
+        .unwrap();
+        assert!(r.error.is_none(), "{name}: {:?}", r.error);
+        assert_eq!(r.messages, ["ON"], "{name}");
+    }
+}
+
+/// A constant index past a DIM(*AUTO) array's dimension as an
+/// assignment's target: RNF0530, severity 20; %ELEM of a DIM(*VAR) array
+/// set to a constant past its dimension: RNF7563, severity 30
+/// (tools/golden/native220 n220_crt_aut and n220_crt_var in the native
+/// fork, PUB400, IBM i 7.5, 2026-11-23).
+#[tokio::test]
+async fn constant_indexes_past_a_varying_dimension_do_not_compile() {
+    let _ = require_db!();
+    refused_by_the_compiler(
+        "AUTO6",
+        "dcl-s au int(10) dim(*auto : 5);\nau(6) = 1;\n",
+        "*RNF0530 20",
+    )
+    .await;
+    refused_by_the_compiler(
+        "VARSET5",
+        "dcl-s va int(10) dim(*var : 4);\n%elem(va) = 5;\n",
+        "*RNF7563 30",
+    )
+    .await;
+}
