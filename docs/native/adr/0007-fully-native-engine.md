@@ -2402,3 +2402,22 @@ The runtime's local_elem does reach after Machine::sym's place (`local`), and ev
 ## S2.222: a CALL with no PARM (rpgcg 0.1.0+stage2.222)
 
 native-diff's generated-lints step on s7f-s2220 found that a fixed-form CALL with no PARM (rla_test.rs CALLER's `CALL 'NOSUCH'`) declared its argument list `mut` with nothing pushed (unused_mut). Such a CALL now gets an empty list. Checked by clippy on that test's generated code.
+
+## S2.223: fixes from the codex review of S2.167-S2.222 (rpgcg 0.1.0+stage2.223)
+
+A read-only codex review of S2.167 to S2.222 in groups (/home/ctl/data/as4tainr-ev-x86/codex-s2167-s2222). The incomplete groups were run again three blocks at a time. Each finding was checked against the code.
+
+Fixed:
+- **S2.171, S2.193, S2.198: a file operation's keys before its open check.** Generated code evaluated the keys first, so a key that fails (an invalid packed key, %KDS of a based subfield with a *NULL pointer, an element out of range) gave its error on a closed file. That error also bypassed file_op's status. The keys now come to the runtime evaluated with their error kept (`keys_code`, a helper `fk<pc>`). file_read checks that the file is open (CPF4135 first, as file_op_inner), then takes the keys' error as one out of file_op_inner: file_op's end, then the error, which E does not take.
+- **S2.172: a DELETE's keys after the authority check.** file_change_start now gets the keys and takes their error after the open check and before the authority check, as file_op_inner evaluates key_values there. It gives them back for file_change.
+- **S2.215 (any context): %LEN of an indexed element or of based storage folded to a constant.** The interpreter evaluates the argument first (RNQ0121, the pointer fault); only an unindexed, unbased fixed-length field is folded now.
+- **S2.210: a float column through a result data structure.** ds_to_record rescales every number to the column's decimals; it is not lowered now.
+- **S2.169: a whole data structure array for a CONST varying parameter.** args_for gives the reference the parameter's type (CEEDOD's descriptor); only a fixed-length character parameter is lowered now.
+- **S2.200: EXTPGM's program-name field based or a procedure's own.** Its load can fault before the arguments in the interpreter, and the runtime reads a global's buffer; not lowered now.
+- **S2.201 and S2.203: a call compared as a float, or in %DEC/%INT, that a bound procedure answers with another type.** Only this module's procedures and the runtime's C functions are lowered there now (`float_call_typed`). A call with no value in an expression gets eval's message.
+- **S2.217: FOR-EACH over a based array without elem_off's reach.** each_array checks each element's bytes (MCH0601).
+- **S2.186: LOOKUP of a based array with an index field.** The interpreter defers a *NULL pointer's fault past the index check; not lowered now.
+
+Recorded in fidelity.md: S2.178 and S2.196's numbers of 2^64 and more, and the interpreter's %LOOKUP panic for a start past the elements with no count.
+
+Coverage is unchanged on the suite: none of these forms is in it; native-diff's coverage line shows it.

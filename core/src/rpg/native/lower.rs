@@ -1163,6 +1163,13 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             {
                 return None;
             }
+            // A based array with an index field: the interpreter defers a
+            // *NULL pointer's fault (based_place) past the index check
+            // (RNQ0121), which generated code, resolving the place first,
+            // does not (codex review of S2.186).
+            if based_on.is_some() && args.is_some() {
+                return None;
+            }
             let ety = match v.dtype {
                 DType::Packed(d, s) => ir::Ty::Packed(d, s),
                 DType::Zoned(d, s) => ir::Ty::Zoned(d, s),
@@ -3658,6 +3665,9 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
                     parts,
                     args: Some(args),
                 } if is_call(cx, parts) => {
+                    if !float_call_typed(cx, parts) {
+                        return None;
+                    }
                     Some(ir::FloatExpr::Call(call_of(cx, parts, args, used, p)?))
                 }
                 _ => float_expr(cx, e, used, p, 0),
@@ -4095,9 +4105,15 @@ fn any_operand(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Oper
             let [arg] = args.as_slice() else {
                 return None;
             };
+            // Not an element indexed at run time, nor based storage: the
+            // interpreter evaluates the argument first, its index check
+            // (RNQ0121) and pointer fault included (codex review of
+            // S2.215).
             match variable(cx, arg, used)? {
                 ir::Operand::Var {
                     ty: ir::Ty::Char(n),
+                    index: None,
+                    based: None,
                     ..
                 } => Some(ir::Operand::Num {
                     m: i128::from(n),
@@ -5050,8 +5066,15 @@ fn call_of(
                                     | Expr::Omit
                             )
                         });
+                        // A global field the runtime reads from its own
+                        // buffer: not based (its load can fault, which the
+                        // interpreter raises before the arguments' errors)
+                        // nor a procedure's own (codex review of S2.200).
                         if !plain
                             || v.dim != 0
+                            || v.local
+                            || prog.based.contains_key(&v.buf)
+                            || prog.occurs.iter().any(|o| o.buf == v.buf)
                             || !matches!(v.dtype, DType::Char(_) | DType::Varchar(_))
                         {
                             return None;
@@ -5245,7 +5268,10 @@ fn call_of(
         // aliases its place and takes the descriptor's length from the
         // reference's type, so the type here is characters of the array's
         // size, the length call_proc takes from the Loc's size.
-        if p.konst && !p.by_value && local.is_some() {
+        // A parameter of fixed-length characters only: args_for's Loc has
+        // the parameter's type, whose descriptor (CEEDOD) for a varying
+        // one is not the characters' (codex review of S2.169).
+        if p.konst && !p.by_value && local.is_some() && matches!(p.dtype, DType::Char(_)) {
             if let Expr::Name { parts, args: None } = a {
                 if let Some(Sym::Ds(d)) = sym(cx, &parts.join(".")) {
                     let total = d.size.checked_mul(usize::try_from(d.dim).ok()?)?;
@@ -6099,6 +6125,28 @@ fn float_expr(
 /// The argument of %INT, %INTH, %DEC or %DECH (S2.112): a character
 /// expression is read by char_number, as those bif arms take a
 /// Value::Char; anything else is a numeric expression.
+/// A call whose returned value is its declared float (codex review of
+/// S2.201 and S2.203): this module's procedure (its RETURN stores in the
+/// declared type) or a C function of the runtime (crt.rs, a float). A
+/// procedure bound from elsewhere may give eval another type, which eval's
+/// arms then take otherwise; not lowered.
+fn float_call_typed(cx: &Cx<'_>, parts: &[String]) -> bool {
+    let name = parts.join(".");
+    if cx.prog.procs.contains_key(&name) {
+        return true;
+    }
+    proto(cx, &name).is_some_and(|pr| {
+        pr.extpgm.is_none()
+            && super::super::interp::crt::C_FUNCTIONS.contains(
+                &pr.extproc
+                    .clone()
+                    .unwrap_or_else(|| name.clone())
+                    .to_ascii_uppercase()
+                    .as_str(),
+            )
+    })
+}
+
 fn dec_arg(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Option<ir::NumExpr> {
     // A float (S2.203): the bif arm's o.num() of eval's value; a call alone
     // as its returned value (S2.201), any other float expression as
@@ -6108,7 +6156,12 @@ fn dec_arg(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
             Expr::Name {
                 parts,
                 args: Some(args),
-            } if is_call(cx, parts) => ir::FloatExpr::Call(call_of(cx, parts, args, used, path)?),
+            } if is_call(cx, parts) => {
+                if !float_call_typed(cx, parts) {
+                    return None;
+                }
+                ir::FloatExpr::Call(call_of(cx, parts, args, used, path)?)
+            }
             _ => float_expr(cx, e, used, path, 0)?,
         };
         return Some(ir::NumExpr::OfFloat(Box::new(f)));
@@ -7069,6 +7122,13 @@ fn file_read(
                 }
             };
             if members.is_some() && fd.data_type == crate::dds::DataType::Hex {
+                return None;
+            }
+            // A float column through a result data structure: ds_to_record
+            // rescales every number to the column's decimals (and takes a
+            // float value as characters), record_of does not; not lowered
+            // (codex review of S2.210).
+            if members.is_some() && fd.data_type == crate::dds::DataType::Float {
                 return None;
             }
             // A float program field (S2.210): float_target's operand, which

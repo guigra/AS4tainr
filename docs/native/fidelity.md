@@ -156,6 +156,11 @@ The review of S2.140 to S2.166 (codex, read-only, 2026-11-20) found two more of 
 - **SET RESULT SETS's row count** (S2.166). exec_sql.rs sql_set_result_sets converts the count `as usize`, so 2^64 rows wraps to 0, and no row is returned. The native runtime's sql_row_count gives a count that does not fit as the most there can be, so every element is returned.
 - **A MOVEA index field below 1** (S2.86, reached by S2.154's literal source index too). ops.rs movea_parts converts the index `as usize` before its range check, so RNQ0121's message shows -1 as 18446744073709551615. The native runtime checks the signed value and shows -1. The status, 00121, is the same.
 
+The review of S2.167 to S2.222 (codex, read-only, 2026-11-23) found more of this kind and one panic:
+- **SET RESULT SETS ARRAY's row count** (S2.178), as SET RESULT SETS's above.
+- **%LOOKUP of DSARR(*).SUBFIELD's start and count** (S2.196). bifs.rs converts them `as usize`: a start of 2^64 + 1 becomes 1, and a count of 2^64 becomes 0. The native runtime's `try_from` gives `usize::MAX` for both.
+- **A start past the elements, with no count, panics in the interpreter.** bifs.rs's default count `dim + 1 - start` overflows: for a two-element array, `%LOOKUP(x : dsarr(*).sub : 4)` panics with overflow checks on (debug builds), and in release wraps. The native runtime saturates and gives 0. What IBM i gives (presumably status 00100, a start outside the array) is not captured yet. This is an interpreter defect for phase 2.
+
 ## EXCEPT and a printer's INFDS (found 2026-11-18)
 
 An independent review (codex, read-only) of the printer functions of native_rt.rs against the interpreter found two differences between the engines. Both were made to follow the interpreter:

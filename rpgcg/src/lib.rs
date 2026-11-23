@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 
 /// This generator's version: part of every routine's fingerprint
 /// (docs/native/adr/0002). Change it whenever generated code changes.
-pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.222");
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+stage2.223");
 
 /// The most instructions one routine may have: far above any program, a
 /// bound on generation.
@@ -1629,6 +1629,40 @@ fn step(pc: usize, next: usize, kind: &ir::Kind) -> String {
     }
 }
 
+/// A file operation's keys as key_values makes them (S2.223), evaluated
+/// with their error kept: the runtime checks that the file is open first.
+fn keys_code(pc: usize, keys: &Option<Vec<ir::ValExpr>>, helpers: &mut String) -> String {
+    let mut body = String::new();
+    match keys {
+        None => {
+            body.push_str("    let keys: NResult<Option<Vec<rpgrt::native::KeyArg>>> = Ok(None);\n")
+        }
+        Some(ks) => {
+            // In a function of their own, so that `?` in them gives the
+            // error to the runtime.
+            let mut f = format!(
+                "\nfn fk{pc}(rt: &mut dyn Runtime) -> NResult<Option<Vec<rpgrt::native::KeyArg>>> {{\n    Ok(Some(vec![\n"
+            );
+            for k in ks {
+                let v = match k {
+                    ir::ValExpr::Num(e) => {
+                        format!("rpgrt::native::KeyArg::Num({})", num_expr(pc, e, helpers))
+                    }
+                    ir::ValExpr::Char(e) => format!(
+                        "rpgrt::native::KeyArg::Char({}.chars()?)",
+                        char_expr(pc, e, helpers)
+                    ),
+                };
+                let _ = writeln!(f, "        {v},");
+            }
+            f.push_str("    ]))\n}\n");
+            helpers.push_str(&f);
+            let _ = writeln!(body, "    let keys = fk{pc}(rt);");
+        }
+    }
+    body
+}
+
 /// The routine's error routing table (S2.211): each instruction's source
 /// line, its TAGs and its MONITOR groups' handlers, which
 /// rpgrt::native::settle reads in place of the interpreter's compiled
@@ -2998,26 +3032,13 @@ fn lowered_step(
             }
             rec_fn.push_str("    Ok(rec)\n}\n");
             helpers.push_str(&rec_fn);
-            let mut body = format!("    rt.file_change_start({pc})?;\n    let rec = fw{pc}(rt);\n");
-            match keys {
-                None => body.push_str("    let keys = None;\n"),
-                Some(ks) => {
-                    body.push_str("    let keys = Some(vec![\n");
-                    for k in ks {
-                        let v = match k {
-                            ir::ValExpr::Num(e) => {
-                                format!("rpgrt::native::KeyArg::Num({})", num_expr(pc, e, helpers))
-                            }
-                            ir::ValExpr::Char(e) => format!(
-                                "rpgrt::native::KeyArg::Char({}.chars()?)",
-                                char_expr(pc, e, helpers)
-                            ),
-                        };
-                        let _ = writeln!(body, "        {v},");
-                    }
-                    body.push_str("    ]);\n");
-                }
-            }
+            // A DELETE's keys first, then the start (its open check, then
+            // their error, then the authority check: S2.223).
+            let mut body = keys_code(pc, keys, helpers);
+            let _ = writeln!(
+                body,
+                "    let keys = rt.file_change_start({pc}, keys)?;\n    let rec = fw{pc}(rt);"
+            );
             let _ = writeln!(
                 helpers,
                 "\nfn fc{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    rt.{}({pc}, keys, rec)\n}}",
@@ -3036,26 +3057,7 @@ fn lowered_step(
             // program (fill_fields), then the status, the indicators and
             // the file information data structure (rt.file_done), which
             // also takes an error of the moves.
-            let mut body = String::new();
-            match keys {
-                None => body.push_str("    let keys = None;\n"),
-                Some(ks) => {
-                    body.push_str("    let keys = Some(vec![\n");
-                    for k in ks {
-                        let v = match k {
-                            ir::ValExpr::Num(e) => {
-                                format!("rpgrt::native::KeyArg::Num({})", num_expr(pc, e, helpers))
-                            }
-                            ir::ValExpr::Char(e) => format!(
-                                "rpgrt::native::KeyArg::Char({}.chars()?)",
-                                char_expr(pc, e, helpers)
-                            ),
-                        };
-                        let _ = writeln!(body, "        {v},");
-                    }
-                    body.push_str("    ]);\n");
-                }
-            }
+            let mut body = keys_code(pc, keys, helpers);
             // A result data structure (S2.119): record_to_ds, with no null
             // checks of fill_fields.
             if *ds {
@@ -4908,10 +4910,12 @@ fn call_fn(pc: usize, c: &ir::Call, helpers: &mut String) -> String {
     format!("{name}(rt)?")
 }
 
-/// The value a called procedure returned, where the expression needs one.
+/// The value a called procedure returned, where the expression needs one:
+/// without it, eval's error for a call in an expression (codex review of
+/// S2.201).
 fn returned(call: String, proc: &str) -> String {
     format!(
-        "{call}.ok_or_else(|| anyhow::anyhow!(\"procedure {} returned no value\"))?",
+        "{call}.ok_or_else(|| anyhow::anyhow!(\"procedure {} returns no value; it cannot be used in an expression\"))?",
         proc.replace(['\\', '"'], "")
     )
 }

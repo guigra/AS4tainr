@@ -400,10 +400,14 @@ pub trait Runtime {
     /// a record was read. An error of the operation comes back with the
     /// file's status, the counters and the file information data
     /// structure already set, as file_op leaves them.
+    ///
+    /// The keys come as generated code evaluated them, an error included
+    /// (S2.223): file_op_inner checks that the file is open before it
+    /// evaluates them, and their error is the operation's.
     fn file_read(
         &mut self,
         pc: usize,
-        keys: Option<Vec<KeyArg>>,
+        keys: NResult<Option<Vec<KeyArg>>>,
     ) -> NResult<Option<Vec<Option<String>>>>;
     /// Stage 2 (S2.119): `file_read` for a read into a result data
     /// structure: the record's fields with no null checks (bifs.rs
@@ -411,7 +415,7 @@ pub trait Runtime {
     fn file_read_ds(
         &mut self,
         pc: usize,
-        keys: Option<Vec<KeyArg>>,
+        keys: NResult<Option<Vec<KeyArg>>>,
     ) -> NResult<Option<Vec<Option<String>>>>;
     /// Stage 2 (S2.58): the rest of the file operation at `pc` once its
     /// fields are moved (`moved`, or the error of a move): the status,
@@ -422,7 +426,14 @@ pub trait Runtime {
     /// (errors.rs file_op's start, file_op_inner's open check and the
     /// authority check), before the record is made from the program's
     /// fields. An error comes back with file_op's end done.
-    fn file_change_start(&mut self, pc: usize) -> NResult<()>;
+    /// A DELETE's keys come evaluated (S2.223): file_op_inner evaluates
+    /// them after the open check and before the authority check; they
+    /// come back for `file_change`.
+    fn file_change_start(
+        &mut self,
+        pc: usize,
+        keys: NResult<Option<Vec<KeyArg>>>,
+    ) -> NResult<Option<Vec<KeyArg>>>;
     /// Stage 2 (S2.59): the change itself, with the record's fields as
     /// external text by their place in the record format (or the error of
     /// making them) and a DELETE's key, then file_op's end.

@@ -758,6 +758,19 @@ impl Runtime for Rt<'_, '_> {
                 .checked_mul(arr.stride)
                 .and_then(|d| arr.off.checked_add(d))
                 .ok_or_else(|| anyhow!("native: an element's place"))?;
+            // load_var's elem_off: reach, the element's bytes in the
+            // storage (a based array's, where its pointer points; codex
+            // review of S2.217).
+            let size = arr.ty.size();
+            if arr.buf != rpgrt::rpg::mem::BAD_BUF {
+                if let Some(len) = self.m.bufs.get(arr.buf).map(|x| x.len()) {
+                    if at.checked_add(size).is_none_or(|end| end > len) {
+                        anyhow::bail!(
+                            "MCH0601: {size} bytes at offset {at} are outside the {len} bytes of storage the pointer addresses."
+                        );
+                    }
+                }
+            }
             vals.push(rpgrt::native::load(&self.m.bufs, arr.buf, at, arr.ty)?);
         }
         let key = (self.code.as_ptr().addr(), pc, self.m.frames.len());
@@ -1278,7 +1291,7 @@ impl Runtime for Rt<'_, '_> {
     fn file_read(
         &mut self,
         pc: usize,
-        keys: Option<Vec<KeyArg>>,
+        keys: NResult<Option<Vec<KeyArg>>>,
     ) -> NResult<Option<Vec<Option<String>>>> {
         self.file_read_n(pc, keys, false)
     }
@@ -1286,7 +1299,7 @@ impl Runtime for Rt<'_, '_> {
     fn file_read_ds(
         &mut self,
         pc: usize,
-        keys: Option<Vec<KeyArg>>,
+        keys: NResult<Option<Vec<KeyArg>>>,
     ) -> NResult<Option<Vec<Option<String>>>> {
         self.file_read_n(pc, keys, true)
     }
@@ -1295,8 +1308,12 @@ impl Runtime for Rt<'_, '_> {
         self.file_done_n(pc, moved)
     }
 
-    fn file_change_start(&mut self, pc: usize) -> NResult<()> {
-        self.file_change_start_n(pc)
+    fn file_change_start(
+        &mut self,
+        pc: usize,
+        keys: NResult<Option<Vec<KeyArg>>>,
+    ) -> NResult<Option<Vec<KeyArg>>> {
+        self.file_change_start_n(pc, keys)
     }
 
     fn file_change(
@@ -2666,7 +2683,7 @@ impl Rt<'_, '_> {
     fn file_read_n(
         &mut self,
         pc: usize,
-        keys: Option<Vec<KeyArg>>,
+        keys: NResult<Option<Vec<KeyArg>>>,
         into_ds: bool,
     ) -> NResult<Option<Vec<Option<String>>>> {
         let (op, file, key, ext, ind) = self.file_stmt(pc)?;
@@ -2708,6 +2725,19 @@ impl Rt<'_, '_> {
             })?;
         }
         let open = self.file_n(i)?.open.is_some();
+        // The keys (S2.223): file_op_inner evaluates them after its open
+        // check (a closed file is CPF4135, whatever they would give), and
+        // their error is out of file_op_inner, which E does not take:
+        // file_op's end, then the error.
+        let keys = match keys {
+            Ok(k) => k,
+            Err(err) if open => {
+                self.pending = None;
+                self.file_end_n(i, op, &file, cmt.as_deref(), Err(&err))?;
+                return Err(err);
+            }
+            Err(_) => None,
+        };
         // move_input's files (S2.191): lowering generates no field moves.
         // A program-described file read into a data structure (S2.198):
         // file_done_n's record_to_ds.
@@ -3131,7 +3161,11 @@ impl Rt<'_, '_> {
     /// file_op's start, file_op_inner's open check, and the authority
     /// check of the change arm (*CHANGE on the file). An error ends the
     /// operation (file_op's end).
-    fn file_change_start_n(&mut self, pc: usize) -> NResult<()> {
+    fn file_change_start_n(
+        &mut self,
+        pc: usize,
+        keys: NResult<Option<Vec<KeyArg>>>,
+    ) -> NResult<Option<Vec<KeyArg>>> {
         let (op, file, _, ext, _) = self.file_stmt(pc)?;
         let file = file.to_string();
         let e = ext.error;
@@ -3153,10 +3187,13 @@ impl Rt<'_, '_> {
                     .map_err(anyhow::Error::from)
             })?;
         }
-        let r = (|| -> NResult<()> {
+        let r = (|| -> NResult<Option<Vec<KeyArg>>> {
             if self.file_n(i)?.open.is_none() {
                 return Err(anyhow!("CPF4135: File {file} is not open."));
             }
+            // A DELETE's keys (S2.223): key_values after the open check,
+            // before the operation's authority check.
+            let keys = keys?;
             let fref = self.fref_n(i)?;
             self.m.block(crate::authority::check(
                 self.m.io.client,
@@ -3165,10 +3202,11 @@ impl Rt<'_, '_> {
                 &fref.file.name,
                 "*FILE",
                 crate::authority::Aut::Change,
-            ))
+            ))?;
+            Ok(keys)
         })();
         match r {
-            Ok(()) => {
+            Ok(keys) => {
                 self.pending = Some(PendingRead {
                     file: i,
                     found: false,
@@ -3177,7 +3215,7 @@ impl Rt<'_, '_> {
                     ended: false,
                     input: None,
                 });
-                Ok(())
+                Ok(keys)
             }
             Err(err) => {
                 self.pending = None;

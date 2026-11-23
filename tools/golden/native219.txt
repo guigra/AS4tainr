@@ -1,0 +1,5 @@
+# Captures for the interpreter fix fix/overload-no-end-pr: an OVERLOAD prototype has no END-PR.
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native219.txt -f tools/golden/native219
+n219_crt|!system -q "DLTPGM PGM(@LIB@/GN219OV)"; system "CRTSQLRPGI OBJ(@LIB@/GN219OV) SRCSTMF('@HOME@/gld/gn219ov.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n219_overload|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN219OV)"; cat gn1.out; rm -f gn1.out
+n219_endpr|!system -q "DLTPGM PGM(@LIB@/GN219OE)"; system "CRTSQLRPGI OBJ(@LIB@/GN219OE) SRCSTMF('@HOME@/gld/gn219oe.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
