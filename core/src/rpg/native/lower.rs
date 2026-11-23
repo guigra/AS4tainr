@@ -6775,7 +6775,12 @@ fn temporal_bif(
         _ => None,
     };
     let (kind, dft) = match b {
-        "DATE" => (ir::TemporalBifKind::Date, cx.prog.datfmt().ok()?.code()),
+        // bif_more's "DATE" arm: with no format, a character or numeric
+        // value is in *ISO form, whatever DATFMT says.
+        "DATE" => (
+            ir::TemporalBifKind::Date,
+            rpgrt::rpg::dates::DateFmt::iso().code(),
+        ),
         "TIME" => (ir::TemporalBifKind::Time, cx.prog.timfmt().ok()?.code()),
         _ => (ir::TemporalBifKind::Ts, String::new()),
     };

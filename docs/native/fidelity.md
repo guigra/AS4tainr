@@ -91,7 +91,7 @@ Fixed on local branches `fix/*` from upstream dd47e28, one topic each, with a te
 | `fix/compile-checks` | An expression nested more than 100 levels does not compile (RNF0640) |
 | `fix/compile-checks` | %DATE of a value too short for an *ISO date does not compile (RNF7510) |
 | `fix/concat-blank` | %CONCAT(*BLANK) puts one blank between the values |
-| `fix/date-iso-default` | %DATE with no format takes its value in *ISO form, whatever DATFMT |
+| `fix/date-iso-default` | %DATE with no format takes its value in *ISO form, whatever DATFMT (the native engine follows it: lower.rs temporal_bif; rla_test `date_with_no_format_takes_iso_whatever_datfmt` passes under rust, 2026-11-23) |
 | `fix/date-loval-hival` | *LOVAL and *HIVAL assigned to a date are its first and last dates |
 | `fix/date-overflow-113` | A date past 9999-12-31 by a duration is status 00113 |
 | `fix/dec-blank-date` | %DEC of a date field that holds no date is status 00112 |
