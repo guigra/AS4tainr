@@ -24,6 +24,8 @@
 //! - RNF7421 (30): a time plus a date, or a duration plus a date, with
 //!   RNF7416 (30) on the EVAL (PUB400 2026-11-16 and 2026-11-22);
 //! - RNF0605 (20): %DATE(*SYS) (PUB400 2026-11-16);
+//! - RNF7510 (30): %DATE with no format of a value too short for *ISO
+//!   (PUB400 2026-11-16);
 //! - RNF7030 and RNF7018 (30): EXSR in a subprocedure of a subroutine it
 //!   does not have (PUB400 2026-11-15);
 //! - RNF7569 (20): a FOR limit with decimal places (PUB400 2026-11-22);
@@ -282,6 +284,29 @@ impl Walker<'_> {
                         text: "*SYS cannot be the first parameter of %DATE.".into(),
                         at: None,
                     });
+                }
+                // %DATE with no format takes *ISO: a literal or numeric
+                // field too short for an *ISO date is RNF7510, severity 30
+                // (tools/golden/native55 n55_crt_dft, PUB400, IBM i 7.5,
+                // 2026-11-16: %DATE('11/17/26') and %DATE(m) of a packed(6:0)
+                // under DATFMT(*MDY)).
+                if b == "DATE" && args.len() == 1 {
+                    let short = match &args[0] {
+                        Expr::Str(t) => t.len() < 10,
+                        a => match self.field_type(a) {
+                            Some(DType::Packed(d, 0) | DType::Zoned(d, 0)) => d < 8,
+                            _ => false,
+                        },
+                    };
+                    if short {
+                        self.out.diags.push(Diag {
+                            line,
+                            id: "RNF7510".into(),
+                            sev: 30,
+                            text: "The operand of %DATE is too short for a whole *ISO date.".into(),
+                            at: None,
+                        });
+                    }
                 }
                 if b == "CONCAT" {
                     for a in args.iter().skip(1) {

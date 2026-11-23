@@ -29945,3 +29945,25 @@ async fn an_expression_nested_past_100_levels_does_not_compile() {
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["1"]);
 }
+
+/// %DATE with no format of a literal or number too short for an *ISO date
+/// does not compile: RNF7510, severity 30, also under DATFMT(*MDY).
+/// Expected values: PUB400, IBM i 7.5, 2026-11-16 (tools/golden/native55
+/// n55_crt_dft in the native fork: `%date('11/17/26')` at line 84 and
+/// `%date(m)` of a packed(6:0) at line 88).
+#[tokio::test]
+async fn date_of_a_value_too_short_for_iso_does_not_compile() {
+    let _ = require_db!();
+    refused_by_the_compiler(
+        "DATESHRT",
+        "dcl-s d date;\n\nd = %date('11/17/26');\n",
+        "*RNF7510 30",
+    )
+    .await;
+    refused_by_the_compiler(
+        "DATESHRN",
+        "dcl-s d date;\ndcl-s m packed(6:0) inz(111626);\n\nd = %date(m);\n",
+        "*RNF7510 30",
+    )
+    .await;
+}
