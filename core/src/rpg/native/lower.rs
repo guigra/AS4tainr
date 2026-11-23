@@ -7696,6 +7696,24 @@ fn sql_host_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::O
     }
 }
 
+/// An output host variable's field (INTO, FETCH): sql_host_field's, or
+/// a date field, which assign_hosts gives the row's text as it is
+/// (assigned with the strict fit; with a null and an indicator it keeps
+/// its value). The fork's fix/sql-null-indicator-default test fetches
+/// one. As an input (host_literal) a date stays with sql_host_field's
+/// refusal.
+fn sql_host_out_field(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    let o = variable(cx, e, used)?;
+    match &o {
+        ir::Operand::Var {
+            ty: ir::Ty::Date(..),
+            based: None,
+            ..
+        } => Some(o),
+        _ => sql_host_field(cx, e, used),
+    }
+}
+
 /// The pieces, inputs and outputs of an EXEC SQL with host variables
 /// (S2.70), as exec_sql.rs's sql_statement and bind_host take it apart.
 #[allow(clippy::type_complexity)] // the four parts of ExecSqlHosts
@@ -7802,7 +7820,7 @@ fn sql_hosts(
             None => None,
         };
         for t in sql_targets(cx, &name)? {
-            let target = sql_host_field(cx, &t, used)?;
+            let target = sql_host_out_field(cx, &t, used)?;
             if !matches!(target, ir::Operand::Var { index: None, .. }) {
                 return None;
             }
@@ -8206,7 +8224,7 @@ fn sql_cursor(
                             None => None,
                         };
                         for t in sql_targets(cx, &hn)? {
-                            let target = sql_host_field(cx, &t, used)?;
+                            let target = sql_host_out_field(cx, &t, used)?;
                             if !matches!(target, ir::Operand::Var { index: None, .. }) {
                                 return None;
                             }

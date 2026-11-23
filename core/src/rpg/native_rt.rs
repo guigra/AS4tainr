@@ -4381,6 +4381,29 @@ impl Rt<'_, '_> {
                 None => {
                     if o.ind.is_some() {
                         set_ind(self, -1)?;
+                        // The host variable gets its type's empty value:
+                        // zero for a number, blanks for characters (none in
+                        // a varying field); a date, time or timestamp keeps
+                        // its own (assign_hosts since the fork's
+                        // fix/sql-null-indicator-default).
+                        let empty = match o.ty {
+                            ty if ty.is_numeric() => Some(Value::Num(Dec::ZERO)),
+                            super::data::DType::Char(_) | super::data::DType::Varchar(_) => {
+                                Some(Value::str(""))
+                            }
+                            _ => None,
+                        };
+                        if let Some(e) = empty {
+                            rpgrt::native::store(
+                                &mut self.m.bufs,
+                                o.buf,
+                                o.off,
+                                o.ty,
+                                &e,
+                                Fit::Truncate { half_adjust: false },
+                                false,
+                            )?;
+                        }
                     } else {
                         return Ok(Some(sql_err(
                             -305,
