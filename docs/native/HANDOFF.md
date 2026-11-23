@@ -1,8 +1,36 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-22 20:10 UTC.
+Last update: 2026-11-23 02:10 UTC.
 
-## Now (2026-11-22, 20:10 UTC): plan step 2, the interpreter fixed in fork branches
+## Now (2026-11-23, 02:10 UTC): 100% native coverage
+
+**Committed up to S2.222** (8ff3db9). On the x86_64 run s7f-s2222, native-diff gives:
+- coverage 100.0%: 6209 instructions native, none with the interpreter;
+- settle: 647 of 647 routines route errors natively;
+- generated lints: pass on 647 routines;
+- level 2 rust: 817 of 817 the same as under the interpreter.
+
+The last 18 instructions were tied to their programs through the source maps, a WHY pass and a dump of the sources rla_test compiles (AS4TAINR_DUMP_SOURCE). ADR 0007's S2.212-S2.222 lists each.
+
+Two follow interpreter defects on purpose, as native code must:
+- SYSAPI's shorter field by reference, which IBM i refuses;
+- %CONCAT(*BLANK) with no separator, which IBM i gives one blank and the fork branch fix/concat-blank fixes.
+
+**Still interpreter services (phase B).** Some instructions are native but call into the machine's state through the Runtime trait:
+- program calls (call_program);
+- clear_ds;
+- the error notes (PSDS, status, exception message);
+- XML-INTO and XML-SAX's parse.
+
+Writing those again in rpgrt without Machine is phase B, the step that makes the interpreter removable.
+
+**Next:**
+1. Phase 2 continues. The 21 fix branches are local; 20 of them were validated together (p2-d).
+2. After those are integrated, native code follows each fix; the work state `phase2-interp-fixes` has the list.
+3. Phase B.
+
+## Earlier (2026-11-22, 20:10 UTC)
+: plan step 2, the interpreter fixed in fork branches
 
 Each fix is a branch `fix/<topic>` off upstream/main (dd47e28). It has one commit, signed, with a new rla_test whose expected values come from a PUB400 capture; the test fails without the fix. The branches are local and not pushed; nothing goes to Kyle until the end (memory: kyle-notify-last). They are worked in /home/ctl/data/as4tainr-fix-open (one worktree, branches switched in place). The running list is claude-mem's work state `phase2-interp-fixes`.
 
