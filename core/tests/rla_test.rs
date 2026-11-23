@@ -30739,3 +30739,42 @@ dsply line;
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["ab[][four][five]|cd[][four][five]|"]);
 }
+
+/// A whole array assigned another array: element by element, as many as
+/// the source has; the target's other elements keep their values.
+/// Expected value: PUB400, IBM i 7.5, 2026-11-21 (tools/golden/native212
+/// n212_listassign in the native fork: "efg[four][five]").
+#[tokio::test]
+async fn an_array_assigned_a_smaller_array_keeps_its_other_elements() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s w varchar(10) dim(5);
+dcl-s s varchar(10) dim(3);
+w(4) = 'four';
+w(5) = 'five';
+s(1) = 'e';
+s(2) = 'f';
+s(3) = 'g';
+w = s;
+dsply (w(1) + w(2) + w(3) + '[' + w(4) + '][' + w(5) + ']');
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "ARRASGN".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["efg[four][five]"]);
+}

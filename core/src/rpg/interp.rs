@@ -3306,7 +3306,18 @@ impl<'a> Machine<'a> {
                 ext,
                 right,
             } => {
-                let mut v = self.eval(value)?;
+                // A whole array assigned a whole array: its elements as a
+                // list (PUB400, IBM i 7.5, 2026-11-21: W DIM(5) = S DIM(3)
+                // sets W's first three elements).
+                let whole = |m: &Self, e: &Expr| {
+                    matches!(e, Expr::Name { parts, args: None }
+                        if matches!(m.sym(&parts.join(".")), Some(Sym::Var(v)) if v.dim > 0))
+                };
+                let mut v = if whole(self, target) && whole(self, value) {
+                    Value::List(self.list_of(value)?)
+                } else {
+                    self.eval(value)?
+                };
                 // A hexadecimal literal assigned to an integer or unsigned
                 // field: its bytes as an unsigned number (XMLSERVICE's
                 // convPad = x'40' on a 10I 0 field gives 64).
