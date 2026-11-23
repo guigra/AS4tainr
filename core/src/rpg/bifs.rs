@@ -342,9 +342,15 @@ impl Machine<'_> {
                         }));
                     }
                 }
-                // Without a format: the control specification's DATFMT.
-                let dft = self.prog.datfmt()?;
-                let f = fmt.unwrap_or_else(|| dft.code());
+                // Without a format: *ISO, whatever the control
+                // specification's DATFMT ("If the date format is not
+                // specified for character or numeric input, the default
+                // format is *ISO": IBM Docs, "%DATE (Convert to Date)", IBM
+                // i 7.5, https://www.ibm.com/docs/en/ssw_ibm_i_75/rzasd/bbdate.htm,
+                // read 2026-11-23; golden capture tools/golden/native55
+                // n55_crt_dft, PUB400, IBM i 7.5, 2026-11-16: under
+                // DATFMT(*MDY), %DATE('11/17/26') is too short for *ISO).
+                let f = fmt.unwrap_or_else(|| DateFmt::iso().code());
                 let d = match v {
                     Value::Num(n) => {
                         let f = DateFmt::parse(&format!("{}0", f.trim_end_matches('0')))?;

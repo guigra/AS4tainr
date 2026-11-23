@@ -46,6 +46,8 @@
      C     c             DSPLY
      C                   EVAL      n = %DEC(m)
      C     n             DSPLY
-     C                   EVAL      d = %DATE('01/02/2027')
+      * %DATE with no format takes *ISO, not DATFMT (IBM Docs, "%DATE
+      * (Convert to Date)", IBM i 7.5; PUB400 capture native55).
+     C                   EVAL      d = %DATE('2027-01-02')
      C     d             DSPLY
      C                   SETON                                        LR

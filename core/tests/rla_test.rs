@@ -30068,3 +30068,45 @@ dsply line;
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["x, y, z|ab|a b|ab  -q-ab  |"]);
 }
+
+/// %DATE of a character or numeric value with no format takes it in *ISO
+/// form, whatever the control specification's DATFMT. Expected values:
+/// IBM Docs, "%DATE (Convert to Date)", IBM i 7.5,
+/// https://www.ibm.com/docs/en/ssw_ibm_i_75/rzasd/bbdate.htm, read
+/// 2026-11-23 ("If the date format is not specified for character or
+/// numeric input, the default format is *ISO"), and PUB400, IBM i 7.5,
+/// 2026-11-16 (tools/golden/native55 n55_crt_dft in the native fork: under
+/// DATFMT(*MDY), %DATE('11/17/26') and %DATE of a 6-digit number are
+/// RNF7510, too small for an *ISO date).
+#[tokio::test]
+async fn date_with_no_format_takes_iso_whatever_datfmt() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no) datfmt(*mdy);
+dcl-s d date(*iso);
+dcl-s c char(10) inz('2026-11-16');
+dcl-s n packed(8:0) inz(20261117);
+d = %date(c);
+dsply %char(d);
+d = %date(n);
+dsply %char(d);
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "DATEISO".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["2026-11-16", "2026-11-17"]);
+}
