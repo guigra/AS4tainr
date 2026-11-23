@@ -6675,10 +6675,18 @@ impl Rt<'_, '_> {
                     .ok_or_else(|| anyhow!("MCH3601: procedure pointer {var} is not valid."))?
             }
             Value::Ptr(_) => return Err(anyhow!("MCH3601: {var} is not a procedure pointer.")),
+            // A call through *NULL fails as a called procedure does: status
+            // 00202 where it is caught (call_named_inner since the fork's
+            // fix/null-procptr-status).
             _ => {
-                return Err(anyhow!(
-                    "MCH3601: procedure pointer {var} is not set (*NULL)."
-                ))
+                let at = errors::At {
+                    line: self.m.line,
+                    sender: self.sender_n(),
+                    called: true,
+                };
+                return Err(
+                    anyhow!("MCH3601: procedure pointer {var} is not set (*NULL).").context(at),
+                );
             }
         };
         let as_args = |args: Vec<CallArg>| -> NResult<Vec<super::Arg>> {
