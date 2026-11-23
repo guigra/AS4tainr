@@ -1,20 +1,20 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-23, evening.
+Last update: 2026-11-23, night.
 
-## Now (2026-11-23, evening): phase 2 fixes in the fork, followed by the native engine
+## Now (2026-11-23, night): phase 2 closed; native/engine-p2 validated, waiting for the push
 
-**Interpreter (phase 2).** 40 local branches (`fix/*` plus 13 upstream-PR branches; list in /home/ctl/data/as4tainr-up-logs/p2g.branches) are combined into the fork base 2bfbe12 by forkbase.py (cherry-picks, rla_test.rs and check.rs conflicts resolved by appending). Combined validation p2-h on jsr-test-2: rla_test 301, lib 347, 3; demo PASS; clippy only upstream's hostsrv.rs:105. fidelity.md's phase 2 table lists each branch with its capture (native220 for the last six). Upstream test expectations changed by the user's decisions ("follow IBM i"): `rpg_date_and_time_formats` (%CHAR of a date expression is *ISO), `setll_partial_key_then_reade_reads_one_order` (READ after READE's EOF is EOF), freeform.rpgle (SND-MSG *ESCAPE from a subprocedure), dates.rpgle (a *USA literal under DATFMT(*USA)).
+**Interpreter (phase 2).** 40 local branches (`fix/*` plus 13 upstream-PR branches; list in /home/ctl/data/as4tainr-up-logs/p2g.branches) combined into the fork base by forkbase.py; the base is now c9f6bc9 (2bfbe12 plus RNF7078 from fix/compile-checks 6d88086). Combined validation p2-h on jsr-test-2 (2bfbe12): rla_test 301, lib 347, 3; demo PASS. RNF7078 (the user's decision, 2026-11-23: follow IBM i) is checked for CHAIN and SETLL with one search argument, after the capture native221; its full suite run passed locally (rla_test 264, lib 347, 3; demo PASS). Upstream test expectations changed by the user's decisions: `rpg_date_and_time_formats`, `setll_partial_key_then_reade_reads_one_order`, freeform.rpgle, dates.rpgle (the commits say so).
 
-**Native engine.** native/engine-p2 (worktree /home/ctl/data/as4tainr-native-p2) is native/engine rebased on 2bfbe12, plus 26 commits following the fixes (dfa2bfd, 7f85efd..fd85307, 6af4f46..0c18164, 58ec7a3). The whole rla_test suite passes under `AS4TAINR_RPG_ENGINE=rust` with every statement native (nc-p2final: 301/301 on both engines, no refusals). s7f-np3 (jsr-test-2, 0c18164): every step PASS but native-diff's generated lints (one %LIST routine, vec_init_then_push), fixed in 58ec7a3 and checked on that routine; level 2 rust 866/866, coverage 100.0%, settle 698/698.
+**Native engine.** native/engine-p2 (worktree /home/ctl/data/as4tainr-native-p2, head d0766f1) is native/engine rebased on c9f6bc9, plus the commits following each fix. s7f-np5 on jsr-test-2 (x86_64, d0766f1): fmt, clippy-ours, cargo test, build-release, demo PASS; cargo test --release 301/302, the known QTEMP flake `change_a_physical_file_with_a_logical_file_over_it` ("tuple concurrently updated"), PASS run again alone (rerun-test-release=0); native-diff PASS: coverage 100.0% (6855 instructions), settle 698/698, generated lints PASS, level 2 auto and rust 867/867, level 3 demo PASS. 5250 end-to-end under both engines (e2e-np5, scripts/native-e2e.sh, Playwright venv copied to jsr-test-2): interp 165 checks, rust 165 checks, same output, no refusals. clippy without `-A clippy::chunks_exact_to_as_chunks` fails on upstream's host-server code only. Manifests: docs/native/evidence/2026-11-23-*.json for the 31 commits since the S2.223 handoff. Logs in target/evidence/vm/jsr-test-2/{s7f-np5,e2e-np5}.
 
-**Needs a human:** line-by-line review of 1856d8c (file errors with E, also display files), 890540f (fixed-form ALLOC/REALLOC, CAT of based fields) and 38a21c4 (SQL null indicator, DATE output host variables), as section 7 asks for database changes.
+**The user's:** the force-push of native/engine-p2 to origin/native/engine (the user does it, 2026-11-24). It makes the fix branches' commits public in the fork; nothing goes to Kyle yet.
 
-**Held for the user:** RNF7078 (a key literal of another length than the key field): upstream's psds.rpgle and dsio.rpgle use `chain 9 custmast` with a 5-digit key, and the parser drops the literal's leading zeros. The force-push of native/engine-p2 to origin/native/engine.
+**Needs a human:** line-by-line review of the native commits for file errors with E (also display files), fixed-form ALLOC/REALLOC with CAT of based fields, and the SQL null indicator with DATE output host variables (section 7: database changes).
 
-**Not run yet:** the 5250 end-to-end tests under both engines, and the aarch64 run (jsr-test-arm is lent out until the user says).
+**Not run:** the aarch64 run (jsr-test-arm is lent out until the user says).
 
-**Next:** after the user's go: push, then phase B; performance (memory performance-next).
+**Next:** phase B (the interpreter services still called through the Runtime trait); performance (memory performance-next); then Kyle.
 
 ## Now (2026-11-23, 06:00 UTC): S2.223 validated on both platforms; phase 2 continues
 
