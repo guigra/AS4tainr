@@ -1,6 +1,20 @@
 # Native RPG backend: handoff
 
-Last update: 2026-11-23 06:00 UTC.
+Last update: 2026-11-23, evening.
+
+## Now (2026-11-23, evening): phase 2 fixes in the fork, followed by the native engine
+
+**Interpreter (phase 2).** 40 local branches (`fix/*` plus 13 upstream-PR branches; list in /home/ctl/data/as4tainr-up-logs/p2g.branches) are combined into the fork base 2bfbe12 by forkbase.py (cherry-picks, rla_test.rs and check.rs conflicts resolved by appending). Combined validation p2-h on jsr-test-2: rla_test 301, lib 347, 3; demo PASS; clippy only upstream's hostsrv.rs:105. fidelity.md's phase 2 table lists each branch with its capture (native220 for the last six). Upstream test expectations changed by the user's decisions ("follow IBM i"): `rpg_date_and_time_formats` (%CHAR of a date expression is *ISO), `setll_partial_key_then_reade_reads_one_order` (READ after READE's EOF is EOF), freeform.rpgle (SND-MSG *ESCAPE from a subprocedure), dates.rpgle (a *USA literal under DATFMT(*USA)).
+
+**Native engine.** native/engine-p2 (worktree /home/ctl/data/as4tainr-native-p2) is native/engine rebased on 2bfbe12, plus 26 commits following the fixes (dfa2bfd, 7f85efd..fd85307, 6af4f46..0c18164, 58ec7a3). The whole rla_test suite passes under `AS4TAINR_RPG_ENGINE=rust` with every statement native (nc-p2final: 301/301 on both engines, no refusals). s7f-np3 (jsr-test-2, 0c18164): every step PASS but native-diff's generated lints (one %LIST routine, vec_init_then_push), fixed in 58ec7a3 and checked on that routine; level 2 rust 866/866, coverage 100.0%, settle 698/698.
+
+**Needs a human:** line-by-line review of 1856d8c (file errors with E, also display files), 890540f (fixed-form ALLOC/REALLOC, CAT of based fields) and 38a21c4 (SQL null indicator, DATE output host variables), as section 7 asks for database changes.
+
+**Held for the user:** RNF7078 (a key literal of another length than the key field): upstream's psds.rpgle and dsio.rpgle use `chain 9 custmast` with a 5-digit key, and the parser drops the literal's leading zeros. The force-push of native/engine-p2 to origin/native/engine.
+
+**Not run yet:** the 5250 end-to-end tests under both engines, and the aarch64 run (jsr-test-arm is lent out until the user says).
+
+**Next:** after the user's go: push, then phase B; performance (memory performance-next).
 
 ## Now (2026-11-23, 06:00 UTC): S2.223 validated on both platforms; phase 2 continues
 

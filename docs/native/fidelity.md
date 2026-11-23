@@ -76,7 +76,7 @@ The backend follows each fix since the rebase on upstream dd47e28 (2026-11-13). 
 
 ## Interpreter defects fixed in the fork (phase 2, not yet upstream)
 
-Fixed on local branches `fix/*` from upstream dd47e28, one topic each, with a test whose expected value comes from the PUB400 capture or IBM documentation named in it; each test fails without its fix. The 37 branches pass together the upstream suite, `scripts/demo.sh` and clippy (combined validations p2-f and p2-g on jsr-test-2, 2026-11-23). Not pushed, not yet offered upstream; the native engine follows each fix after the rebase on them. Where a fix changes an upstream test's expectation (the user's decision, 2026-11-22 and 2026-11-23), the commit says so.
+Fixed on local branches `fix/*` from upstream dd47e28, one topic each, with a test whose expected value comes from the PUB400 capture or IBM documentation named in it; each test fails without its fix. The 40 branches pass together the upstream suite, `scripts/demo.sh` and clippy (combined validation p2-h of fork/base 2bfbe12 on jsr-test-2, 2026-11-23: rla_test 301, lib 347, 3). Not pushed, not yet offered upstream; the native engine follows each fix after the rebase on them. Where a fix changes an upstream test's expectation (the user's decision, 2026-11-22 and 2026-11-23), the commit says so.
 
 | Branch | IBM i behavior now reproduced |
 | --- | --- |
@@ -90,8 +90,11 @@ Fixed on local branches `fix/*` from upstream dd47e28, one topic each, with a te
 | `fix/compile-checks` | EXSR in a subprocedure of the main procedure's subroutine does not compile |
 | `fix/compile-checks` | An expression nested more than 100 levels does not compile (RNF0640) |
 | `fix/compile-checks` | %DATE of a value too short for an *ISO date does not compile (RNF7510) |
+| `fix/compile-checks` | An indicator used but set nowhere does not compile (RNF7503, RNF7030; native220 n220_crt_ind) |
+| `fix/compile-checks` | A constant index past a varying dimension does not compile (RNF0530 for DIM(*AUTO), RNF7563 for %ELEM of DIM(*VAR); native220) |
 | `fix/concat-blank` | %CONCAT(*BLANK) puts one blank between the values |
 | `fix/date-iso-default` | %DATE with no format takes its value in *ISO form, whatever DATFMT (the native engine follows it: lower.rs temporal_bif; rla_test `date_with_no_format_takes_iso_whatever_datfmt` passes under rust, 2026-11-23) |
+| `fix/date-literal-datfmt` | Date and time literals are in the DATFMT and TIMFMT forms; an *ISO one under another form is RNF0305/RNF0306 (native220 n220_lic, n220_crt_lit) |
 | `fix/date-loval-hival` | *LOVAL and *HIVAL assigned to a date are its first and last dates |
 | `fix/date-overflow-113` | A date past 9999-12-31 by a duration is status 00113 |
 | `fix/dec-blank-date` | %DEC of a date field that holds no date is status 00112 |
@@ -105,14 +108,16 @@ Fixed on local branches `fix/*` from upstream dd47e28, one topic each, with a te
 | `fix/list-array-rest` | An array assigned %SPLIT or %LIST keeps the elements after the values |
 | `fix/list-array-rest` | a whole array assigned another array |
 | `fix/max-min-places` | %MAX and %MIN give the arguments' greatest number of decimal places |
+| `fix/null-plus-number` | *NULL plus a number is a pointer; it is not null, and less *NULL gives the number back (native220 n220_np) |
 | `fix/null-procptr-status` | A call through a procedure pointer set to *NULL is status 00202 |
 | `fix/open-already-open` | OPEN(E) of an open file and READ(E) of a closed one set their file status |
 | `fix/out-unlocked-dtaara` | OUT of a data area that is not locked is status 00412 |
 | `fix/overload-no-end-pr` | An OVERLOAD prototype has no END-PR |
 | `fix/qualified-format-io` | WRITE and UPDATE of a qualified file's record format |
 | `fix/quotient-compare` | A quotient compared keeps the decimal places of 63 digits |
-| `fix/read-after-eof` | READP and READPE right after READE reached end of file are end of file |
+| `fix/read-after-eof` | READ, READP and READPE right after READE reached end of file are end of file (native220 n220_rd) |
 | `fix/read-not-open-1211` | an operation on a file that is not open honors E and the error indicator |
+| `fix/snd-msg-escape-caller` | SND-MSG *ESCAPE goes to the procedure's caller (native220 n220_sm) |
 | `fix/sql-call-missing-204` | CALL of a procedure that does not exist is SQL0204 |
 | `fix/sql-char-host-blanks` | SQL: UPPER and LOWER of a CHAR value keep its length |
 | `fix/sql-closed-cursor-507` | UPDATE and DELETE WHERE CURRENT OF a closed cursor is SQLCODE -507 |
@@ -127,12 +132,10 @@ Fixed on local branches `fix/*` from upstream dd47e28, one topic each, with a te
 | `fix/varying-dim-124` | A varying-dimension array past its dimension is status 00124 |
 | `fix/xml-handler-nonzero` | XML-SAX and XML-INTO %HANDLER: a handler that returns non-zero is status 00351 |
 
-Still open, each waiting for a PUB400 capture (the earlier captures kept only the final version of their program) or with no public source:
-- READ (not READP) right after READE reached end of file (native58; upstream's `setll_partial_key_then_reade_reads_one_order` expects a record).
-- An indicator used but set nowhere (RNF7503, native46); a constant index past an array's dimension (RNF0530 and RNF7563, native47).
-- Date and time literals in the DATFMT and TIMFMT forms, and RNF0305/RNF0306 for *ISO ones under them (native53, native134).
-- SND-MSG *ESCAPE going to the procedure's caller (native175); a key literal of another length than the key field (RNF7078, native58).
-- *NULL plus a number: no error on IBM i, but the pointer it gives was not captured (native50).
+Every branch is followed by the native engine on native/engine-p2 (2026-11-23): the whole rla_test suite passes under `AS4TAINR_RPG_ENGINE=rust` with every statement native (301 of 301, no refusals, 380 routines emitted).
+
+Still open:
+- A key literal of another length than the key field (RNF7078, native58): held for the user, since upstream's psds.rpgle and dsio.rpgle use `chain 9 custmast` with a 5-digit key and the parser drops a literal's leading zeros.
 - pow(9 : 0.5) differing from 3 in the last bits (native201); a record with a CLOB column by native I/O (native210, not narrowed).
 
 ## Settled by capture
