@@ -335,6 +335,8 @@ Assigned to a packed(15:13) field, the roots agree (4, 1.4142135623730, 2.5). Na
 
 This is an upstream interpreter defect, held for Kyle with the capture. The unit NSQRT leaves the %CHAR value out.
 
+Fixed in the fork's interpreter (`fix/sqrt-places`: 30 digits, truncated, from the operand's precision). The native engine follows it (rpgrt::native::sqrt_bif with the argument's node precision, Dec::sqrt_trunc): rla_test `sqrt_keeps_thirty_digits` and `rpg_free_form_7x_features_and_builtins` pass under rust (2026-11-23). The SQRT operation is unchanged.
+
 ## A data structure shorter than declared, on a display (found 2026-11-19, codex)
 
 This needs a procedure's LIKEDS parameter that has a display field's name and is passed by reference with OPTIONS(*VARSIZE) in a shorter variable at the end of its buffer. A WRITE of that format then behaves differently:

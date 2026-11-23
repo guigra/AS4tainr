@@ -1127,8 +1127,13 @@ pub mod ir {
         Leaf(Operand),
         /// %STATUS of a file (S2.112): its status code.
         FileCode(String),
-        /// %SQRT of a numeric expression (S2.113).
-        Sqrt(Box<NumExpr>),
+        /// %SQRT of a numeric expression (S2.113), and its place in the
+        /// statement's expression (its argument's precision gives the
+        /// root's places).
+        Sqrt {
+            inner: Box<NumExpr>,
+            path: Vec<u8>,
+        },
         /// %UNS or (half) %UNSH of a character or numeric value (S2.155).
         Uns {
             inner: Box<ValExpr>,
@@ -5521,7 +5526,20 @@ ir::NumExpr::PtrDiffOf(a, b) => {
             "rpgrt::rpg::dec::Dec::from_i64(i64::from(rt.file_code({})?))",
             json_str(f)
         ),
-        ir::NumExpr::Sqrt(x) => format!("rpgrt::native::sqrt_bif(&{})?", num_expr(pc, x, helpers)),
+        ir::NumExpr::Sqrt { inner, path } => {
+            // bifs.rs "SQRT": the argument's value, then its node's
+            // precision (num_precision of args[0]).
+            let name = format!("sr{pc}_{}", path_id(path));
+            let x = num_expr(pc, inner, helpers);
+            let mut ip = path.clone();
+            ip.push(0);
+            let _ = writeln!(
+                helpers,
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::dec::Dec> {{\n    let x = {x};\n    static P: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let p = *P.get_or_init(|| rt.precision({pc}, {}));\n    rpgrt::native::sqrt_bif(&x, p)\n}}",
+                path_arg(&ip)
+            );
+            format!("{name}(rt)?")
+        }
         ir::NumExpr::Uns { inner, half } => {
             let v = match inner.as_ref() {
                 ir::ValExpr::Char(c) => char_expr(pc, c, helpers),

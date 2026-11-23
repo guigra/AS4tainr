@@ -3074,12 +3074,10 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
         Expr::Bif(b, args) if b == "SQRT" && args.len() == 1 => {
             let mut ip = path.clone();
             ip.push(0);
-            Some(ir::NumExpr::Sqrt(Box::new(num_expr(
-                cx,
-                args.first()?,
-                used,
-                ip,
-            )?)))
+            Some(ir::NumExpr::Sqrt {
+                inner: Box::new(num_expr(cx, args.first()?, used, ip)?),
+                path,
+            })
         }
         // %STATUS of a file (S2.112): that file's code (file_status).
         Expr::Bif(b, args) if b == "STATUS" && args.len() == 1 => match args.as_slice() {

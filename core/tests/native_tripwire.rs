@@ -215,7 +215,8 @@ fn native_runtime_matches_the_interpreter_it_copies() {
             "    ",
         ),
         function(INTERP, "    fn ws_fill(\n", "    "),
-        // S2.113: ops.rs dec_sqrt (rpgrt::native::sqrt_bif).
+        // S2.113, S2.148: ops.rs dec_sqrt (rpgrt::native::sqrt_op; %SQRT,
+        // rpgrt::native::sqrt_bif, follows bif_more's arm).
         function(OPS, "pub(super) fn dec_sqrt(x: &Dec, scale: u8) -> Result<Dec> {", ""),
         // S2.110: char_number (rpgrt::native::float_of_chars).
         function(INTERP, "fn char_number(t: &str) -> Result<Dec> {", ""),

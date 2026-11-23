@@ -2462,9 +2462,6 @@ fn dec_sqrt(x: &Dec, scale: u8) -> NResult<Dec> {
     Ok(Dec::new(i128::try_from(r).map_err(|_| too_large())?, scale))
 }
 
-/// Stage 2 (S2.113): %SQRT of a numeric value, as bifs.rs's "SQRT" arm:
-/// RNQ0101 for a negative one, else dec_sqrt with 15 decimal places,
-/// normalized.
 /// The SQRT operation's root (S2.148), as ops.rs string_op's SQRT arm
 /// takes it: a negative value is RNQ0101, else dec_sqrt to one place more
 /// than the result field has.
@@ -2560,11 +2557,22 @@ pub fn store_ds_array(
     )
 }
 
-pub fn sqrt_bif(x: &Dec) -> NResult<Dec> {
+/// Stage 2 (S2.113): %SQRT of a numeric value, as bifs.rs's "SQRT" arm
+/// (fix/sqrt-places): RNQ0101 for a negative one, else the root with 30
+/// digits (63 when the operand has more than 30), half the operand's
+/// integer digits (rounded up) before the point, truncated
+/// (Dec::sqrt_trunc). The operand's digits and places are its node's
+/// precision (`p`), else its own.
+pub fn sqrt_bif(x: &Dec, p: Option<(u32, u32)>) -> NResult<Dec> {
     if x.is_negative() {
         anyhow::bail!("RNQ0101: %SQRT of a negative number.");
     }
-    Ok(dec_sqrt(x, 15)?.normalized())
+    let s = u32::from(x.scale());
+    let (p, d) = p.unwrap_or_else(|| (x.int_digits().saturating_add(s).max(1), s));
+    let m: u32 = if p > 30 { 63 } else { 30 };
+    let int = p.saturating_sub(d).div_ceil(2);
+    let scale = u8::try_from(m.saturating_sub(int).min(62)).unwrap_or(30);
+    x.sqrt_trunc(scale)
 }
 
 /// Stage 2 (S2.112): %INT, %INTH, %DEC or %DECH of character data, as
