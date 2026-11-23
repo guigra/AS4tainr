@@ -54,6 +54,15 @@ enum Position {
     AfterKey(Vec<String>),
     /// On a specific record (after `CHAIN` or a successful read).
     AtRecord { keys: Vec<String>, rrn: i64 },
+    /// After READE reached the end of the key's records: READP and READPE
+    /// find no record until SETLL, SETGT or CHAIN positions the file again
+    /// (golden capture tools/golden/native58 n58_r, PUB400, IBM i 7.5,
+    /// 2026-11-17: READPE right after READE's end of file is end of file;
+    /// ILE RPG Reference, "READ (Read a Record)", IBM i 7.5,
+    /// https://www.ibm.com/docs/en/ssw_ibm_i_75/rzasd/zzread.htm, read
+    /// 2026-11-23: "The file must be repositioned after an EOF condition").
+    /// A READ goes on after the key, as for `AfterKey`.
+    EndedAfterKey(Vec<String>),
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -474,10 +483,14 @@ impl OpenFile {
         let keyed = !self.file.file.keys.is_empty();
         Ok(match (&self.pos, dir) {
             (Position::Start, Dir::Forward) | (Position::End, Dir::Backward) => Some("TRUE".into()),
-            (Position::Start, Dir::Backward) | (Position::End, Dir::Forward) => None,
+            (Position::Start, Dir::Backward)
+            | (Position::End, Dir::Forward)
+            | (Position::EndedAfterKey(_), Dir::Backward) => None,
             (Position::BeforeKey(p), Dir::Forward) => Some(self.key_cond(p, ">=", params, None)?),
             (Position::BeforeKey(p), Dir::Backward) => Some(self.key_cond(p, "<", params, None)?),
-            (Position::AfterKey(p), Dir::Forward) => Some(self.key_cond(p, ">", params, None)?),
+            (Position::AfterKey(p) | Position::EndedAfterKey(p), Dir::Forward) => {
+                Some(self.key_cond(p, ">", params, None)?)
+            }
             (Position::AfterKey(p), Dir::Backward) => Some(self.key_cond(p, "<=", params, None)?),
             (Position::AtRecord { keys, rrn }, d) => {
                 let op = if matches!(d, Dir::Forward) { ">" } else { "<" };
@@ -558,16 +571,14 @@ impl OpenFile {
         let row = self
             .fetch_one(client, &where_, &self.order_by(&dir), &params)
             .await?;
-        let at_end = match dir {
-            Dir::Forward => Position::End,
-            Dir::Backward => Position::Start,
-        };
         // READE/READPE that runs out of matching records leaves the file at
-        // the end (or start) of that key's range.
+        // the end (or start) of that key's range; after READE's, only a
+        // forward read goes on.
         let at_end = match (&equal_key, &dir) {
-            (Some(k), Dir::Forward) => Position::AfterKey(k.clone()),
+            (Some(k), Dir::Forward) => Position::EndedAfterKey(k.clone()),
             (Some(k), Dir::Backward) => Position::BeforeKey(k.clone()),
-            _ => at_end,
+            (None, Dir::Forward) => Position::End,
+            (None, Dir::Backward) => Position::Start,
         };
         Ok(self.land(row, at_end))
     }

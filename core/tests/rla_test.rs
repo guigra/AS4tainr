@@ -31330,3 +31330,173 @@ dsply line;
         ["g28 g29 g30 l28 g31 G40 G50 G58 G60 G61 T62 |3.3333333333333333333333333333|.66666666666666666666666666666"]
     );
 }
+
+/// After READE reaches end of file, READPE finds no record until the file
+/// is positioned again. Expected values: PUB400, IBM i 7.5, 2026-11-17
+/// (tools/golden/native58 n58_r in the native fork, with this file, its
+/// rows in this order and this program: "RPE1 EOF" right after the READE
+/// loop); ILE RPG Reference, "READ (Read a Record)", IBM i 7.5,
+/// https://www.ibm.com/docs/en/ssw_ibm_i_75/rzasd/zzread.htm, read
+/// 2026-11-23 ("The file must be repositioned after an EOF condition").
+#[tokio::test]
+async fn readpe_after_reade_reached_end_of_file_is_end_of_file() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (mut client, lib) = setup(&url).await;
+    let dds = r#"     A* Stage 2, S2.58: a keyed physical file for reads (native unit NFREAD).
+     A                                      UNIQUE
+     A          R GN58FMT
+     A            ORD            3S 0
+     A            LIN            3P 0
+     A            NAME          10A
+     A            AMT            7P 2
+     A            HX             2H
+     A          K ORD
+     A          K LIN
+"#;
+    let pf = dds::parse_pf("GN58PF", dds).unwrap();
+    catalog::create_physical_file(&mut client, &lib, &pf)
+        .await
+        .unwrap();
+    let mut f = open(&client, &lib, "GN58PF").await;
+    for (ord, lin, name, amt, hx) in [
+        ("1", "2", "Beta", "-3.25", "0000"),
+        ("2", "1", "Delta", "99999.99", "C1C2"),
+        ("1", "1", "Alpha", "10.50", "C1C2"),
+        ("3", "1", "Echo", "1", "4040"),
+        ("1", "3", "Gamma", "0", "FFFF"),
+    ] {
+        let rec: rla::Record = [
+            ("ORD", ord),
+            ("LIN", lin),
+            ("NAME", name),
+            ("AMT", amt),
+            ("HX", hx),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        f.write(&client, &rec).await.unwrap();
+    }
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-f GN58PF keyed;
+dcl-s kOrd zoned(3 : 0);
+dcl-s kLin packed(3 : 0);
+kOrd = 1;
+setll kOrd GN58PF;
+if %equal;
+  dsply ('SETLL1 EQUAL');
+endif;
+if %found;
+  dsply ('SETLL1 FOUND');
+endif;
+reade kOrd GN58PF;
+dow not %eof(GN58PF);
+  dsply ('RE ' + %char(ORD) + ' ' + %char(LIN) + ' ' + %trim(NAME) + ' ' + %char(AMT));
+  if HX = x'C1C2';
+    dsply ('HX C1C2');
+  endif;
+  reade kOrd GN58PF;
+enddo;
+readpe kOrd GN58PF;
+if %eof;
+  dsply ('RPE1 EOF');
+else;
+  dsply ('RPE1 ' + %char(LIN));
+endif;
+setgt kOrd GN58PF;
+read GN58PF;
+dsply ('GT1 READ ' + %char(ORD) + ' ' + %char(LIN));
+readp GN58PF;
+dsply ('READP ' + %char(ORD) + ' ' + %char(LIN));
+kOrd = 9;
+kLin = 9;
+chain (kOrd : kLin) GN58PF;
+if not %found(GN58PF);
+  dsply ('CH99 NOT FOUND');
+endif;
+kOrd = 2;
+kLin = 1;
+chain (kOrd : kLin) GN58PF;
+if %found;
+  dsply ('CH21 ' + %trim(NAME) + ' ' + %char(AMT));
+endif;
+setll *loval GN58PF;
+read GN58PF;
+dsply ('LOVAL READ ' + %char(ORD) + ' ' + %char(LIN));
+setll *hival GN58PF;
+readp GN58PF;
+dsply ('HIVAL READP ' + %char(ORD) + ' ' + %char(LIN));
+read GN58PF;
+if %eof(GN58PF);
+  dsply ('HIVAL READ EOF');
+endif;
+kOrd = 5;
+setll kOrd GN58PF;
+if not %equal and not %found;
+  dsply ('SETLL5 NEITHER');
+endif;
+kOrd = 1;
+kLin = 2;
+setll (kOrd : kLin) GN58PF;
+if %equal;
+  dsply ('SETLL12 EQUAL');
+endif;
+reade (kOrd : kLin) GN58PF;
+dsply ('RE12 ' + %trim(NAME));
+reade (kOrd : kLin) GN58PF;
+if %eof;
+  dsply ('RE12 AGAIN EOF');
+endif;
+kOrd = 2;
+setll kOrd GN58PF;
+readpe kOrd GN58PF;
+if %eof;
+  dsply ('RPE2 EOF');
+endif;
+setgt kOrd GN58PF;
+readpe kOrd GN58PF;
+dsply ('GT2 RPE2 ' + %trim(NAME));
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "READEOF".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(
+        r.messages,
+        [
+            "SETLL1 EQUAL",
+            "SETLL1 FOUND",
+            "RE 1 1 Alpha 10.50",
+            "HX C1C2",
+            "RE 1 2 Beta -3.25",
+            "RE 1 3 Gamma .00",
+            "RPE1 EOF",
+            "GT1 READ 2 1",
+            "READP 1 3",
+            "CH99 NOT FOUND",
+            "CH21 Delta 99999.99",
+            "LOVAL READ 1 1",
+            "HIVAL READP 3 1",
+            "HIVAL READ EOF",
+            "SETLL5 NEITHER",
+            "SETLL12 EQUAL",
+            "RE12 Beta",
+            "RE12 AGAIN EOF",
+            "RPE2 EOF",
+            "GT2 RPE2 Delta",
+        ]
+    );
+}
