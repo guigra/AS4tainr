@@ -32070,3 +32070,52 @@ exec sql drop table LIB/GN215T;
         ]
     );
 }
+
+/// A table made by SQL with a PRIMARY KEY, declared keyed: CHAIN by the
+/// key finds the record. Expected values: PUB400, IBM i 7.5, 2026-11-20
+/// (tools/golden/native172's first version in the native fork, the same
+/// table: the CHAIN found the record with S 'aa', "0 1 aa").
+#[tokio::test]
+async fn an_sql_table_keyed_by_its_primary_key() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let make = format!(
+        r#"**free
+ctl-opt dftactgrp(*no);
+exec sql set option commit = *none;
+exec sql create table {lib}/PKT (k int not null primary key, s char(2));
+exec sql insert into {lib}/PKT values (1, 'aa'), (3, 'cc');
+dsply %char(sqlcode);
+*inlr = *on;
+"#
+    );
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-f pkt keyed rename(pkt : pktr);
+chain(e) 1 pkt;
+dsply (%char(%error) + ' ' + %char(%found(pkt)) + ' ' + s);
+chain(e) 2 pkt;
+dsply (%char(%error) + ' ' + %char(%found(pkt)));
+*inlr = *on;
+"#;
+    let mut out = vec![];
+    for (name, text) in [("PKMAKE", make.as_str()), ("PKKEYED", src)] {
+        let r = rpg::call(
+            &url,
+            vec![lib.clone()],
+            "QSECOFR".into(),
+            None,
+            None,
+            None,
+            name.into(),
+            text.into(),
+            vec![],
+        )
+        .await
+        .unwrap();
+        assert!(r.error.is_none(), "{name}: {:?}", r.error);
+        out.extend(r.messages);
+    }
+    assert_eq!(out, ["0", "0 1 aa", "0 0"]);
+}

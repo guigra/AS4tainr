@@ -1467,6 +1467,58 @@ pub async fn physical_file_of(
     )
 }
 
+/// A file with no key fields of its own, opened by key: the columns of its
+/// PRIMARY KEY constraint (made by SQL), in their order, are its keys. On
+/// IBM i a program can declare such a table keyed and CHAIN by the key
+/// (PUB400, IBM i 7.5, 2026-11-20, native fork tools/golden/native172's
+/// first version: a table with K INT NOT NULL PRIMARY KEY). Nothing
+/// changes when the file has keys or no primary key.
+pub async fn keyed_by_primary_key(client: &Client, fref: &mut FileRef) -> Result<()> {
+    if !fref.file.keys.is_empty() || fref.file.view.is_some() {
+        return Ok(());
+    }
+    let pk: Option<String> = client
+        .query_opt(
+            "SELECT name FROM as4tainr.constraints
+              WHERE library=$1 AND file=$2 AND kind='PRIMARY KEY'",
+            &[&fref.library, &fref.file.name],
+        )
+        .await?
+        .map(|r| r.get(0));
+    let Some(pk) = pk else { return Ok(()) };
+    let index = format!(
+        "{}.{}",
+        ident(&fref.library),
+        ident(&format!("{}_{pk}", fref.file.name))
+    );
+    let cols: Vec<String> = client
+        .query(
+            "SELECT a.attname::text FROM pg_index i
+               CROSS JOIN LATERAL unnest(i.indkey::int2[]) WITH ORDINALITY AS k(attnum, ord)
+               JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum
+              WHERE i.indexrelid = to_regclass($1) ORDER BY k.ord",
+            &[&index],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get::<_, String>(0))
+        .collect();
+    let keys: Vec<String> = cols
+        .iter()
+        .filter_map(|c| {
+            fref.file
+                .fields
+                .iter()
+                .find(|f| f.name.eq_ignore_ascii_case(c))
+                .map(|f| f.name.clone())
+        })
+        .collect();
+    if !keys.is_empty() && keys.len() == cols.len() {
+        fref.file.keys = keys;
+    }
+    Ok(())
+}
+
 /// Resolve a file name through the library list (first match wins).
 /// [`resolve_file`], and source files too, as the record-level access of
 /// a program sees them: the first library with a database or source file

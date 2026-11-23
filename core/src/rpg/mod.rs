@@ -604,11 +604,22 @@ async fn bind_source(
             .files
             .iter()
             .any(|d| d.name == f && (d.external || d.record_len.is_none()));
-        let fr = match r {
+        let mut fr = match r {
             Ok(fr) => fr,
             Err(_) if !described => continue,
             Err(e) => return Err(anyhow!("file {f} for the program: {e}")),
         };
+        // A keyed file declaration of an SQL table: its primary key.
+        let keyed = src.files.iter().any(|d| {
+            let desc = ast::keyword(&d.keywords, "EXTDESC")
+                .and_then(|k| k.args.first())
+                .map(|a| a.trim_matches('\'').to_ascii_uppercase())
+                .unwrap_or_else(|| d.name.clone());
+            d.keyed && d.device == "DISK" && desc == f
+        });
+        if keyed {
+            crate::catalog::keyed_by_primary_key(client, &mut fr).await?;
+        }
         externals.insert(f, fr);
     }
     let mut displays = HashMap::new();
