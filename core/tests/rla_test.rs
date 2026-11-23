@@ -31073,3 +31073,71 @@ dsply line;
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["one 1 412 one two 1 412 two"]);
 }
+
+/// An OVERLOAD prototype has no END-PR: a standalone field and the
+/// calculations can follow it directly, and an END-PR after it is
+/// RNF3551. Expected values: PUB400, IBM i 7.5, 2026-11-23
+/// (tools/golden/native219 in the native fork: n219_overload
+/// "N12.50|Cabc"; n219_endpr, the same source with END-PR, RNF3551
+/// severity 20 and no program).
+#[tokio::test]
+async fn an_overload_prototype_has_no_end_pr() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-pr fmt varchar(30) overload(fmtNum : fmtChr);
+dcl-s line varchar(200);
+dcl-s c char(5) inz('abc');
+
+line = fmt(12.5) + '|' + fmt(c);
+dsply line;
+*inlr = *on;
+
+dcl-proc fmtNum;
+  dcl-pi *n varchar(30);
+    n packed(9:2) const;
+  end-pi;
+  return 'N' + %char(n);
+end-proc;
+
+dcl-proc fmtChr;
+  dcl-pi *n varchar(30);
+    s varchar(20) const;
+  end-pi;
+  return 'C' + %trim(s);
+end-proc;
+"#;
+    let call = |name: &'static str, src: String| {
+        let url = url.clone();
+        let lib = lib.clone();
+        async move {
+            rpg::call(
+                &url,
+                vec![lib],
+                "QSECOFR".into(),
+                None,
+                None,
+                None,
+                name.into(),
+                src,
+                vec![],
+            )
+            .await
+        }
+    };
+    let r = call("OVERLD", src.to_string()).await.unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["N12.50|Cabc"]);
+    let with_end = src.replace(
+        "overload(fmtNum : fmtChr);\n",
+        "overload(fmtNum : fmtChr);\nend-pr;\n",
+    );
+    assert!(with_end.contains("end-pr;\ndcl-s line"));
+    let e = match call("OVERLDE", with_end).await {
+        Err(e) => format!("{e:#}"),
+        Ok(r) => format!("{:?}", r.error),
+    };
+    assert!(e.contains("RNF3551"), "{e}");
+}

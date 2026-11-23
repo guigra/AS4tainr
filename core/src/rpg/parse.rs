@@ -838,6 +838,9 @@ struct Ctx {
     long_name: String,
     /// Inside a free-form DCL-DS / DCL-PR / DCL-PI.
     free_block: Option<DefKind>,
+    /// The definition just made was an OVERLOAD prototype, which has no
+    /// END-PR (an END-PR next is RNF3551).
+    after_overload: bool,
     /// The fixed-form PLIST or KLIST being built.
     list: Option<(bool, String)>,
     /// The CALL whose PARMs follow.
@@ -948,6 +951,7 @@ pub fn parse_defined(
         proc: None,
         long_name: String::new(),
         free_block: None,
+        after_overload: false,
         list: None,
         call: None,
         pending_cond: None,
@@ -2675,6 +2679,12 @@ fn free(ctx: &mut Ctx, text: &str, lineno: usize) -> Result<()> {
             // subfields still has END-DS... unless written on one line.
             let single = kind == DefKind::Ds
                 && (keyword(&kws, "LIKEDS").is_some() || keyword(&kws, "LIKEREC").is_some());
+            // An OVERLOAD prototype has no parameters and no END-PR: what
+            // follows is the next definition or the calculations (PUB400,
+            // IBM i 7.5, 2026-11-23: `dcl-pr fmt varchar(30)
+            // overload(fmtNum : fmtChr);` then DCL-S lines compiles).
+            let overload = kind == DefKind::Proto && keyword(&kws, "OVERLOAD").is_some();
+            let single = single || overload;
             ctx.add_def(Def {
                 name: if name == "*N" { String::new() } else { name },
                 kind: kind.clone(),
@@ -2690,9 +2700,18 @@ fn free(ctx: &mut Ctx, text: &str, lineno: usize) -> Result<()> {
             } else {
                 Some(kind)
             };
+            ctx.after_overload = overload;
             return Ok(());
         }
         "END-DS" | "END-PR" | "END-PI" => {
+            // END-PR right after an OVERLOAD prototype: RNF3551, severity
+            // 20 (PUB400, IBM i 7.5, 2026-11-23: the program is not
+            // created).
+            if ctx.after_overload && first.as_str() == "END-PR" {
+                bail!(
+                    "RNF3551: END-PR is not expected after an OVERLOAD prototype, which has none."
+                );
+            }
             ctx.free_block = None;
             return Ok(());
         }
