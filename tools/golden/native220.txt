@@ -1,0 +1,19 @@
+# Phase 2 (interpreter fixes): the cases whose earlier captures kept only
+# the final version of their program (one batch, one connection).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native220.txt -f tools/golden/native220
+n220_crt_ind|!system "CRTBNDRPG PGM(@LIB@/GN220IND) SRCSTMF('@HOME@/gld/gn220ind.rpgle')"
+n220_crt_aut|!system "CRTBNDRPG PGM(@LIB@/GN220AUT) SRCSTMF('@HOME@/gld/gn220aut.rpgle')"
+n220_crt_var|!system "CRTBNDRPG PGM(@LIB@/GN220VAR) SRCSTMF('@HOME@/gld/gn220var.rpgle')"
+n220_crt_lit|!system "CRTBNDRPG PGM(@LIB@/GN220LIT) SRCSTMF('@HOME@/gld/gn220lit.rpgle')"
+n220_crt_lic|!system "CRTSQLRPGI OBJ(@LIB@/GN220LIC) SRCSTMF('@HOME@/gld/gn220lic.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n220_lic|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN220LIC)"; cat gn1.out; rm -f gn1.out
+n220_crt_sm|!system "CRTSQLRPGI OBJ(@LIB@/GN220SM) SRCSTMF('@HOME@/gld/gn220sm.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n220_sm|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN220SM)"; cat gn1.out; rm -f gn1.out
+n220_src|!system -q "DLTF FILE(@LIB@/GN58PF)"; system -q "CRTSRCPF FILE(@LIB@/GN58SRC) RCDLEN(92)"; system -q "ADDPFM FILE(@LIB@/GN58SRC) MBR(GN58PF) SRCTYPE(PF)"; system "CPYFRMSTMF FROMSTMF('@HOME@/gld/gn58pf.pf') TOMBR('/QSYS.LIB/@LIB@.LIB/GN58SRC.FILE/GN58PF.MBR') MBROPT(*REPLACE)"
+n220_crtpf|!system -s "CRTPF FILE(@LIB@/GN58PF) SRCFILE(@LIB@/GN58SRC)"
+n220_rows|RUNSQL SQL('INSERT INTO @LIB@/GN58PF VALUES(1, 2, ''Beta'', -3.25, X''0000''), (2, 1, ''Delta'', 99999.99, X''C1C2''), (1, 1, ''Alpha'', 10.50, X''C1C2''), (3, 1, ''Echo'', 1, X''4040''), (1, 3, ''Gamma'', 0, X''FFFF'')') COMMIT(*NONE)
+n220_crt_rd|!system "CRTSQLRPGI OBJ(@LIB@/GN220RD) SRCSTMF('@HOME@/gld/gn220rd.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n220_rd|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN220RD)"; cat gn1.out; rm -f gn1.out
+n220_crt_kl|!system "CRTBNDRPG PGM(@LIB@/GN220KL) SRCSTMF('@HOME@/gld/gn220kl.rpgle')"
+n220_crt_np|!system "CRTSQLRPGI OBJ(@LIB@/GN220NP) SRCSTMF('@HOME@/gld/gn220np.rpgle') COMMIT(*NONE) OBJTYPE(*PGM)"
+n220_np|!cd @HOME@/gld && rm -f gn1.out && system "CALL PGM(@LIB@/GN220NP)"; cat gn1.out; rm -f gn1.out
