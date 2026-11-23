@@ -388,12 +388,15 @@ impl<'a> Rt<'_, 'a> {
                 Some(super::super::program::Sym::Const(v)) => {
                     a(&v.chars()?).trim().to_ascii_uppercase()
                 }
-                // EXTPGM(variable) (S2.200): its value, as eval gives it.
+                // EXTPGM(variable) (S2.200): its value, as eval gives it,
+                // spelled as it is (call_named_inner since the fork's
+                // fix/extpgm-var-case: in lower case it names another
+                // program).
                 Some(super::super::program::Sym::Var(v)) => {
                     let off = v.off;
                     a(&rpgrt::native::load(&self.m.bufs, v.buf, off, v.dtype)?.chars()?)
                         .trim()
-                        .to_ascii_uppercase()
+                        .to_string()
                 }
                 Some(_) => anyhow::bail!("native: the program of {name} is not a constant"),
                 None => pgm.clone(),
