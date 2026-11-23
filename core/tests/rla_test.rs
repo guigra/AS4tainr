@@ -30582,3 +30582,75 @@ end-proc;
         ["+3.675000000000000E+001 +2.500000000000000E+000 +7.0000000E+00 -2.5000000E+00 +3.333333333333333E-001"]
     );
 }
+
+/// IN *DTAARA in free form reads every data area of the program: the
+/// fields named on DTAARA, here a character and a decimal data area.
+/// Expected values: PUB400, IBM i 7.5, 2026-11-18 (tools/golden/native80
+/// n80_dtaara in the native fork, without its *LDA part: "IN hello LOCK
+/// changed VAR again", "NUM 12.50 13.75 ALL again 13.75").
+#[tokio::test]
+async fn in_dtaara_in_free_form_reads_every_data_area() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (client, lib) = setup(&url).await;
+    // As the capture made them before the call.
+    for c in [
+        format!("CRTDTAARA DTAARA({lib}/GN80C) TYPE(*CHAR) LEN(20) VALUE('hello')"),
+        format!("CRTDTAARA DTAARA({lib}/GN80N) TYPE(*DEC) LEN(7 2) VALUE(12.50)"),
+    ] {
+        job_run(&client, &lib, &c).await.unwrap();
+    }
+    let src = r#"       ctl-opt dftactgrp(*no);
+       dcl-s txt char(20) dtaara('LIB/GN80C');
+       dcl-s num packed(7:2) dtaara('LIB/GN80N');
+       dcl-s dname char(21) inz('LIB/GN80C');
+     Dvia              S             20    DTAARA(*VAR:dname)
+       dcl-s line varchar(52);
+       in txt;
+       line = 'IN ' + %trim(txt);
+       in *lock txt;
+       txt = 'changed';
+       out txt;
+       txt = *blanks;
+       in *lock txt;
+       line += ' LOCK ' + %trim(txt);
+       txt = 'again';
+       out txt;
+       in via;
+       dsply (line + ' VAR ' + %trim(via));
+       in *lock num;
+       line = 'NUM ' + %char(num);
+       num += 1.25;
+       out num;
+       num = 0;
+       in num;
+       line += ' ' + %char(num);
+       txt = *blanks;
+       num = 0;
+       in *dtaara;
+       dsply (line + ' ALL ' + %trim(txt) + ' ' + %char(num));
+       *inlr = *on;
+"#
+    .replace("LIB/", &format!("{lib}/"));
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "INDTA".into(),
+        src,
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(
+        r.messages,
+        [
+            "IN hello LOCK changed VAR again",
+            "NUM 12.50 13.75 ALL again 13.75"
+        ]
+    );
+}

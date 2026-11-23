@@ -3169,10 +3169,15 @@ fn free_calc(text: &str) -> Result<Line> {
         }
         "IN" | "OUT" => {
             let lock = rest_t.to_ascii_uppercase().starts_with("*LOCK");
-            let name = rest_t
-                .trim_start_matches(|c: char| c == '*' || c.is_ascii_alphabetic() && lock)
-                .trim();
-            let name = if lock { rest_t[5..].trim() } else { name };
+            // The data area's field, or *DTAARA: every data area of the
+            // program (ILE RPG Reference, IN; PUB400, IBM i 7.5,
+            // 2026-11-18: `in *dtaara;` reads both data areas). Its '*'
+            // stays.
+            let name = if lock {
+                rest_t[5..].trim()
+            } else {
+                rest_t.trim()
+            };
             Line::Stmt(Stmt::Op {
                 code: op.clone(),
                 f1: if lock {
