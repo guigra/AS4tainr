@@ -1603,6 +1603,10 @@ impl<'a> Machine<'a> {
                 let v = arg(self, 0)?;
                 let d = match v {
                     Value::Char(c) => char_number(&a(&c))?,
+                    // A float (a procedure's float result): its value as a
+                    // decimal (PUB400, IBM i 7.5, 2026-11-21: %INTH(pow(2 :
+                    // 0.5)) is 1).
+                    Value::Float(x) => data::float_dec(x)?,
                     o => o.num()?,
                 };
                 Value::Num(d.rescale(0, b == "INTH")?)
@@ -1611,6 +1615,7 @@ impl<'a> Machine<'a> {
                 let v = arg(self, 0)?;
                 let d = match v {
                     Value::Char(c) => char_number(&a(&c))?,
+                    Value::Float(x) => data::float_dec(x)?,
                     o => o.num()?,
                 };
                 match (args.get(1), args.get(2)) {

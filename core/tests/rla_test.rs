@@ -30654,3 +30654,46 @@ async fn in_dtaara_in_free_form_reads_every_data_area() {
         ]
     );
 }
+
+/// %INTH, %INT, %DECH and %DEC of a float a procedure returns, with more
+/// digits than a short decimal (pow(2 : 0.5), 1.414...): the float is
+/// taken as a number. Expected values: PUB400, IBM i 7.5, 2026-11-21
+/// (tools/golden/native203 n203_floatdec in the native fork:
+/// "-12.6 2.67 -8 -7 1", the last %INTH(pow(2 : 0.5))).
+#[tokio::test]
+async fn inth_of_a_float_with_many_digits_is_a_number() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-pr pow float(8) extproc('pow');
+  x float(8) value;
+  y float(8) value;
+end-pr;
+dcl-s f float(8) inz(2.675);
+dcl-s g float(8) inz(-7.5);
+dcl-s line varchar(200);
+line = %char(%dec(f : 7 : 2));
+line += ' ' + %char(%dech(g : 5 : 0));
+line += ' ' + %char(%int(g));
+line += ' ' + %char(%inth(pow(2 : 0.5)));
+dsply line;
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "INTHFLT".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["2.67 -8 -7 1"]);
+}
