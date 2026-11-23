@@ -2515,7 +2515,9 @@ impl Rt<'_, '_> {
     /// ptrs.rs addr: the absolute buffer and offset a pointer addresses,
     /// with `size` bytes there, or MCH3601/MCH0601.
     fn addr_n(&self, v: &Value, size: usize) -> NResult<(usize, usize)> {
-        use rpgrt::rpg::mem::{HEAP_BASE, KIND_HEAP, KIND_PROC, KIND_SYS, LENT_BASE};
+        use rpgrt::rpg::mem::{
+            HEAP_BASE, KIND_HEAP, KIND_NULL_OFF, KIND_PROC, KIND_SYS, LENT_BASE,
+        };
         let p = match v {
             Value::Ptr(p) => *p,
             Value::Fig(data::Fig::Null) => anyhow::bail!(
@@ -2527,6 +2529,9 @@ impl Rt<'_, '_> {
         let buf = match p.kind {
             KIND_PROC | KIND_SYS => {
                 anyhow::bail!("MCH3601: a procedure or system pointer does not address storage.")
+            }
+            KIND_NULL_OFF => {
+                anyhow::bail!("MCH3601: the pointer is *NULL plus a number: it addresses no storage.")
             }
             KIND_HEAP => {
                 if pb >= self.m.bufs.heap.blocks.len() {

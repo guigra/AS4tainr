@@ -2117,10 +2117,18 @@ pub fn editw(v: &Dec, p: Option<(u32, u32)>, word: &str) -> NResult<Value> {
 /// Stage 2 (S2.49): pointer arithmetic, `p + n` or `p - n` (back): the
 /// interpreter's ptrs.rs ptr_arith, written again. The number must be
 /// whole; it is taken modulo 2^64 as the interpreter's `as i64` takes it.
-/// An offset outside 0..=u32::MAX is MCH0601, a *NULL pointer MCH3601.
+/// An offset outside 0..=u32::MAX is MCH0601. *NULL plus a number is an
+/// address with no storage (mem::KIND_NULL_OFF, its offset the number;
+/// fix/null-plus-number); *NULL less a number MCH3601.
 pub fn ptr_move(p: &Value, n: &Dec, back: bool) -> NResult<Value> {
     let p = match p {
         Value::Ptr(p) => *p,
+        Value::Fig(crate::rpg::data::Fig::Null) if !back => crate::rpg::mem::Ptr {
+            kind: crate::rpg::mem::KIND_NULL_OFF,
+            owner: 0,
+            buf: 0,
+            off: 0,
+        },
         Value::Fig(crate::rpg::data::Fig::Null) => {
             anyhow::bail!("MCH3601: pointer arithmetic on a pointer that is not set (*NULL).")
         }
@@ -2683,6 +2691,13 @@ pub fn set_var_len(mem: &mut Mem, buf: usize, off: usize, max: u32, n: &Dec) -> 
 /// as eval's own order.
 pub fn ptr_diff(x: &Value, y: &Value) -> NResult<Dec> {
     match (x, y) {
+        // *NULL plus a number, less *NULL: the number again
+        // (fix/null-plus-number).
+        (Value::Ptr(p), Value::Fig(crate::rpg::data::Fig::Null))
+            if p.kind == crate::rpg::mem::KIND_NULL_OFF =>
+        {
+            Ok(Dec::from_i64(i64::from(p.off)))
+        }
         (Value::Ptr(p), Value::Ptr(q)) => {
             if (p.kind, p.owner, p.buf) == (q.kind, q.owner, q.buf) {
                 let d = i64::from(p.off)
