@@ -197,8 +197,13 @@ async fn setll_partial_key_then_reade_reads_one_order() {
             ("3".to_string(), "WASHER-M8".to_string())
         ]
     );
-    // After READE hits the end of the key range, READ moves on to the next order.
-    assert_eq!(field(&f.read(&client).await.unwrap(), "ORDNO"), "1003");
+    // After READE hits the end of the key range, READ is end of file too
+    // until the file is positioned again (PUB400, IBM i 7.5, 2026-11-23,
+    // native fork tools/golden/native220 n220_rd: "READ EOF", "READ2
+    // EOF"; ILE RPG Reference, "READ (Read a Record)": "The file must be
+    // repositioned after an EOF condition").
+    assert!(f.read(&client).await.unwrap().eof);
+    assert!(f.read(&client).await.unwrap().eof);
 
     // SETLL on a missing key: %EQUAL off, READ gets the next higher key.
     assert!(!f.setll(&client, &k(&["1000"])).await.unwrap());
