@@ -29890,3 +29890,15 @@ async fn date_of_sys_does_not_compile() {
     )
     .await;
 }
+
+/// EXSR in a subprocedure of a subroutine of the main procedure does not
+/// compile: RNF7030 and RNF7018, severity 30. Expected values: PUB400,
+/// IBM i 7.5, 2026-11-15 (tools/golden/native45 n45_crt_sr in the native
+/// fork: `exsr mainsr;` in a subprocedure, RNS9310).
+#[tokio::test]
+async fn exsr_of_the_main_procedures_subroutine_does_not_compile() {
+    let _ = require_db!();
+    let body = "dcl-s n int(10);\nsub();\n*inlr = *on;\nbegsr mainsr;\n  n = n + 1;\nendsr;\n\ndcl-proc sub;\n  exsr mainsr;\nend-proc;\n";
+    refused_by_the_compiler("EXSRMAIN", body, "*RNF7030 30").await;
+    refused_by_the_compiler("EXSRMAIN", body, "*RNF7018 30").await;
+}

@@ -24,6 +24,8 @@
 //! - RNF7421 (30): a time plus a date, or a duration plus a date, with
 //!   RNF7416 (30) on the EVAL (PUB400 2026-11-16 and 2026-11-22);
 //! - RNF0605 (20): %DATE(*SYS) (PUB400 2026-11-16);
+//! - RNF7030 and RNF7018 (30): EXSR in a subprocedure of a subroutine it
+//!   does not have (PUB400 2026-11-15);
 //! - RNF7569 (20): a FOR limit with decimal places (PUB400 2026-11-22);
 //! - RNF2121 (30) and RNF2109 (40): an externally described file whose
 //!   record format has the file's name, without RENAME (PUB400
@@ -605,6 +607,44 @@ pub fn check(src: &Source, prog: &Program, text: &str) -> Checked {
             .collect();
         for c in &p.calcs {
             w.calc(c);
+        }
+        // EXSR in a subprocedure runs one of its own subroutines: one of
+        // the main procedure's is not defined there, RNF7030 and RNF7018,
+        // severity 30 (tools/golden/native45 n45_crt_sr, PUB400, IBM i
+        // 7.5, 2026-11-15).
+        let own: Vec<&String> = p
+            .calcs
+            .iter()
+            .filter_map(|c| match &c.what {
+                Line::BegSr(n) => Some(n),
+                _ => None,
+            })
+            .collect();
+        for c in &p.calcs {
+            if let Line::ExSr(n) = &c.what {
+                if n.starts_with('*') || own.iter().any(|o| o.eq_ignore_ascii_case(n)) {
+                    continue;
+                }
+                let name = n.to_ascii_uppercase();
+                if !w.defined(&name) {
+                    w.out.diags.push(Diag {
+                        line: c.line,
+                        id: "RNF7030".into(),
+                        sev: 30,
+                        text: format!("{name} is not defined as a name or indicator here."),
+                        at: None,
+                    });
+                }
+                w.out.diags.push(Diag {
+                    line: c.line,
+                    id: "RNF7018".into(),
+                    sev: 30,
+                    text: format!(
+                        "{name}, the operand of EXSR, is not a subroutine of this procedure."
+                    ),
+                    at: None,
+                });
+            }
         }
     }
     // A record format whose only file operations were not valid: not
