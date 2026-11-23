@@ -30180,3 +30180,48 @@ dsply (%char(d0 : *iso) + ' ' + %char(t0 : *iso));
         assert!(e.contains(id), "{name}: {e}");
     }
 }
+
+/// *LOVAL and *HIVAL assigned to a date are its first and last dates.
+/// Expected values: PUB400, IBM i 7.5, 2026-11-16 (tools/golden/native53
+/// n53_date in the native fork: LOVAL 0001-01-01, HIVAL 9999-12-31, USA
+/// HIVAL 12/31/9999).
+#[tokio::test]
+async fn loval_and_hival_of_a_date_are_its_first_and_last_dates() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s iso date(*iso);
+dcl-s usa date(*usa);
+iso = *loval;
+dsply ('LOVAL ' + %char(iso));
+iso = *hival;
+dsply ('HIVAL ' + %char(iso));
+usa = *hival;
+dsply ('USA HIVAL ' + %char(usa));
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "DATEFIG".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(
+        r.messages,
+        [
+            "LOVAL 0001-01-01",
+            "HIVAL 9999-12-31",
+            "USA HIVAL 12/31/9999"
+        ]
+    );
+}

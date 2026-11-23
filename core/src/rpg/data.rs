@@ -478,6 +478,19 @@ pub fn decode_num(t: &DType, b: &[u8]) -> Result<Dec> {
 /// Store a value in a field of type `t` (bytes `out`), converting as RPG
 /// assignment does. `right`: right-adjust character data (EVALR).
 pub fn store(t: &DType, v: &Value, out: &mut [u8], fit: Fit, right: bool) -> Result<()> {
+    // *LOVAL and *HIVAL of a date are its format's first and last dates:
+    // 0001-01-01 and 9999-12-31 (12/31/9999 in *USA) (golden capture
+    // tools/golden/native53 n53_date, PUB400, IBM i 7.5, 2026-11-16); a
+    // two-digit year's format covers 1940 to 2039.
+    if let (DType::Date(f), Value::Fig(fig @ (Fig::LoVal | Fig::HiVal))) = (t, v) {
+        let iso = match (fig, f.short_year()) {
+            (Fig::LoVal, false) => "0001-01-01",
+            (Fig::LoVal, true) => "1940-01-01",
+            (_, false) => "9999-12-31",
+            (_, true) => "2039-12-31",
+        };
+        return store(t, &Value::Char(e(iso)), out, fit, right);
+    }
     // A date or time in its format: from the *ISO value.
     match (t, v) {
         (DType::Date(f), Value::Char(c)) if !f.is_iso() => {
