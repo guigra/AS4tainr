@@ -32223,3 +32223,83 @@ async fn test_without_e_or_an_error_indicator_does_not_compile() {
         .await
         .unwrap();
 }
+
+/// A DIM(*AUTO) array assigned past its dimension, and %ELEM set past a
+/// DIM(*VAR) array's dimension, are status 00124; an index past a *VAR
+/// array's elements in use stays 00121. Expected values: PUB400, IBM i
+/// 7.5, 2026-11-15 (tools/golden/native47b n47_var in the native fork:
+/// AUTO6 ERR 124, VAR1 ERR 121, VAR3 ERR 121, READ4 ERR 121, VARSET5 ERR
+/// 124).
+#[tokio::test]
+async fn varying_dimension_arrays_past_their_dimension_are_status_124() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s au int(10) dim(*auto:5);
+dcl-s va char(3) dim(*var:4);
+dcl-s n int(10);
+dcl-s k int(10) inz(3);
+dcl-s k6 int(10) inz(6);
+dcl-s n5 int(10) inz(5);
+au(2) = 7;
+au(*next) = 9;
+monitor;
+  au(k6) = 1;
+  dsply ('AUTO6 ' + %char(%elem(au)));
+on-error;
+  dsply ('AUTO6 ERR ' + %char(%status));
+endmon;
+monitor;
+  va(1) = 'abc';
+  dsply ('VAR1 ' + %char(%elem(va)));
+on-error;
+  dsply ('VAR1 ERR ' + %char(%status));
+endmon;
+%elem(va) = 2;
+monitor;
+  va(k) = 'qqq';
+  dsply ('VAR3 ' + %char(%elem(va)));
+on-error;
+  dsply ('VAR3 ERR ' + %char(%status));
+endmon;
+monitor;
+  n = au(4);
+  dsply ('READ4 ' + %char(n));
+on-error;
+  dsply ('READ4 ERR ' + %char(%status));
+endmon;
+monitor;
+  %elem(va) = n5;
+  dsply ('VARSET5 ' + %char(%elem(va)));
+on-error;
+  dsply ('VARSET5 ERR ' + %char(%status));
+endmon;
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "VARDIM".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(
+        r.messages,
+        [
+            "AUTO6 ERR 124",
+            "VAR1 ERR 121",
+            "VAR3 ERR 121",
+            "READ4 ERR 121",
+            "VARSET5 ERR 124"
+        ]
+    );
+}

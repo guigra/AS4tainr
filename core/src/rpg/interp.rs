@@ -1962,7 +1962,13 @@ impl<'a> Machine<'a> {
                         anyhow!("%ELEM can only be set for a varying-dimension array")
                     })?;
                 let n = val.num()?.to_i128()?;
-                if n < 0 || n > arr.var.dim as i128 {
+                // Past the dimension is status 00124 (golden capture
+                // tools/golden/native47b n47_var, VARSET5, PUB400, IBM i
+                // 7.5, 2026-11-15).
+                if n > arr.var.dim as i128 {
+                    bail!("RNQ0124: %ELEM {n} is past the dimension {}.", arr.var.dim);
+                }
+                if n < 0 {
                     bail!("RNQ0121: %ELEM {n} is outside 0 to {}.", arr.var.dim);
                 }
                 let cur = self.elems_in_use(&arr.name, &arr.var) as usize;
@@ -2074,6 +2080,16 @@ impl<'a> Machine<'a> {
                             if k > n as i128 {
                                 if (kind == 'A' || next) && k <= v.dim as i128 {
                                     self.var_elems.insert(name.clone(), k as u32);
+                                } else if kind == 'A' {
+                                    // A *AUTO array assigned past its
+                                    // dimension is status 00124 (golden
+                                    // capture tools/golden/native47b
+                                    // n47_var, AUTO6, PUB400, IBM i 7.5,
+                                    // 2026-11-15).
+                                    bail!(
+                                        "RNQ0124: An index {k} is past the dimension {} of {name}.",
+                                        v.dim
+                                    );
                                 } else {
                                     bail!("RNQ0121: An array index is out of range (index {k}, {n} elements in use).");
                                 }
