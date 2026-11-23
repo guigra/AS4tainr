@@ -694,11 +694,13 @@ impl Machine<'_> {
     /// field); a program-described one is a record image with the fields
     /// at their end positions in their data format (position 52).
     pub(super) fn disk_output(&mut self, i: usize, r: &OutRec) -> Result<()> {
+        // The file the open found (EXTFILE names it then: PUB400, IBM i
+        // 7.5, 2026-11-21, a program-described file made in QTEMP before
+        // its OPEN), else the one the compile found.
+        let fref = self
+            .fref_of(i)
+            .map_err(|_| anyhow!("{} is not a database file", self.prog.files[i].decl.name))?;
         let fi = &self.prog.files[i];
-        let fref = fi
-            .fref
-            .clone()
-            .ok_or_else(|| anyhow!("{} is not a database file", fi.decl.name))?;
         let client = self.io.client;
         self.block(crate::authority::check(
             client,

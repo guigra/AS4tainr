@@ -30366,3 +30366,68 @@ endfor;
         ]
     );
 }
+
+/// EXCEPT to a program-described DISK file opened by EXTFILE: the file
+/// need not exist when the program is compiled; the program makes it in
+/// QTEMP before its OPEN and adds records with output specifications.
+/// Expected value: PUB400, IBM i 7.5, 2026-11-21 (tools/golden/native197
+/// n197_exceptdisk in the native fork: "[Tabc     00042      ][XY
+/// 7]").
+#[tokio::test]
+async fn except_to_a_program_described_file_named_by_extfile() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"     H DFTACTGRP(*NO)
+     FGN197F    O  A F   20        DISK    USROPN EXTFILE('QTEMP/GN197F')
+     D line            S            200    VARYING
+     D name            S              8
+     D qty             S              5  0
+     D got             S             20
+      /free
+        exec sql set option commit = *none;
+        exec sql drop table QTEMP/GN197F;
+        exec sql create table QTEMP/GN197F (r char(20) not null);
+        open gn197f;
+        name = 'abc';
+        qty = 42;
+        except addrec;
+        qty = -7;
+        except addtwo;
+        close gn197f;
+        exec sql declare c1 cursor for
+                 select r from QTEMP/GN197F order by rrn(GN197F);
+        exec sql open c1;
+        exec sql fetch c1 into :got;
+        dow sqlcode = 0;
+          line += '[' + got + ']';
+          exec sql fetch c1 into :got;
+        enddo;
+        exec sql close c1;
+        dsply line;
+        *inlr = *on;
+      /end-free
+     OGN197F    EADD         ADDREC
+     O                                            1 'T'
+     O                       NAME                 9
+     O                       QTY                 14
+     OGN197F    EADD         ADDTWO
+     O                                            2 'XY'
+     O                       QTY           Z     20
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "GN197ED".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["[Tabc     00042      ][XY                 7]"]);
+}
