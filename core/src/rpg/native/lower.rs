@@ -2123,10 +2123,53 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
             let value = ptr_val(cx, value, &mut used, Vec::new())?;
             ir::Lowered::EvalPtr { target: t, value }
         }
+        // Fixed-form ALLOC and REALLOC (the parser takes them since the
+        // fork's fix/fixed-alloc), as ptrs.rs storage_op: the length in
+        // factor 2 evaluated, then (REALLOC) the result field's pointer,
+        // %ALLOC or %REALLOC's storage, assigned to the result field with
+        // the strict fit, as an EVAL of a pointer does (EvalPtr). REALLOC's
+        // pointer is loaded after the length there and before it here:
+        // only a pointer field with no index and not based, whose load
+        // cannot fail, so the order does not show. No extender and no
+        // indicators.
+        Ins::Stmt(Stmt::Op {
+            code,
+            f1: None,
+            f2: Some(len),
+            result: Some(target),
+            ext,
+            ind,
+        }) if (code == "ALLOC" || code == "REALLOC")
+            && !ext.error
+            && !ext.no_lock
+            && !ext.half_adjust
+            && ext.other.is_empty()
+            && ind.is_empty()
+            && is_pointer_name(cx, target) =>
+        {
+            let t = variable(cx, target, &mut used)?;
+            // The free form's %ALLOC(len) and %REALLOC(target : len).
+            let bif = if code == "ALLOC" {
+                Expr::Bif("ALLOC".into(), vec![len.clone()])
+            } else {
+                if !matches!(
+                    t,
+                    ir::Operand::Var {
+                        index: None,
+                        based: None,
+                        ..
+                    }
+                ) {
+                    return None;
+                }
+                Expr::Bif("REALLOC".into(), vec![target.clone(), len.clone()])
+            };
+            let value = ptr_val(cx, &bif, &mut used, Vec::new())?;
+            used.push(format!("fixed-form {code}"));
+            ir::Lowered::EvalPtr { target: t, value }
+        }
         // DEALLOC (S2.50), as ptrs.rs storage_op: a pointer field as the
         // result (free form: factor 2), (N) or no extender, no indicators.
-        // ALLOC and REALLOC are not lowered: the parser does not take
-        // them (fidelity.md).
         Ins::Stmt(Stmt::Op {
             code,
             f1: None,
@@ -9121,6 +9164,37 @@ fn str_chars(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operan
     }
 }
 
+/// A factor of CAT: str_chars's, or a based character field with no
+/// index (the fork's fixed-form ALLOC test, fix/fixed-alloc). string_op's
+/// CAT evaluates factor 1 (or reads the result field, whose load cannot
+/// fail), then factor 2, then the number of blanks, the order of the
+/// generated StrOpIn's fields, so a based field's error (MCH3601) comes
+/// where it comes there.
+fn cat_chars(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
+    if let Expr::Name { parts, args: None } = e {
+        if matches!(sym(cx, &parts.join(".")), Some(Sym::Var(_))) {
+            let o = variable(cx, e, used)?;
+            if matches!(
+                &o,
+                ir::Operand::Var {
+                    ty: ir::Ty::Char(_) | ir::Ty::Varchar(_),
+                    ..
+                }
+            ) && matches!(
+                &o,
+                ir::Operand::Var {
+                    index: None,
+                    based: Some(_),
+                    ..
+                }
+            ) {
+                return Some(o);
+            }
+        }
+    }
+    str_chars(cx, e, used)
+}
+
 /// A string operation's numeric factor (S2.83): a number, or a numeric
 /// field with no index.
 fn str_num(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>) -> Option<ir::Operand> {
@@ -9192,13 +9266,16 @@ fn str_op(
         }
         ir::StrCode::Cat => {
             o1 = match f1 {
-                Some(x) => Some(str_chars(cx, x, used)?),
+                Some(x) => Some(cat_chars(cx, x, used)?),
                 None => None,
             };
         }
     }
     let (b, bn) = str_split(f2);
-    let o2 = str_chars(cx, &b?, used)?;
+    let o2 = match c {
+        ir::StrCode::Cat => cat_chars(cx, &b?, used)?,
+        _ => str_chars(cx, &b?, used)?,
+    };
     let o2n = match bn {
         Some(n) => Some(str_num(cx, &n, used)?),
         None => None,
