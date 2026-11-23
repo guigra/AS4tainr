@@ -1615,22 +1615,27 @@ pub fn elem_in_use(
 }
 
 /// An element of a varying-dimension array written (S2.45): an index
-/// past the elements in use grows a DIM(*AUTO) array to it, within the
-/// dimension; otherwise it is the interpreter's RNQ0121. The element's
-/// place, and the new number of elements in use when it grows.
+/// past the elements in use grows the array to it (`grows`: a DIM(*AUTO)
+/// array, or *NEXT), within the dimension; past the dimension a
+/// DIM(*AUTO) array (`auto`) is RNQ0124 (fix/varying-dim-124); otherwise
+/// it is the interpreter's RNQ0121. The element's place, and the new
+/// number of elements in use when it grows.
 pub fn elem_grow(
     off: usize,
     stride: usize,
     dim: u32,
     index: &Value,
     in_use: u32,
-    auto: bool,
+    (grows, auto): (bool, bool),
+    name: &str,
 ) -> NResult<(usize, Option<u32>)> {
     let k = index.num()?.to_i128()?;
     let mut grow = None;
     if k > i128::from(in_use) {
-        if auto && k <= i128::from(dim) {
+        if grows && k <= i128::from(dim) {
             grow = Some(u32::try_from(k)?);
+        } else if auto {
+            anyhow::bail!("RNQ0124: An index {k} is past the dimension {dim} of {name}.");
         } else {
             anyhow::bail!(
                 "RNQ0121: An array index is out of range (index {k}, {in_use} elements in use)."
@@ -1652,12 +1657,15 @@ pub struct ArrayPlace {
 }
 
 /// %ELEM of a varying-dimension array set (S2.45): the interpreter's
-/// assign_value "ELEM" arm. A count outside 0 to the dimension is RNQ0121;
-/// the elements from the ones in use to the new count get their initial
-/// value. The new count.
+/// assign_value "ELEM" arm. A count past the dimension is RNQ0124
+/// (fix/varying-dim-124), a negative one RNQ0121; the elements from the
+/// ones in use to the new count get their initial value. The new count.
 pub fn set_elems(mem: &mut Mem, arr: &ArrayPlace, in_use: u32, v: &Dec) -> NResult<u32> {
     let n = v.to_i128()?;
-    if n < 0 || n > i128::from(arr.dim) {
+    if n > i128::from(arr.dim) {
+        anyhow::bail!("RNQ0124: %ELEM {n} is past the dimension {}.", arr.dim);
+    }
+    if n < 0 {
         anyhow::bail!("RNQ0121: %ELEM {n} is outside 0 to {}.", arr.dim);
     }
     let n = u32::try_from(n)?;

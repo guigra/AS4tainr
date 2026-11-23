@@ -1880,14 +1880,14 @@ fn place_of(o: &ir::Operand) -> Option<(String, String, String)> {
                 // before the store, as the interpreter's assign does.
                 // *NEXT (S2.103): the element after those in use, which
                 // grows the array whatever its kind (assign_value's `next`).
-                Some((name, _)) if ix.next => format!(
-                    "    let n = rt.elems({name});\n    let i = rpgrt::rpg::data::Value::Num(rpgrt::rpg::dec::Dec::from_i64(i64::from(n).saturating_add(1)));\n    let (so, grow) = rpgrt::native::elem_grow({off}, {}, {}, &i, n, true)?;\n    if let Some(k) = grow {{\n        rt.set_elem_count({name}, k);\n    }}\n",
+                Some((name, auto)) if ix.next => format!(
+                    "    let n = rt.elems({name});\n    let i = rpgrt::rpg::data::Value::Num(rpgrt::rpg::dec::Dec::from_i64(i64::from(n).saturating_add(1)));\n    let (so, grow) = rpgrt::native::elem_grow({off}, {}, {}, &i, n, (true, {auto}), {name})?;\n    if let Some(k) = grow {{\n        rt.set_elem_count({name}, k);\n    }}\n",
                     ix.stride,
                     ix.dim,
                     name = json_str(name)
                 ),
                 Some((name, auto)) => format!(
-                    "    let i = {};\n    let n = rt.elems({name});\n    let (so, grow) = rpgrt::native::elem_grow({off}, {}, {}, &i, n, {auto})?;\n    if let Some(k) = grow {{\n        rt.set_elem_count({name}, k);\n    }}\n",
+                    "    let i = {};\n    let n = rt.elems({name});\n    let (so, grow) = rpgrt::native::elem_grow({off}, {}, {}, &i, n, ({auto}, {auto}), {name})?;\n    if let Some(k) = grow {{\n        rt.set_elem_count({name}, k);\n    }}\n",
                     value(&ix.of),
                     ix.stride,
                     ix.dim,
