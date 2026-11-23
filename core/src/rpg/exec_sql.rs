@@ -1108,6 +1108,30 @@ impl Machine<'_> {
             &mut None,
             sql,
         )) {
+            // A table made in a library without the journal QSQJRN is not
+            // journaled: the warning +7905, SQLSTATE 01567 (golden capture
+            // tools/golden/native69 n69_sql, PUB400, IBM i 7.5, 2026-11-18:
+            // "CREATE 7905 01567 0"), as RUNSQLSTM's SQL7905.
+            Ok(Some(text))
+                if {
+                    let w: Vec<String> = sql
+                        .split_whitespace()
+                        .take(4)
+                        .map(|x| x.to_ascii_uppercase())
+                        .collect();
+                    let w: Vec<&str> = w.iter().map(String::as_str).collect();
+                    matches!(
+                        w.as_slice(),
+                        ["CREATE", "TABLE", ..] | ["CREATE", "OR", "REPLACE", "TABLE", ..]
+                    ) && !text.ends_with(crate::ddl::JOURNALED)
+                } =>
+            {
+                Ok(Some(Outcome {
+                    code: 7905,
+                    state: "01567".into(),
+                    ..Outcome::ok(0)
+                }))
+            }
             Ok(Some(_)) => Ok(Some(Outcome::ok(0))),
             Ok(None) => Ok(None),
             Err(e) => match sql_error(&e) {

@@ -4780,7 +4780,10 @@ async fn rpg_embedded_sql() {
 
     // Data definition in a program: the table is created, used and
     // dropped; dropping it again is SQLCODE -204 (Db2 for i SQL messages,
-    // SQL0204: object not found).
+    // SQL0204: object not found). The library has no journal QSQJRN, so
+    // CREATE TABLE ends with the warning +7905 (golden capture
+    // tools/golden/native69 n69_sql in the native fork, PUB400, IBM i 7.5,
+    // 2026-11-18: "CREATE 7905 01567 0").
     let src = format!(
         "**FREE\ndcl-s n int(10);\nexec sql create table {lib}.t3 (a int not null);\ndsply %char(sqlcode);\nexec sql insert into t3 values (5);\nexec sql select a into :n from t3;\ndsply %char(n);\nexec sql drop table {lib}.t3;\ndsply %char(sqlcode);\nexec sql drop table {lib}.t3;\ndsply %char(sqlcode);\n*inlr = *on;\n"
     );
@@ -4803,7 +4806,7 @@ async fn rpg_embedded_sql() {
         .iter()
         .map(|m| m.trim_end().to_string())
         .collect();
-    assert_eq!(got, ["0", "5", "0", "-204"]);
+    assert_eq!(got, ["7905", "5", "0", "-204"]);
 }
 
 /// R6: SQL data definition (Db2 for i SQL Reference: CREATE TABLE, CREATE
