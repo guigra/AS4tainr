@@ -46,6 +46,11 @@ pub const KIND_PROC: u8 = 3;
 /// A system pointer (rslvsp): `buf` is the object's number in `sys_id`'s
 /// table.
 pub const KIND_SYS: u8 = 4;
+/// *NULL plus a number: an address with no storage (`off` is the
+/// number). Using storage through it is MCH3601; it is not *NULL, and
+/// less *NULL it gives the number back (PUB400, IBM i 7.5, 2026-11-23,
+/// native fork tools/golden/native220 n220_np: PLUS OK, NOT NULL, DIFF 1).
+pub const KIND_NULL_OFF: u8 = 5;
 
 /// A procedure a procedure pointer addresses: its name (upper case) and
 /// the service program (library, name) it is in, when it is in one.
@@ -109,7 +114,12 @@ impl Ptr {
 
     /// None for *NULL (or bytes that are not an address).
     pub fn decode(b: &[u8]) -> Option<Ptr> {
-        if b.len() < 16 || !matches!(b[0], KIND_STORAGE | KIND_HEAP | KIND_PROC | KIND_SYS) {
+        if b.len() < 16
+            || !matches!(
+                b[0],
+                KIND_STORAGE | KIND_HEAP | KIND_PROC | KIND_SYS | KIND_NULL_OFF
+            )
+        {
             return None;
         }
         let u = |i: usize| u32::from_be_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);

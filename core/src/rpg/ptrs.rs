@@ -4,7 +4,7 @@
 //! found through their pointers.
 
 use super::super::mem::{
-    Ptr, BAD_BUF, HEAP_BASE, KIND_HEAP, KIND_PROC, KIND_STORAGE, KIND_SYS, LENT_BASE,
+    Ptr, BAD_BUF, HEAP_BASE, KIND_HEAP, KIND_NULL_OFF, KIND_PROC, KIND_STORAGE, KIND_SYS, LENT_BASE,
 };
 use super::*;
 
@@ -69,6 +69,9 @@ impl<'a> Machine<'a> {
         let buf = match p.kind {
             KIND_PROC | KIND_SYS => {
                 bail!("MCH3601: a procedure or system pointer does not address storage.")
+            }
+            KIND_NULL_OFF => {
+                bail!("MCH3601: the pointer is *NULL plus a number: it addresses no storage.")
             }
             // Heap storage freed by DEALLOC stays addressable with what
             // it held (on IBM i it stays in the heap's storage; a program
@@ -233,7 +236,26 @@ impl<'a> Machine<'a> {
                     ))
                 })
             }
+            (BinOp::Sub, Value::Ptr(p), Value::Fig(Fig::Null)) if p.kind == KIND_NULL_OFF => {
+                Some(Ok(Value::Num(Dec::from_i64(i64::from(p.off)))))
+            }
             (BinOp::Sub, Value::Ptr(p), n) => Some(moved(p, n.num(), true)),
+            // *NULL plus a number: an address with no storage
+            // (KIND_NULL_OFF); less *NULL, the number again.
+            (BinOp::Add, Value::Fig(Fig::Null), n) | (BinOp::Add, n, Value::Fig(Fig::Null))
+                if matches!(n, Value::Num(_)) =>
+            {
+                Some(moved(
+                    &Ptr {
+                        kind: KIND_NULL_OFF,
+                        owner: 0,
+                        buf: 0,
+                        off: 0,
+                    },
+                    n.num(),
+                    false,
+                ))
+            }
             (BinOp::Add | BinOp::Sub, Value::Fig(Fig::Null), Value::Num(_)) => Some(Err(anyhow!(
                 "MCH3601: pointer arithmetic on a pointer that is not set (*NULL)."
             ))),

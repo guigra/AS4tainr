@@ -30827,3 +30827,55 @@ dsply line;
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["2.125|1.500|2.00|1.50|1.50|-7|-2.750|TRUE"]);
 }
+
+/// *NULL plus a number is no error: the pointer is not *NULL, and less
+/// *NULL it is the number again. Expected values: PUB400, IBM i 7.5,
+/// 2026-11-23 (tools/golden/native220 n220_np in the native fork: "PLUS
+/// OK", "NOT NULL", "DIFF 1").
+#[tokio::test]
+async fn null_plus_a_number_is_a_pointer() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**FREE
+ctl-opt dftactgrp(*no);
+dcl-s p pointer;
+dcl-s q pointer;
+dcl-s n int(20);
+p = *null;
+monitor;
+  p = p + 1;
+  dsply 'PLUS OK';
+on-error;
+  dsply ('PLUS ERROR ' + %char(%status));
+endmon;
+if p = *null;
+  dsply 'IS NULL';
+else;
+  dsply 'NOT NULL';
+endif;
+q = *null;
+monitor;
+  n = p - q;
+  dsply ('DIFF ' + %char(n));
+on-error;
+  dsply ('DIFF ERROR ' + %char(%status));
+endmon;
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "NULLPLUS".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["PLUS OK", "NOT NULL", "DIFF 1"]);
+}
