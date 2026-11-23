@@ -73,6 +73,68 @@ The backend follows each fix since the rebase on upstream dd47e28 (2026-11-13). 
 - **%SUBST and %SCAN starts outside the string** (upstream #6, fixed by #9): status 00100. `rpgrt::native::subst_start` and `scan` follow the interpreter. `NSUB.rpgle` and `NSCAN.rpgle` have their cases again.
 - **MOVE with a float field** (upstream #8, fixed by #13): the compiler now rejects it (RNF7547). Generated code is not involved.
 
+
+## Interpreter defects fixed in the fork (phase 2, not yet upstream)
+
+Fixed on local branches `fix/*` from upstream dd47e28, one topic each, with a test whose expected value comes from the PUB400 capture or IBM documentation named in it; each test fails without its fix. The 37 branches pass together the upstream suite, `scripts/demo.sh` and clippy (combined validations p2-f and p2-g on jsr-test-2, 2026-11-23). Not pushed, not yet offered upstream; the native engine follows each fix after the rebase on them. Where a fix changes an upstream test's expectation (the user's decision, 2026-11-22 and 2026-11-23), the commit says so.
+
+| Branch | IBM i behavior now reproduced |
+| --- | --- |
+| `fix/char-temporal-expr-iso` | %CHAR of a date or time expression with no format is *ISO |
+| `fix/compile-checks` | %OCCUR set to a literal outside the occurrences does not compile (RNF7571) |
+| `fix/compile-checks` | A numeric operand of %CONCAT does not compile (RNF0203) |
+| `fix/compile-checks` | A time plus a date does not compile (RNF7421) |
+| `fix/compile-checks` | A FOR limit that is not whole does not compile (RNF7569) |
+| `fix/compile-checks` | A duration before the date it changes does not compile (RNF7421) |
+| `fix/compile-checks` | %DATE(*SYS) does not compile (RNF0605) |
+| `fix/compile-checks` | EXSR in a subprocedure of the main procedure's subroutine does not compile |
+| `fix/compile-checks` | An expression nested more than 100 levels does not compile (RNF0640) |
+| `fix/compile-checks` | %DATE of a value too short for an *ISO date does not compile (RNF7510) |
+| `fix/concat-blank` | %CONCAT(*BLANK) puts one blank between the values |
+| `fix/date-iso-default` | %DATE with no format takes its value in *ISO form, whatever DATFMT |
+| `fix/date-loval-hival` | *LOVAL and *HIVAL assigned to a date are its first and last dates |
+| `fix/date-overflow-113` | A date past 9999-12-31 by a duration is status 00113 |
+| `fix/dec-blank-date` | %DEC of a date field that holds no date is status 00112 |
+| `fix/editc-blank-floating` | %EDITC's floating symbol: none on an edited value that is all blanks |
+| `fix/extfile-program-described-output` | output to a program-described file named by EXTFILE |
+| `fix/extpgm-var-case` | EXTPGM of a variable calls the program as the variable spells it |
+| `fix/fixed-alloc` | fixed-form ALLOC and REALLOC |
+| `fix/float4-text` | A 4-byte float's text has eight digits and a two-digit exponent |
+| `fix/in-dtaara-free` | IN *DTAARA in free form reads every data area of the program |
+| `fix/int-of-float` | %INT, %INTH, %DEC and %DECH of a float a procedure returns |
+| `fix/list-array-rest` | An array assigned %SPLIT or %LIST keeps the elements after the values |
+| `fix/list-array-rest` | a whole array assigned another array |
+| `fix/max-min-places` | %MAX and %MIN give the arguments' greatest number of decimal places |
+| `fix/null-procptr-status` | A call through a procedure pointer set to *NULL is status 00202 |
+| `fix/open-already-open` | OPEN(E) of an open file and READ(E) of a closed one set their file status |
+| `fix/out-unlocked-dtaara` | OUT of a data area that is not locked is status 00412 |
+| `fix/overload-no-end-pr` | An OVERLOAD prototype has no END-PR |
+| `fix/qualified-format-io` | WRITE and UPDATE of a qualified file's record format |
+| `fix/quotient-compare` | A quotient compared keeps the decimal places of 63 digits |
+| `fix/read-after-eof` | READP and READPE right after READE reached end of file are end of file |
+| `fix/read-not-open-1211` | an operation on a file that is not open honors E and the error indicator |
+| `fix/sql-call-missing-204` | CALL of a procedure that does not exist is SQL0204 |
+| `fix/sql-char-host-blanks` | SQL: UPPER and LOWER of a CHAR value keep its length |
+| `fix/sql-closed-cursor-507` | UPDATE and DELETE WHERE CURRENT OF a closed cursor is SQLCODE -507 |
+| `fix/sql-commit-none-7007` | COMMIT in a program without commitment control is SQLCODE -7007 |
+| `fix/sql-compound-create` | EXEC SQL CREATE PROCEDURE with a compound body is one statement |
+| `fix/sql-create-table-7905` | Embedded CREATE TABLE in a library without QSQJRN warns +7905 |
+| `fix/sql-insert-zero-rows` | A multiple-row INSERT of 0 rows is SQLCODE -221 |
+| `fix/sql-null-indicator-default` | A null fetched with an indicator empties the host variable |
+| `fix/sql-primary-key-keyed` | an SQL table declared keyed takes its primary key as its keys |
+| `fix/sqrt-places` | %SQRT keeps 30 digits, truncated |
+| `fix/test-needs-e` | TEST(D), TEST(T) and TEST(Z) need E or an error indicator (RNF5056) |
+| `fix/varying-dim-124` | A varying-dimension array past its dimension is status 00124 |
+| `fix/xml-handler-nonzero` | XML-SAX and XML-INTO %HANDLER: a handler that returns non-zero is status 00351 |
+
+Still open, each waiting for a PUB400 capture (the earlier captures kept only the final version of their program) or with no public source:
+- READ (not READP) right after READE reached end of file (native58; upstream's `setll_partial_key_then_reade_reads_one_order` expects a record).
+- An indicator used but set nowhere (RNF7503, native46); a constant index past an array's dimension (RNF0530 and RNF7563, native47).
+- Date and time literals in the DATFMT and TIMFMT forms, and RNF0305/RNF0306 for *ISO ones under them (native53, native134).
+- SND-MSG *ESCAPE going to the procedure's caller (native175); a key literal of another length than the key field (RNF7078, native58).
+- *NULL plus a number: no error on IBM i, but the pointer it gives was not captured (native50).
+- pow(9 : 0.5) differing from 3 in the last bits (native201); a record with a CLOB column by native I/O (native210, not narrowed).
+
 ## Settled by capture
 
 - **Two reference parameters that are one variable:** they share its storage. After `p1 = 1; p2 = 2`, both are 2, and so is the caller's variable. as4tainr does the same. The capture is tools/golden/native1.txt n1_alias (PUB400, IBM i 7.5, 2026-11-12); `core/tests/native/ALIAS.rpgle` tests it.
