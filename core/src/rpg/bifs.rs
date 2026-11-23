@@ -707,15 +707,30 @@ impl Machine<'_> {
             }
             "MAX" | "MIN" => {
                 let mut best = arg(self, 0)?;
+                // A numeric result has the arguments' greatest number of
+                // decimal places: %MIN of 1.50 and 2.125 is 1.500, %MAX of
+                // 1.50 and 2 is 2.00 (golden capture tools/golden/native42
+                // n42_mm, PUB400, IBM i 7.5, 2026-11-14).
+                let mut places = match &best {
+                    Value::Num(d) => Some(d.scale()),
+                    _ => None,
+                };
                 for i in 1..args.len() {
                     let v = arg(self, i)?;
+                    places = match (&v, places) {
+                        (Value::Num(d), Some(p)) => Some(p.max(d.scale())),
+                        _ => None,
+                    };
                     let o = data::compare(&v, &best)?;
                     if (b == "MAX" && o == Ordering::Greater) || (b == "MIN" && o == Ordering::Less)
                     {
                         best = v;
                     }
                 }
-                best
+                match (best, places) {
+                    (Value::Num(d), Some(p)) => Value::Num(d.rescale(p, false)?),
+                    (best, _) => best,
+                }
             }
             "BITAND" | "BITOR" | "BITXOR" | "BITNOT" => {
                 let first = arg(self, 0)?;

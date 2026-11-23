@@ -30778,3 +30778,52 @@ dsply (w(1) + w(2) + w(3) + '[' + w(4) + '][' + w(5) + ']');
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["efg[four][five]"]);
 }
+
+/// %MAX and %MIN of numeric arguments give the arguments' greatest number
+/// of decimal places, whichever argument is chosen.
+/// Expected values: PUB400, IBM i 7.5, 2026-11-14 (tools/golden/native42
+/// n42_mm in the native fork: CHAR MIN AB 1.500, CHAR MAX AD 2.00, CHAR
+/// MAX AE and EA 1.50, MAX NEG -7, MM ARITH -2.750, MM COND TRUE).
+#[tokio::test]
+async fn max_and_min_have_the_greatest_decimal_places() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s a packed(5:2) inz(1.50);
+dcl-s b packed(7:3) inz(2.125);
+dcl-s c int(10) inz(-7);
+dcl-s d zoned(3:0) inz(2);
+dcl-s e packed(4:1) inz(1.5);
+dcl-s r packed(9:3);
+dcl-s k int(10);
+dcl-s line varchar(200);
+line = %char(%max(a:b)) + '|' + %char(%min(a:b)) + '|' + %char(%max(a:d))
+     + '|' + %char(%max(a:e)) + '|' + %char(%max(e:a));
+k = %max(c:-10);
+line += '|' + %char(k);
+r = %max(a:b) * 2 + %min(c:d);
+line += '|' + %char(r);
+if %max(a:d) = 2;
+  line += '|TRUE';
+endif;
+dsply line;
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "MAXMINDP".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["2.125|1.500|2.00|1.50|1.50|-7|-2.750|TRUE"]);
+}
