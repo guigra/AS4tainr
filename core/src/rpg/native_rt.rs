@@ -2698,6 +2698,21 @@ impl Rt<'_, '_> {
             .ok_or_else(|| anyhow!("native: no file {i}"))
     }
 
+    /// errors.rs file_op's last step (since the fork's
+    /// fix/open-already-open): with E or an error indicator, an error out
+    /// of file_op_inner that is not a signal and does not pass this entry
+    /// by is the operation's; the indicator goes on and the program goes
+    /// on (file_end_n has set the status as file_failed does).
+    fn file_takes_n(&mut self, takes: bool, lo: Option<&str>, err: &anyhow::Error) -> bool {
+        if takes && !errors::is_signal(err) && !self.passes_by_n(err) {
+            if let Some(l) = lo {
+                self.m.set_ind(l, true);
+            }
+            return true;
+        }
+        false
+    }
+
     /// errors.rs file_op's start (E is refused by lowering): the error
     /// flag off, and a file under commitment control in a savepoint of
     /// the unit of work. Then file_op_inner's read, and fill_fields' null
@@ -2712,8 +2727,9 @@ impl Rt<'_, '_> {
         let file = file.to_string();
         let no_lock = ext.no_lock;
         // E or the error indicator (S2.171): file_op_inner takes the
-        // operation's error (file_failed, the indicator on), after its
-        // check that the file is open, which still raises.
+        // operation's error (file_failed, the indicator on), and since the
+        // fork's fixes its check that the file is open too; file_op's end
+        // takes the other errors out of file_op_inner (file_takes_n).
         let takes = ext.error || ind.lo.is_some();
         let lo = ind.lo.clone();
         let e = ext.error;
@@ -2756,6 +2772,17 @@ impl Rt<'_, '_> {
             Err(err) if open => {
                 self.pending = None;
                 self.file_end_n(i, op, &file, cmt.as_deref(), Err(&err))?;
+                if self.file_takes_n(takes, lo.as_deref(), &err) {
+                    self.pending = Some(PendingRead {
+                        file: i,
+                        found: false,
+                        eof: false,
+                        has_record: false,
+                        ended: true,
+                        input: None,
+                    });
+                    return Ok(None);
+                }
                 return Err(err);
             }
             Err(_) => None,
@@ -2813,6 +2840,20 @@ impl Rt<'_, '_> {
             Err(err) => {
                 self.pending = None;
                 self.file_end_n(i, op, &file, cmt.as_deref(), Err(&err))?;
+                // A file not open (CPF4135, file_op_inner's own E since
+                // the fork's fix/read-not-open-1211) or another error out of
+                // file_op_inner (file_op's end).
+                if self.file_takes_n(takes, lo.as_deref(), &err) {
+                    self.pending = Some(PendingRead {
+                        file: i,
+                        found: false,
+                        eof: false,
+                        has_record: false,
+                        ended: true,
+                        input: None,
+                    });
+                    return Ok(None);
+                }
                 Err(err)
             }
         }
@@ -3190,9 +3231,11 @@ impl Rt<'_, '_> {
         pc: usize,
         keys: NResult<Option<Vec<KeyArg>>>,
     ) -> NResult<Option<Vec<KeyArg>>> {
-        let (op, file, _, ext, _) = self.file_stmt(pc)?;
+        let (op, file, _, ext, ind) = self.file_stmt(pc)?;
         let file = file.to_string();
         let e = ext.error;
+        let takes = ext.error || ind.lo.is_some();
+        let lo = ind.lo.clone();
         let i = self
             .file_idx_n(&file)
             .ok_or_else(|| anyhow!("{file} is not a file of this program"))?;
@@ -3244,6 +3287,21 @@ impl Rt<'_, '_> {
             Err(err) => {
                 self.pending = None;
                 self.file_end_n(i, op, &file, cmt.as_deref(), Err(&err))?;
+                // A file not open (file_op_inner's own E since the fork's
+                // fix/read-not-open-1211), the keys' or the authority
+                // check's error (file_op's end since fix/open-already-open):
+                // the operation ends here, and file_change_n does nothing.
+                if self.file_takes_n(takes, lo.as_deref(), &err) {
+                    self.pending = Some(PendingRead {
+                        file: i,
+                        found: false,
+                        eof: false,
+                        has_record: false,
+                        ended: true,
+                        input: None,
+                    });
+                    return Ok(None);
+                }
                 Err(err)
             }
         }
@@ -3283,8 +3341,9 @@ impl Rt<'_, '_> {
         let (op, file, key, ext, ind) = self.file_stmt(pc)?;
         let file = file.to_string();
         // E or the error indicator (S2.172): file_op_inner's change arm
-        // takes record_change's error (file_failed, the indicator on); the
-        // record's making (record_of, ds_to_record) still raises.
+        // takes record_change's error (file_failed, the indicator on);
+        // file_op's end takes the record's making's (record_of,
+        // ds_to_record) since the fork's fix/open-already-open.
         let takes = ext.error || ind.lo.is_some();
         let lo = ind.lo.clone();
         // *START/*END as a DELETE key: no key (file_op_inner's special).
@@ -3298,6 +3357,11 @@ impl Rt<'_, '_> {
             .take()
             .ok_or_else(|| anyhow!("native: {op:?} {file} with no start"))?;
         let i = p.file;
+        if p.ended {
+            // An error E or the error indicator took at the start: the
+            // record is not made (file_op_inner returned before it).
+            return Ok(());
+        }
         let cmt = self.file_n(i)?.cmt.clone();
         let keys: Option<Vec<String>> = match special {
             true => None,
@@ -3347,6 +3411,11 @@ impl Rt<'_, '_> {
             Ok(m) => m,
             Err(err) => {
                 self.file_end_n(i, op, &file, cmt.as_deref(), Err(&err))?;
+                // The record's error is out of file_op_inner: E takes it
+                // at file_op's end (since the fork's fix/open-already-open).
+                if self.file_takes_n(takes, lo.as_deref(), &err) {
+                    return Ok(());
+                }
                 return Err(err);
             }
         };
@@ -5395,7 +5464,12 @@ impl Rt<'_, '_> {
             }
         })();
         self.file_end_n(i, op, &file, cmt.as_deref(), r.as_ref().map(|_| ()))?;
-        r
+        // E takes the error (file_op's end since the fork's
+        // fix/open-already-open: OPEN(E) of an open file is status 01215).
+        match r {
+            Err(err) if self.file_takes_n(e, None, &err) => Ok(()),
+            r => r,
+        }
     }
 
     /// errors.rs file_op for OPEN, CLOSE or FEOD of a printer file around
@@ -5436,6 +5510,19 @@ impl Rt<'_, '_> {
             .name
             .clone();
         let r = (|| -> NResult<()> {
+            // printer_op since the fork's fix/open-already-open: OPEN of a
+            // printer file that is open is CPF4161 (status 01215); CLOSE
+            // marks it closed.
+            match op {
+                FileOp::Open => {
+                    if self.file_n(i)?.prt_open {
+                        return Err(anyhow!("CPF4161: File {file} is already open."));
+                    }
+                    self.file_n(i)?.prt_open = true;
+                }
+                FileOp::Close => self.file_n(i)?.prt_open = false,
+                _ => {}
+            }
             self.flush_printer_n(&name)?;
             if op == FileOp::Close {
                 if let Some(p) = self.m.printers.remove(&name) {
@@ -5448,7 +5535,12 @@ impl Rt<'_, '_> {
             Ok(())
         })();
         self.file_end_n(i, op, &file, cmt.as_deref(), r.as_ref().map(|_| ()))?;
-        r
+        // E takes the error (file_op's end since the fork's
+        // fix/open-already-open).
+        match r {
+            Err(err) if self.file_takes_n(e, None, &err) => Ok(()),
+            r => r,
+        }
     }
 
     /// printer.rs printer_write for an externally described printer file:
@@ -6838,7 +6930,12 @@ impl Rt<'_, '_> {
         }
         let r = self.workstn_inner_n(op, i, &file, key, &ind, fields, indds);
         self.file_end_n(i, op, &file, cmt.as_deref(), r.as_ref().map(|_| ()))?;
-        r
+        // The error indicator takes the error (file_op's end since the
+        // fork's fix/open-already-open; lowering refuses E here).
+        match r {
+            Err(err) if self.file_takes_n(ind.lo.is_some(), ind.lo.as_deref(), &err) => Ok(()),
+            r => r,
+        }
     }
 
     fn ws_slot<'f>(
