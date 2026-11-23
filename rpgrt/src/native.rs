@@ -2132,6 +2132,17 @@ pub fn ptr_move(p: &Value, n: &Dec, back: bool) -> NResult<Value> {
         })
 }
 
+/// Stage 2 (S2.203): a float expression's value as interp.rs bif's "INT"
+/// and "DEC" arms take it: a float (a procedure's float result) as its
+/// exact decimal form, data::float_dec; any other value its num()
+/// (fix/int-of-float).
+pub fn float_arg_dec(v: &Value) -> NResult<Dec> {
+    match v {
+        Value::Float(x) => Ok(data::float_dec(*x)?),
+        other => Ok(other.num()?),
+    }
+}
+
 /// Stage 2 (S2.107, ADR 0008): interp.rs float_value, a value as an
 /// `f64`: a float as it is, else its number's text read as one (0.0 when
 /// the text is no float, as the interpreter's `unwrap_or`).

@@ -1145,7 +1145,9 @@ pub mod ir {
         /// Character data read as a number, as %INT and %DEC take it
         /// (S2.112): char_number.
         CharDec(Box<CharExpr>),
-        /// A float value as %DEC or %DECH takes it (S2.203): its num().
+        /// A float value as %INT, %INTH, %DEC or %DECH takes it (S2.203):
+        /// a float as its decimal form (data::float_dec), any other value
+        /// its num() (fix/int-of-float).
         OfFloat(Box<FloatExpr>),
         /// A pointer field minus a pointer field (S2.98), ptrs.rs
         /// ptr_arith: the distance between them.
@@ -5549,7 +5551,7 @@ ir::NumExpr::PtrDiffOf(a, b) => {
             code
         }
         ir::NumExpr::CharDec(c) => format!("rpgrt::native::char_dec(&{})?", char_expr(pc, c, helpers)),
-        ir::NumExpr::OfFloat(f) => format!("{{ let v = {}; v.num()? }}", float_expr(pc, f, helpers)),
+        ir::NumExpr::OfFloat(f) => format!("rpgrt::native::float_arg_dec(&{})?", float_expr(pc, f, helpers)),
         ir::NumExpr::LenOf(c) => format!(
             "rpgrt::rpg::dec::Dec::from_i64(i64::try_from({}.chars()?.len())?)",
             char_expr(pc, c, helpers)
