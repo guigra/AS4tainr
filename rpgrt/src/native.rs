@@ -597,7 +597,7 @@ pub trait Runtime {
     /// characters, any other value as sql_literal makes it.
     fn sql_ts_literal(&mut self, v: &Value) -> NResult<String>;
     /// Stage 2 (S2.179): a list into an array, as assign_value takes it:
-    /// each value into its element, the elements after it initialized,
+    /// each value into its element, the elements after them keeping theirs,
     /// RNQ0121 for more values than elements, a varying-dimension array's
     /// elements in use the values'.
     fn assign_list(

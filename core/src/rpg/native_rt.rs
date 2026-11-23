@@ -1538,7 +1538,8 @@ impl Runtime for Rt<'_, '_> {
         fit: Fit,
         right: bool,
     ) -> NResult<()> {
-        // assign_value's list into an array.
+        // assign_value's list into an array: the values element by
+        // element; the elements after them keep theirs (fix/list-array-rest).
         let dim = usize::try_from(arr.dim)?;
         if items.len() > dim {
             anyhow::bail!(
@@ -1547,25 +1548,9 @@ impl Runtime for Rt<'_, '_> {
                 arr.dim
             );
         }
-        for k in 0..dim {
+        for (k, x) in items.iter().enumerate() {
             let off = Self::arr_at_n(&arr, k)?;
-            match items.get(k) {
-                Some(x) => {
-                    rpgrt::native::store(&mut self.m.bufs, arr.buf, off, arr.ty, x, fit, right)?;
-                }
-                None => {
-                    let init = arr.ty.initial();
-                    let end = off
-                        .checked_add(init.len())
-                        .ok_or_else(|| anyhow!("native: an element's place"))?;
-                    self.m
-                        .bufs
-                        .get_mut(arr.buf)
-                        .and_then(|b| b.get_mut(off..end))
-                        .ok_or_else(|| anyhow!("native: an element's storage"))?
-                        .copy_from_slice(&init);
-                }
-            }
+            rpgrt::native::store(&mut self.m.bufs, arr.buf, off, arr.ty, x, fit, right)?;
         }
         if varying {
             self.m

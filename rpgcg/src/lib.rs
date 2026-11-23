@@ -756,6 +756,18 @@ pub mod ir {
             half: bool,
             right: bool,
         },
+        /// An array assigned %LIST or a whole array (fix/list-array-rest):
+        /// the target (buffer, offset, stride, dimension, element type),
+        /// its name, whether its dimension varies, the values, (H) and
+        /// EVALR.
+        EvalList {
+            arr: (usize, usize, usize, u32, Ty),
+            name: String,
+            varying: bool,
+            items: ListItems,
+            half: bool,
+            right: bool,
+        },
         /// EVAL-CORR (S2.177): the pairs of target and source fields, in
         /// order, and (H).
         EvalCorr {
@@ -1107,6 +1119,20 @@ pub mod ir {
             left: bool,
             right: bool,
             path: Vec<u8>,
+        },
+    }
+
+    /// The values of a list assigned to an array (fix/list-array-rest).
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub enum ListItems {
+        /// %LIST's arguments, evaluated in order.
+        Values(Vec<ValExpr>),
+        /// A whole global array's elements (its elements in use when its
+        /// dimension varies).
+        Array {
+            arr: (usize, usize, usize, u32, Ty),
+            name: String,
+            varying: bool,
         },
     }
 
@@ -4599,6 +4625,62 @@ fn lowered_step(
             guarded(
                 format!("rt.stmt({pc}).map(|()| {next})"),
                 format!("ec{pc}(rt).map(|()| {next})"),
+            )
+        }
+        (
+            ir::Kind::Stmt,
+            ir::Lowered::EvalList {
+                arr: (b, o, st, d, t),
+                name,
+                varying,
+                items,
+                half,
+                right,
+            },
+        ) => {
+            // stmt_inner's value (eval of %LIST, or list_of of the source
+            // array), then the runtime's assign of the list.
+            let mut body = String::new();
+            match items {
+                ir::ListItems::Values(vals) => {
+                    body.push_str("    let mut items = Vec::new();\n");
+                    for v in vals {
+                        let x = match v {
+                            ir::ValExpr::Char(c) => char_expr(pc, c, helpers),
+                            ir::ValExpr::Num(e) => format!(
+                                "rpgrt::rpg::data::Value::Num({})",
+                                num_expr(pc, e, helpers)
+                            ),
+                        };
+                        let _ = writeln!(body, "    items.push({x});");
+                    }
+                }
+                ir::ListItems::Array {
+                    arr: (fb, fo, fst, fd, ft),
+                    name: from,
+                    varying: fvary,
+                } => {
+                    let n = if *fvary {
+                        format!("rt.elems({})", json_str(from))
+                    } else {
+                        format!("{fd}u32")
+                    };
+                    let _ = writeln!(
+                        body,
+                        "    let n = {n};\n    let mut items = Vec::new();\n    for k in 0..usize::try_from(n)? {{\n        let at = k\n            .checked_mul({fst})\n            .and_then(|d| usize::checked_add({fo}, d))\n            .ok_or_else(|| anyhow::anyhow!(\"native: an array element's place\"))?;\n        items.push(rpgrt::native::load(rt.mem(), {fb}, at, {})?);\n    }}",
+                        ty(ft)
+                    );
+                }
+            }
+            let vary = json_str(name);
+            let _ = writeln!(
+                helpers,
+                "\nfn la{pc}(rt: &mut dyn Runtime) -> NResult<()> {{\n{body}    let arr = rpgrt::native::ArrPlace {{ buf: {b}, off: {o}, stride: {st}, dim: {d}, ty: {}, lead: 0 }};\n    rt.assign_list(arr, {vary}, {varying}, items, rpgrt::rpg::data::Fit::Strict {{ half_adjust: {half} }}, {right})\n}}",
+                ty(t)
+            );
+            guarded(
+                format!("rt.stmt({pc}).map(|()| {next})"),
+                format!("la{pc}(rt).map(|()| {next})"),
             )
         }
         (

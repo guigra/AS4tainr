@@ -694,6 +694,68 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 right: *right,
             }
         }
+        // An array assigned %LIST, or a whole array assigned another
+        // (fix/list-array-rest): stmt_inner's EVAL, whose value is list_of
+        // of the source array when both sides are whole arrays (its
+        // elements in use), else eval's %LIST (each argument in order);
+        // then assign_value's list into an array, as for %SPLIT above.
+        // Global arrays of the elements global_elem_ty takes, not based
+        // or of multiple occurrences; each %LIST value an expression of
+        // either class.
+        Ins::Stmt(Stmt::Eval {
+            target: target @ Expr::Name { parts, args: None },
+            value,
+            ext,
+            right,
+        }) if !ext.error
+            && !ext.no_lock
+            && ext.other.chars().all(|c| c == 'H')
+            && list_array(cx, target).is_some()
+            && (matches!(value, Expr::Bif(b, a) if b == "LIST" && !a.is_empty())
+                || list_array(cx, value).is_some()) =>
+        {
+            let name = parts.join(".");
+            let (arr, varying) = list_array(cx, target)?;
+            let items = match value {
+                Expr::Bif(_, args) => {
+                    let mut vals = Vec::with_capacity(args.len());
+                    for (k, e) in args.iter().enumerate() {
+                        let p = vec![u8::try_from(k).ok()?];
+                        vals.push(match char_expr(cx, e, &mut used, p.clone()) {
+                            Some(c) => ir::ValExpr::Char(c),
+                            None => ir::ValExpr::Num(num_expr(cx, e, &mut used, p)?),
+                        });
+                    }
+                    ir::ListItems::Values(vals)
+                }
+                Expr::Name { parts: sp, .. } => {
+                    let src = sp.join(".");
+                    let (from, vary) = list_array(cx, value)?;
+                    used.push(format!(
+                        "list of {src} {} {} {} {} {:?}",
+                        from.0, from.1, from.2, from.3, from.4
+                    ));
+                    ir::ListItems::Array {
+                        arr: from,
+                        name: src,
+                        varying: vary,
+                    }
+                }
+                _ => return None,
+            };
+            used.push(format!(
+                "list into {name} {} {} {} {} {:?}",
+                arr.0, arr.1, arr.2, arr.3, arr.4
+            ));
+            ir::Lowered::EvalList {
+                arr,
+                name,
+                varying,
+                items,
+                half: ext.half_adjust,
+                right: *right,
+            }
+        }
         // EVAL with %SUBST as its target (S2.44): assign_value's "SUBST"
         // arm, on an eligible character field, with a character value.
         Ins::Stmt(Stmt::Eval {
@@ -9189,6 +9251,37 @@ fn global_elem_ty(t: DType, varying: bool) -> Option<ir::Ty> {
         DType::Varchar(n) if varying => ir::Ty::Varchar(n),
         _ => return None,
     })
+}
+
+/// A whole array's buffer, first element, stride, dimension and element
+/// type (list_array).
+type ArrayAt = (usize, usize, usize, u32, ir::Ty);
+
+/// A whole global array as the EVAL of a list takes it
+/// (fix/list-array-rest): its buffer, first element, stride, dimension and
+/// element type, and whether its dimension varies. Not a procedure's own,
+/// not based, not of multiple occurrences; elements global_elem_ty takes.
+fn list_array(cx: &Cx<'_>, e: &Expr) -> Option<(ArrayAt, bool)> {
+    let Expr::Name { parts, args: None } = e else {
+        return None;
+    };
+    let name = parts.join(".");
+    let Some(Sym::Var(v)) = sym(cx, &name) else {
+        return None;
+    };
+    let prog = cx.prog;
+    if v.dim == 0
+        || v.local
+        || prog.based.contains_key(&v.buf)
+        || prog.occurs.iter().any(|o| o.buf == v.buf)
+    {
+        return None;
+    }
+    let ty = global_elem_ty(v.dtype, true)?;
+    Some((
+        (v.buf, v.off, v.stride, v.dim, ty),
+        prog.varying.contains_key(&name),
+    ))
 }
 
 /// The pointer a based array is based on (S2.186): interp.rs sym's
