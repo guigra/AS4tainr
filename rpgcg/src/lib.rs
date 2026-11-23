@@ -4650,7 +4650,8 @@ fn lowered_step(
             let mut body = String::new();
             match items {
                 ir::ListItems::Values(vals) => {
-                    body.push_str("    let mut items = Vec::new();\n");
+                    // One vec! (clippy's vec_init_then_push on generated code).
+                    body.push_str("    let items = vec![\n");
                     for v in vals {
                         let x = match v {
                             ir::ValExpr::Char(c) => char_expr(pc, c, helpers),
@@ -4659,8 +4660,9 @@ fn lowered_step(
                                 num_expr(pc, e, helpers)
                             ),
                         };
-                        let _ = writeln!(body, "    items.push({x});");
+                        let _ = writeln!(body, "        {x},");
                     }
+                    body.push_str("    ];\n");
                 }
                 ir::ListItems::Array {
                     arr: (fb, fo, fst, fd, ft),
