@@ -1584,11 +1584,28 @@ impl Runtime for Rt<'_, '_> {
             Some(i) => format!("{i}: {text}"),
             None => text.clone(),
         };
+        // *ESCAPE goes to the procedure's caller (fix/snd-msg-escape-caller):
+        // the op arm's message, sent to the main procedure's program entry
+        // when the stack's '*' and counter 1 is one, and the Escape error
+        // with its target (the program's caller when nothing is below).
         if kind == "*ESCAPE" {
-            if id.is_some() {
-                anyhow::bail!("{full}");
+            let mut m = crate::pgmmsg::QMsg {
+                ty: "*ESCAPE".into(),
+                msgid: id.clone().unwrap_or_else(|| "CPF9898".into()),
+                text: text.clone(),
+                data: data::e(&text),
+                sender: self.sender_n(),
+                ..Default::default()
+            };
+            if let Some(crate::pgmmsg::Target::Pep(main)) =
+                crate::pgmmsg::stack_target_pep(&self.m.io.job_key, "*", 1)
+            {
+                m.key = crate::pgmmsg::pep_send(&self.m.io.job_key, &main, m.clone());
+                self.m.logged.push(m.key);
             }
-            anyhow::bail!("CPF9898: {text}");
+            let target = crate::pgmmsg::stack_target(&self.m.io.job_key, "*", 1)
+                .or(crate::pgmmsg::stack_top_id(&self.m.io.job_key).map(|_| crate::pgmmsg::BEYOND));
+            return Err(anyhow::Error::new(crate::pgmmsg::Escape(m, target)));
         }
         self.m.job_log(&full);
         Ok(())
