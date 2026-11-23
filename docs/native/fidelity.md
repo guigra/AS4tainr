@@ -76,7 +76,7 @@ The backend follows each fix since the rebase on upstream dd47e28 (2026-11-13). 
 
 ## Interpreter defects fixed in the fork (phase 2, not yet upstream)
 
-Fixed on local branches `fix/*` from upstream dd47e28, one topic each, with a test whose expected value comes from the PUB400 capture or IBM documentation named in it; each test fails without its fix. The 40 branches pass together the upstream suite, `scripts/demo.sh` and clippy (combined validation p2-h of fork/base 2bfbe12 on jsr-test-2, 2026-11-23: rla_test 301, lib 347, 3). Not pushed, not yet offered upstream; the native engine follows each fix after the rebase on them. Where a fix changes an upstream test's expectation (the user's decision, 2026-11-22 and 2026-11-23), the commit says so.
+Fixed on local branches `fix/*` from upstream dd47e28, one topic each, with a test whose expected value comes from the PUB400 capture or IBM documentation named in it; each test fails without its fix. The 40 branches (fix/compile-checks now with RNF7078, 6d88086) pass together the upstream suite, `scripts/demo.sh` and clippy (combined validation p2-h of fork/base 2bfbe12 on jsr-test-2, 2026-11-23: rla_test 301, lib 347, 3). Not pushed, not yet offered upstream; the native engine follows each fix after the rebase on them. Where a fix changes an upstream test's expectation (the user's decision, 2026-11-22 and 2026-11-23), the commit says so.
 
 | Branch | IBM i behavior now reproduced |
 | --- | --- |
@@ -91,6 +91,7 @@ Fixed on local branches `fix/*` from upstream dd47e28, one topic each, with a te
 | `fix/compile-checks` | An expression nested more than 100 levels does not compile (RNF0640) |
 | `fix/compile-checks` | %DATE of a value too short for an *ISO date does not compile (RNF7510) |
 | `fix/compile-checks` | An indicator used but set nowhere does not compile (RNF7503, RNF7030; native220 n220_crt_ind) |
+| `fix/compile-checks` | A search argument of CHAIN or SETLL of another length than the first key field does not compile (RNF7078; native221) |
 | `fix/compile-checks` | A constant index past a varying dimension does not compile (RNF0530 for DIM(*AUTO), RNF7563 for %ELEM of DIM(*VAR); native220) |
 | `fix/concat-blank` | %CONCAT(*BLANK) puts one blank between the values |
 | `fix/date-iso-default` | %DATE with no format takes its value in *ISO form, whatever DATFMT (the native engine follows it: lower.rs temporal_bif; rla_test `date_with_no_format_takes_iso_whatever_datfmt` passes under rust, 2026-11-23) |
@@ -135,7 +136,7 @@ Fixed on local branches `fix/*` from upstream dd47e28, one topic each, with a te
 Every branch is followed by the native engine on native/engine-p2 (2026-11-23): the whole rla_test suite passes under `AS4TAINR_RPG_ENGINE=rust` with every statement native (301 of 301, no refusals, 380 routines emitted).
 
 Still open:
-- A key literal of another length than the key field (RNF7078, native58): held for the user, since upstream's psds.rpgle and dsio.rpgle use `chain 9 custmast` with a 5-digit key and the parser drops a literal's leading zeros.
+- RNF7078 is checked for CHAIN and SETLL only (captured); SETGT, READE, READPE and DELETE, key lists and other decimal places are not. The check runs at CRTBNDRPG, like the other compile checks, so upstream's psds.rpgle, dsio.rpgle and the CUSTUPD sample (`chain 9 custmast`, CUSNO 5P0), which are called without CRTBNDRPG, still run; on IBM i they would not compile.
 - pow(9 : 0.5) differing from 3 in the last bits (native201); a record with a CLOB column by native I/O (native210, not narrowed).
 
 ## Settled by capture

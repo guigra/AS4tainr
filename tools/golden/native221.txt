@@ -1,0 +1,14 @@
+# Phase 2 (interpreter fixes): RNF7078, a search argument literal of another
+# length than the first key field (one batch, one connection).
+# Run: GOLDEN_LIB=<library> GOLDEN_HOME=/home/<user> tools/golden/golden.sh -l tools/golden/native221.txt -f tools/golden/native221
+n221_src|!system -q "DLTF FILE(@LIB@/GN58PF)"; system -q "DLTF FILE(@LIB@/GN221PF)"; system -q "CRTSRCPF FILE(@LIB@/GN58SRC) RCDLEN(92)"; system -q "ADDPFM FILE(@LIB@/GN58SRC) MBR(GN58PF) SRCTYPE(PF)"; system -q "ADDPFM FILE(@LIB@/GN58SRC) MBR(GN221PF) SRCTYPE(PF)"; system "CPYFRMSTMF FROMSTMF('@HOME@/gld/gn58pf.pf') TOMBR('/QSYS.LIB/@LIB@.LIB/GN58SRC.FILE/GN58PF.MBR') MBROPT(*REPLACE)"; system "CPYFRMSTMF FROMSTMF('@HOME@/gld/gn221pf.pf') TOMBR('/QSYS.LIB/@LIB@.LIB/GN58SRC.FILE/GN221PF.MBR') MBROPT(*REPLACE)"
+n221_crtpf|!system -s "CRTPF FILE(@LIB@/GN58PF) SRCFILE(@LIB@/GN58SRC)"; system -s "CRTPF FILE(@LIB@/GN221PF) SRCFILE(@LIB@/GN58SRC)"
+n221_crt_n3|!system "CRTBNDRPG PGM(@LIB@/GN221N3) SRCSTMF('@HOME@/gld/gn221n3.rpgle')"
+n221_crt_n4|!system "CRTBNDRPG PGM(@LIB@/GN221N4) SRCSTMF('@HOME@/gld/gn221n4.rpgle')"
+n221_crt_nc|!system "CRTBNDRPG PGM(@LIB@/GN221NC) SRCSTMF('@HOME@/gld/gn221nc.rpgle')"
+n221_crt_nf|!system "CRTBNDRPG PGM(@LIB@/GN221NF) SRCSTMF('@HOME@/gld/gn221nf.rpgle')"
+n221_crt_nh|!system "CRTBNDRPG PGM(@LIB@/GN221NH) SRCSTMF('@HOME@/gld/gn221nh.rpgle')"
+n221_crt_c2|!system "CRTBNDRPG PGM(@LIB@/GN221C2) SRCSTMF('@HOME@/gld/gn221c2.rpgle')"
+n221_crt_c5|!system "CRTBNDRPG PGM(@LIB@/GN221C5) SRCSTMF('@HOME@/gld/gn221c5.rpgle')"
+n221_crt_c6|!system "CRTBNDRPG PGM(@LIB@/GN221C6) SRCSTMF('@HOME@/gld/gn221c6.rpgle')"
+n221_crt_fx|!system "CRTBNDRPG PGM(@LIB@/GN221FX) SRCSTMF('@HOME@/gld/gn221fx.rpgle')"
