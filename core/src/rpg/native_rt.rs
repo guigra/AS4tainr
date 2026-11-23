@@ -4491,6 +4491,17 @@ impl Rt<'_, '_> {
                     Some(d) => Some(d.clone()),
                     None => crate::cmtctl::find(&self.m.io.job_key, &self.m.io.actgrp),
                 };
+                // With COMMIT(*NONE) and none started, they are not valid:
+                // SQLCODE -7007 (exec_sql.rs since the fork's
+                // fix/sql-commit-none-7007).
+                if d.is_none() && self.m.prog.sql_commit == "*NONE" {
+                    return Ok(sql_err(
+                        -7007,
+                        format!(
+                            "SQL7007: {first} is not valid: the program runs without commitment control (COMMIT(*NONE))."
+                        ),
+                    ));
+                }
                 if let Some(d) = d {
                     let r = if first == "COMMIT" {
                         self.m.block(d.commit())
