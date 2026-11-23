@@ -106,7 +106,7 @@ fn native_runtime_matches_the_interpreter_it_copies() {
         ),
         function(
             INTERP,
-            "    fn divide(&self, l: &Expr, r: &Expr, a: &Dec, b: &Dec) -> Result<Dec> {",
+            "    fn divide(&self, l: &Expr, r: &Expr, a: &Dec, b: &Dec, wide: bool) -> Result<Dec> {",
             "    ",
         ),
         function(

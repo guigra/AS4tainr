@@ -1559,17 +1559,26 @@ pub fn dec_to(d: &Dec, digits: u32, decimals: u32, half: bool) -> NResult<Dec> {
 /// more than 30 digits, and at most 37. The operands' precision comes
 /// from their nodes, or else from their own digits. When the quotient
 /// does not fit, it gets fewer places. A zero divisor is MCH1211.
-pub fn divide(a: &Dec, b: &Dec, pl: Option<(u32, u32)>, pr: Option<(u32, u32)>) -> NResult<Dec> {
+/// `wide`: the quotient is a comparison's operand, with M = 63 and at
+/// most 62 places (fix/quotient-compare).
+pub fn divide(
+    a: &Dec,
+    b: &Dec,
+    pl: Option<(u32, u32)>,
+    pr: Option<(u32, u32)>,
+    wide: bool,
+) -> NResult<Dec> {
     let own = |d: &Dec| {
         let s = u32::from(d.scale());
         (d.int_digits().saturating_add(s).max(1), s)
     };
     let (l1, d1) = pl.unwrap_or_else(|| own(a));
     let (l2, d2) = pr.unwrap_or_else(|| own(b));
-    let m: u32 = if l1.max(l2) > 30 { 63 } else { 30 };
+    let m: u32 = if wide || l1.max(l2) > 30 { 63 } else { 30 };
+    let cap = if wide { 62 } else { 37 };
     let mut dr = m
         .saturating_sub(l1.saturating_sub(d1).saturating_add(d2))
-        .min(37);
+        .min(cap);
     loop {
         match a.div_scale(b, u8::try_from(dr)?) {
             Ok(q) => return Ok(q),

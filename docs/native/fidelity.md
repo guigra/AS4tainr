@@ -411,6 +411,8 @@ So in a comparison IBM i keeps a quotient to other decimal places than %CHAR sho
 
 This is an upstream interpreter defect, held for Kyle with the capture. Native code follows the interpreter, and the unit NCMPAR leaves the test out.
 
+Fixed in the fork's interpreter (`fix/quotient-compare`: a division that is itself a comparison's operand keeps the places of 63 digits, up to 62). The native engine follows it (ArOp::DivCmp, rpgrt::native::divide's `wide`), and lowers literals too long for an i128 mantissa (NumExpr::Wide): rla_test `a_quotient_compared_keeps_the_places_of_63_digits` passes under rust, every statement native (2026-11-23).
+
 ## A FOR limit that is not whole (found 2026-11-20)
 
 Source: tools/golden/native146 n146_crt (PUB400, IBM i 7.5, 2026-11-20), first version of gn146fl.rpgle.

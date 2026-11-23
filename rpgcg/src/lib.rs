@@ -1145,12 +1145,19 @@ pub mod ir {
         /// `/` (S2.17): the quotient's decimal places come from the
         /// operands' precision.
         Div,
+        /// `/` that is itself an operand of a comparison: its quotient
+        /// keeps the decimal places of 63 digits (interp.rs divide's
+        /// `wide`, fix/quotient-compare).
+        DivCmp,
     }
 
     /// A numeric expression of lowered code.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum NumExpr {
         Leaf(Operand),
+        /// A numeric literal whose mantissa does not fit an i128: its
+        /// exact text, which Dec::parse gives back.
+        Wide(String),
         /// %STATUS of a file (S2.112): its status code.
         FileCode(String),
         /// %SQRT of a numeric expression (S2.113), and its place in the
@@ -5465,7 +5472,7 @@ ir::NumExpr::PtrDiffOf(a, b) => {
                     // Lowering puts no division in a chain; were one there,
                     // the generated code would not compile (no silent
                     // multiplication).
-                    ir::ArOp::Div => "no_division_in_a_chain",
+                    ir::ArOp::Div | ir::ArOp::DivCmp => "no_division_in_a_chain",
                 };
                 let y = num_expr(pc, x, helpers);
                 let _ = writeln!(
@@ -5511,9 +5518,9 @@ ir::NumExpr::PtrDiffOf(a, b) => {
                 ir::ArOp::Add => "add",
                 ir::ArOp::Sub => "sub",
                 ir::ArOp::Mul => "mul",
-                ir::ArOp::Div => "",
+                ir::ArOp::Div | ir::ArOp::DivCmp => "",
             };
-            if *op == ir::ArOp::Div {
+            if matches!(op, ir::ArOp::Div | ir::ArOp::DivCmp) {
                 // The interpreter's `divide`: each operand's precision (its
                 // node's), not the quotient's.
                 let mut l = path.clone();
@@ -5522,9 +5529,10 @@ ir::NumExpr::PtrDiffOf(a, b) => {
                 r.push(1);
                 let _ = writeln!(
                     body,
-                    "    static PL: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let pl = *PL.get_or_init(|| rt.precision({pc}, {}));\n    static PR: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let pr = *PR.get_or_init(|| rt.precision({pc}, {}));\n    let _ = p;\n    rpgrt::native::divide(&a, &b, pl, pr)\n}}",
+                    "    static PL: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let pl = *PL.get_or_init(|| rt.precision({pc}, {}));\n    static PR: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();\n    let pr = *PR.get_or_init(|| rt.precision({pc}, {}));\n    let _ = p;\n    rpgrt::native::divide(&a, &b, pl, pr, {})\n}}",
                     path_arg(&l),
-                    path_arg(&r)
+                    path_arg(&r),
+                    *op == ir::ArOp::DivCmp
                 );
             } else {
                 let _ = writeln!(body, "    Ok(rpgrt::native::rule_scale(p, a.{f}(&b)?))\n}}");
@@ -5593,6 +5601,7 @@ ir::NumExpr::PtrDiffOf(a, b) => {
             json_str(name)
         ),
         ir::NumExpr::Status => "rpgrt::rpg::dec::Dec::from_i64(i64::from(rt.status()))".to_string(),
+        ir::NumExpr::Wide(t) => format!("rpgrt::rpg::dec::Dec::parse({})?", json_str(t)),
         // A field's value (S2.168): temporal_dec, the generic %DEC for a
         // value that is not one; an expression's value is always one.
         ir::NumExpr::TextDec(c) => match c.as_ref() {

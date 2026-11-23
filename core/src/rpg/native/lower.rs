@@ -2964,6 +2964,19 @@ fn num_expr(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opt
         }
     }
     match e {
+        // A literal whose digits do not fit an operand's i128 mantissa
+        // (fix/quotient-compare's literals of 40 to 62 places): eval's
+        // Expr::Num, the same Dec, made again from its text, which
+        // parses back to that mantissa and scale.
+        Expr::Num(d) if d.mantissa().to_string().parse::<i128>().is_err() => {
+            let text = d.to_string();
+            let back = super::super::dec::Dec::parse(&text).ok()?;
+            if back.mantissa() != d.mantissa() || back.scale() != d.scale() {
+                return None;
+            }
+            used.push(format!("wide literal {text}"));
+            Some(ir::NumExpr::Wide(text))
+        }
         // %DIFF and %SUBDT of temporal values (S2.55), as bif_more: the
         // arguments in order, the unit a special value.
         Expr::Bif(b, args) if b == "DIFF" || b == "SUBDT" => {
@@ -3796,8 +3809,12 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
         let b = side_ptr(r, child(1))?;
         return Some(ir::Cond::PtrCmp(cmp, Box::new(a), Box::new(b)));
     }
-    // An expression on either side (S2.13).
-    let (a, b) = (side(cx, l, used, child(0))?, side(cx, r, used, child(1))?);
+    // An expression on either side (S2.13); a division that is a side
+    // keeps the places of 63 digits (cmp_operand).
+    let (a, b) = (
+        cmp_operand(l, side(cx, l, used, child(0))?),
+        cmp_operand(r, side(cx, r, used, child(1))?),
+    );
     let same = matches!(
         (&a, &b),
         (ir::CmpSide::Num(_), ir::CmpSide::Num(_)) | (ir::CmpSide::Char(_), ir::CmpSide::Char(_))
@@ -3813,6 +3830,29 @@ fn cond_at(cx: &Cx<'_>, e: &Expr, used: &mut Vec<String>, path: Vec<u8>) -> Opti
     };
     let mixed = hex_side(l, &a, &b) || hex_side(r, &b, &a);
     (same || mixed).then(|| ir::Cond::CmpExpr(cmp, Box::new(a), Box::new(b)))
+}
+
+/// A comparison's side that is itself a division (fix/quotient-compare):
+/// interp.rs eval's `cmp_quotient`, which gives that division (not the
+/// ones inside it) divide's `wide`, the places of 63 digits.
+fn cmp_operand(e: &Expr, s: ir::CmpSide) -> ir::CmpSide {
+    match (e, s) {
+        (
+            Expr::Bin(BinOp::Div, ..),
+            ir::CmpSide::Num(ir::NumExpr::Bin {
+                op: ir::ArOp::Div,
+                left,
+                right,
+                path,
+            }),
+        ) => ir::CmpSide::Num(ir::NumExpr::Bin {
+            op: ir::ArOp::DivCmp,
+            left,
+            right,
+            path,
+        }),
+        (_, s) => s,
+    }
 }
 
 /// A hexadecimal literal, or a named constant of character data, of 1 to
