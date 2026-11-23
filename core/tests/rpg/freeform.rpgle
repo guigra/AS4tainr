@@ -90,9 +90,11 @@ dsply %char(%sqrt(16));
 dsply fmt(12.5);
 dsply fmt(d);
 
-// SND-MSG *ESCAPE and ON-EXCP.
+// SND-MSG *ESCAPE and ON-EXCP: the escape message goes to the caller
+// of the procedure that sends it (PUB400, IBM i 7.5, 2026-11-23, native
+// fork tools/golden/native220 n220_sm), so a subprocedure sends it here.
 monitor;
-  snd-msg *escape %msg('CPF9898' : 'QCPFMSG' : 'stop here');
+  stopHere();
 on-excp 'CPF9898';
   dsply 'caught CPF9898';
 endmon;
@@ -134,4 +136,8 @@ dcl-proc fmtDate;
     v date const;
   end-pi;
   return 'date ' + %char(v : *eur);
+end-proc;
+
+dcl-proc stopHere;
+  snd-msg *escape %msg('CPF9898' : 'QCPFMSG' : 'stop here');
 end-proc;

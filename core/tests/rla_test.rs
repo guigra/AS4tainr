@@ -31569,3 +31569,61 @@ dsply line;
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["3 0 1 1 1211"]);
 }
+
+/// SND-MSG *ESCAPE goes to the caller of the procedure that sends it: a
+/// MONITOR group of that procedure does not take it; the caller's does.
+/// In the main procedure, the program ends with the message unmonitored.
+/// Expected values: PUB400, IBM i 7.5, 2026-11-23 (tools/golden/native220
+/// n220_sm in the native fork: "start", "caught from sub", then CPF9898
+/// unmonitored).
+#[tokio::test]
+async fn snd_msg_escape_goes_to_the_caller() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**FREE
+ctl-opt dftactgrp(*no);
+dcl-pr sub;
+end-pr;
+dsply 'start';
+monitor;
+  sub();
+  dsply 'sub returned';
+on-excp 'CPF9898';
+  dsply 'caught from sub';
+endmon;
+monitor;
+  snd-msg *escape %msg('CPF9898' : 'QCPFMSG' : 'main');
+  dsply 'after main';
+on-excp 'CPF9898';
+  dsply 'caught in main';
+endmon;
+dsply 'end';
+*inlr = *on;
+
+dcl-proc sub;
+  monitor;
+    snd-msg *escape %msg('CPF9898' : 'QCPFMSG' : 'sub');
+    dsply 'after sub';
+  on-excp 'CPF9898';
+    dsply 'caught in sub';
+  endmon;
+end-proc;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "SNDESC".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.messages, ["start", "caught from sub"]);
+    let e = r.error.map(|e| format!("{e:#}")).unwrap_or_default();
+    assert!(e.contains("CPF9898"), "{e}");
+}

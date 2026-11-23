@@ -4041,11 +4041,32 @@ impl<'a> Machine<'a> {
                     Some(i) => format!("{i}: {text}"),
                     None => text.clone(),
                 };
+                // *ESCAPE goes to the procedure's caller, as QMHSNDPM's
+                // entry '*' and counter 1: this procedure ends, and none
+                // of its MONITOR groups takes it (PUB400, IBM i 7.5,
+                // 2026-11-23, native fork tools/golden/native220 n220_sm:
+                // a subprocedure's is caught in the main procedure; the
+                // main procedure's ends the program, CPF9898 unmonitored).
                 if kind == "*ESCAPE" {
-                    if id.is_some() {
-                        bail!("{full}");
+                    let mut m = crate::pgmmsg::QMsg {
+                        ty: "*ESCAPE".into(),
+                        msgid: id.clone().unwrap_or_else(|| "CPF9898".into()),
+                        text: text.clone(),
+                        data: data::e(&text),
+                        sender: self.sender(),
+                        ..Default::default()
+                    };
+                    if let Some(crate::pgmmsg::Target::Pep(main)) =
+                        crate::pgmmsg::stack_target_pep(&self.io.job_key, "*", 1)
+                    {
+                        m.key = crate::pgmmsg::pep_send(&self.io.job_key, &main, m.clone());
+                        self.logged.push(m.key);
                     }
-                    bail!("CPF9898: {text}");
+                    // Nothing below this entry: the program's caller.
+                    let target = crate::pgmmsg::stack_target(&self.io.job_key, "*", 1)
+                        .or(crate::pgmmsg::stack_top_id(&self.io.job_key)
+                            .map(|_| crate::pgmmsg::BEYOND));
+                    return Err(anyhow::Error::new(crate::pgmmsg::Escape(m, target)));
                 }
                 self.job_log(&full);
             }

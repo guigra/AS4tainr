@@ -1221,6 +1221,11 @@ pub fn stack_entry(job: &str, id: u64) -> Option<Entry> {
     with_stack(job, |s| s.iter().find(|e| e.id == id).cloned())
 }
 
+/// The target of an escape message sent to the caller of the stack's
+/// first entry (an RPG main procedure called with nothing below it): no
+/// entry of the stack takes it, so the program ends with it.
+pub const BEYOND: u64 = u64::MAX;
+
 /// An escape message as an error: its text is "ID: text"; the message
 /// itself (data, sender) goes with it to the procedure that handles it.
 #[derive(Debug, Clone)]
@@ -1233,6 +1238,7 @@ impl Escape {
     /// handling it (Send Program Message API, *ESCAPE).
     pub fn passes(&self, job: &str, current: Option<u64>) -> bool {
         match (self.1, current) {
+            (Some(BEYOND), _) => true,
             (Some(t), Some(c)) if t != c => with_stack(job, |s| s.iter().any(|e| e.id == t)),
             _ => false,
         }
