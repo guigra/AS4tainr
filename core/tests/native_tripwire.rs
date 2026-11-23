@@ -751,8 +751,17 @@ fn native_runtime_matches_the_interpreter_it_copies() {
     // reset_to_initial, S2.102 assign_value, S2.107 float_value, S2.110 char_number, S2.113 ops.rs dec_sqrt, S2.114 workstn_op, ws_inds, ws_interact,
     // ws_set_ind, message_subfile, ws_values and ws_fill, S2.115
     // move_temporal;
-    // upstream still dd47e28.
-    let reviewed = "928f663bab871ff41b3d88125369452cf6f0e7cc429b51d27b3650f05422e107";
+    // upstream still dd47e28. 2026-11-23: the rebase on the fork's base
+    // (fix/* branches) changed eval, divide, assign_value, stmt_inner,
+    // bif, bif_override, bif_more, ptr_arith and addr, which native_rt.rs
+    // and rpgrt::native now follow for built-ins, dates and numbers
+    // (%CHAR and %DATE of temporal values, %DEC of a blank date, %EDITC,
+    // %INT of a float, %SQRT, %CONCAT(*BLANK), varying dimensions, lists
+    // into arrays, *NULL plus a number, compared quotients, SND-MSG
+    // *ESCAPE); its other changes, to call_named_inner, file_op, file_idx,
+    // file_op_inner, data_area, printer_op and exec_sql.rs, are the file,
+    // call, data area and SQL fixes, not reviewed in this commit.
+    let reviewed = "46b378dcc973d0bccf5030154f09a7a1ba7ae91f05ccdf3622d911696a823ee9";
     assert_eq!(
         hash, reviewed,
         "run_code_at or the error functions changed: review native_rt.rs, then record the new hash"
