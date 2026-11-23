@@ -523,8 +523,10 @@ pub fn add_to_date(d: Ymd, unit: DurUnit, n: i64) -> Result<Ymd> {
         }
         _ => bail!("a date can only be changed by years, months or days"),
     };
+    // Past 9999-12-31 is status 00113, date arithmetic out of range (golden
+    // capture tools/golden/native56 n56_dur, PUB400, IBM i 7.5, 2026-11-16).
     if !valid(r) {
-        bail!("RNX0112: The date is outside the range 0001-01-01 to 9999-12-31.");
+        bail!("RNX0113: The result of date arithmetic is outside 0001-01-01 to 9999-12-31.");
     }
     Ok(r)
 }

@@ -30225,3 +30225,41 @@ dsply ('USA HIVAL ' + %char(usa));
         ]
     );
 }
+
+/// A date past 9999-12-31 by a duration is status 00113, which MONITOR
+/// takes. Expected value: PUB400, IBM i 7.5, 2026-11-16
+/// (tools/golden/native56 n56_dur in the native fork: "OVER ERROR 113").
+#[tokio::test]
+async fn a_date_past_the_last_day_is_status_113() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s d1 date(*iso);
+dcl-s d2 date(*iso);
+d1 = %date('9999-12-31' : *iso);
+monitor;
+  d2 = d1 + %days(1);
+  dsply 'OVER OK';
+on-error;
+  dsply ('OVER ERROR ' + %char(%status));
+endmon;
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "DATEOVR".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["OVER ERROR 113"]);
+}
