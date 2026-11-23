@@ -5470,17 +5470,19 @@ ir::NumExpr::PtrDiffOf(a, b) => {
             for (k, a) in args.iter().enumerate() {
                 let x = num_expr(pc, a, helpers);
                 if k == 0 {
-                    let _ = writeln!(body, "    let mut best = {x};");
+                    let _ = writeln!(body, "    let mut best = {x};\n    let mut places = best.scale();");
                 } else {
                     let _ = write!(
                         body,
-                        "    let v = {x};\n    if v.cmp(&best) == std::cmp::Ordering::{want} {{\n        best = v;\n    }}\n"
+                        "    let v = {x};\n    places = places.max(v.scale());\n    if v.cmp(&best) == std::cmp::Ordering::{want} {{\n        best = v;\n    }}\n"
                     );
                 }
             }
+            // The arguments' greatest number of decimal places, as bifs.rs
+            // "MAX" | "MIN" (fix/max-min-places, capture native42 n42_mm).
             let _ = writeln!(
                 helpers,
-                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::dec::Dec> {{\n{body}    Ok(best)\n}}"
+                "\nfn {name}(rt: &mut dyn Runtime) -> NResult<rpgrt::rpg::dec::Dec> {{\n{body}    best.rescale(places, false)\n}}"
             );
             format!("{name}(rt)?")
         }
