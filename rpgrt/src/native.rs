@@ -2714,15 +2714,12 @@ pub fn temporal_char(v: &Value, f: TemporalFmt) -> NResult<Value> {
 /// Stage 2 (S2.143, the review of 2026-11-20): %DEC of a date, time or
 /// timestamp field, as bifs.rs bif_override's DEC arm: a value `temporal`
 /// recognizes is its text in `f` (no separators) parsed; one it does not
-/// (blanks, bytes that are not a date) is the generic %DEC's, char_number
-/// of its characters (RNQ0105 for blanks), a number as it is.
+/// (blanks, bytes that are not a date) is status 00112, as that arm now
+/// gives a field of a date, time or timestamp type (fix/dec-blank-date).
 pub fn temporal_dec(v: &Value, f: TemporalFmt) -> NResult<Dec> {
     match temporal_char_opt(v, f)? {
         Some(t) => text_dec(&t),
-        None => match v {
-            Value::Char(c) => char_number(&data::a(c)),
-            other => Ok(other.num()?),
-        },
+        None => anyhow::bail!("RNX0112: The date, time or timestamp value is not valid."),
     }
 }
 
