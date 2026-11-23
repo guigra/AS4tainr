@@ -220,12 +220,18 @@ impl Machine<'_> {
                 };
                 let fmt = self.special_arg(args, 1);
                 // Without a format: the date's (time's) own format; an
-                // expression's is the control specification's.
+                // expression's (a built-in's result, date arithmetic) is
+                // *ISO whatever DATFMT and TIMFMT say (PUB400, IBM i 7.5,
+                // 2026-11-19: %char(d - %months(1)) is 2025-12-31 under
+                // DATFMT(*EUR), %char(t + %minutes(45)) 10.00.00 under
+                // TIMFMT(*USA)).
                 let ty = self.temporal_type(&args[0]);
+                let expr = matches!(args[0], Expr::Bif(..) | Expr::Bin(..));
                 Ok(Some(Value::str(&match t {
                     Temporal::Date(d) => {
                         let f = match (fmt.as_deref(), ty) {
                             (Some(f), _) => DateFmt::parse(f)?,
+                            (None, _) if expr => DateFmt::iso(),
                             (None, Some(DType::Date(f))) => f.or(self.prog.datfmt()?),
                             (None, _) => self.prog.datfmt()?,
                         };
@@ -234,6 +240,7 @@ impl Machine<'_> {
                     Temporal::Time(h) => {
                         let f = match (fmt.as_deref(), ty) {
                             (Some(f), _) => TimeFmt::parse(f)?,
+                            (None, _) if expr => TimeFmt::iso(),
                             (None, Some(DType::Time(f))) => f.or(self.prog.timfmt()?),
                             (None, _) => self.prog.timfmt()?,
                         };

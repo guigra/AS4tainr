@@ -8273,7 +8273,7 @@ async fn rpg_editc_third_argument() {
 /// %CHAR, %DEC, %DATE): a date is held in its format (the definition's
 /// DATFMT, else the control specification's, else *ISO), so a *MDY
 /// subfield takes 8 bytes; %CHAR without a format and DSPLY give the
-/// field's format, an expression's is the control specification's; %DEC
+/// field's format, an expression's is *ISO; %DEC
 /// gives the digits in the field's format; MOVE takes factor 1 as the
 /// format of the character or numeric side (blank: the date field's) and
 /// moves the rightmost (MOVE) or leftmost (MOVEL) characters.
@@ -8311,7 +8311,10 @@ async fn rpg_date_and_time_formats() {
             "2039-12-25",
             "2026-01-02",
             "134500",
-            "02/01/2026",
+            // %CHAR(d + %DAYS(30)) with no format: *ISO, not DATFMT's
+            // (PUB400, IBM i 7.5, 2026-11-19, native fork
+            // tools/golden/native134 n134_tchar).
+            "2026-02-01",
             "102126",
             "01/02/2027",
         ]
@@ -29660,4 +29663,55 @@ async fn host_servers_sign_on_and_database_attributes() {
     let r = exchange(&mut s, roi(&lib, 0xF1, 0xE000_0000)).await;
     assert_eq!(class_rc(&r), (0, 0));
     assert_eq!(u32_at(&find(&r, 0x380C), 4), 3, "three fields");
+}
+
+/// %CHAR of a date or time expression with no format is in *ISO form
+/// whatever the control specification's DATFMT and TIMFMT; a field keeps
+/// its own format. Expected values: PUB400, IBM i 7.5, 2026-11-19
+/// (tools/golden/native134 n134_tchar in the native fork, under
+/// DATFMT(*EUR) TIMFMT(*USA): "10.00.00", "2026-10-20", "02/01/2026",
+/// "2025-12-31"); a field with no format of its own: tools/golden/native53
+/// n53_date (PUB400, 2026-11-16: "DFT 16.11.2026" under DATFMT(*EUR)).
+#[tokio::test]
+async fn char_of_a_date_expression_is_iso_whatever_datfmt() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no) datfmt(*eur) timfmt(*usa);
+dcl-s d date;
+dcl-s t time;
+d = %date('2026-01-31' : *iso);
+t = %time('09.15.00' : *iso);
+dsply %char(t + %minutes(45));
+dsply %char(%date('10/20/26' : *mdy));
+dsply %char(d + %days(1) : *usa);
+dsply %char(d - %months(1));
+dsply %char(d);
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "CHRTEXP".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(
+        r.messages,
+        [
+            "10.00.00",
+            "2026-10-20",
+            "02/01/2026",
+            "2025-12-31",
+            "31.01.2026"
+        ]
+    );
 }
