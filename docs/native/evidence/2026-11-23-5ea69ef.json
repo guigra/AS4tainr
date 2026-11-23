@@ -1,0 +1,15 @@
+{
+ "topic": "docs/native: 100% native coverage reached (S2.222); handoff and status",
+ "date": "2026-11-23",
+ "branch": "native/engine",
+ "commit": "5ea69ef0b5f8fe871436036e5ba0b8a56aa7687a",
+ "tree": "384edb4c51f90703d59112e2b8abbe53de5c6f45",
+ "toolchain": "rust-toolchain.toml at the commit: channel = \"1.99.1\"",
+ "validation_runs": [],
+ "commit_message_on_validation": [],
+ "not_run": [
+  "5250 end-to-end tests (tools/e2e_5250.py): not part of these runs"
+ ],
+ "generated_by": "scripts/native-manifest.py",
+ "status": "NOT_DEMONSTRATED: no validation run found for this tree or a later one"
+}
