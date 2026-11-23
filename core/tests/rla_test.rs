@@ -31659,3 +31659,44 @@ async fn call_of_a_missing_procedure_is_sqlcode_204() {
     assert!(r.error.is_none(), "{:?}", r.error);
     assert_eq!(r.messages, ["NONE -204 42704"]);
 }
+
+/// UPPER and LOWER of a CHAR host variable keep its trailing blanks: the
+/// result has the argument's type and length, so CONCAT puts '!' after
+/// them. Expected values: PUB400, IBM i 7.5, 2026-11-18 (tools/golden/
+/// native70 n70_sql in the native fork: "VALUES 0 TWO       !"); Db2 for
+/// i SQL Reference, "UPPER" and "LOWER", IBM i 7.5,
+/// https://www.ibm.com/docs/en/i/7.5.0?topic=functions-upper, read
+/// 2026-11-23 (the same data type and length attribute as the argument).
+#[tokio::test]
+async fn upper_of_a_char_host_variable_keeps_its_blanks() {
+    use as4tainr_core::rpg;
+    let url = require_db!();
+    let (_client, lib) = setup(&url).await;
+    let src = r#"**free
+ctl-opt dftactgrp(*no);
+dcl-s key char(10);
+dcl-s res varchar(30);
+key = 'two';
+exec sql values upper(:key) concat '!' into :res;
+dsply ('VALUES ' + %char(sqlcode) + ' ' + res);
+key = 'ONE';
+exec sql values lower(:key) concat '!' into :res;
+dsply ('LOWER ' + %char(sqlcode) + ' ' + res);
+*inlr = *on;
+"#;
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "SQLUPPER".into(),
+        src.into(),
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["VALUES 0 TWO       !", "LOWER 0 one       !"]);
+}

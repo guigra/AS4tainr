@@ -68,6 +68,21 @@ LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, pg_temp AS $as4tainr$ SELEC
 "
         ));
     }
+    // UPPER and LOWER of a fixed-length string are a fixed-length string
+    // of the same length (Db2 for i SQL Reference, "UPPER" and "LOWER",
+    // IBM i 7.5, https://www.ibm.com/docs/en/i/7.5.0?topic=functions-upper,
+    // read 2026-11-23: "the same data type, length attribute, actual
+    // length, and CCSID as the argument"; PUB400, IBM i 7.5, 2026-11-18,
+    // native fork tools/golden/native70 n70_sql: upper(:key) concat '!'
+    // with KEY CHAR(10) 'two' is 'TWO       !'). PostgreSQL's upper(text)
+    // drops the blanks; concat() keeps them, as below.
+    for f in ["upper", "lower"] {
+        out.push_str(&format!(
+            "CREATE OR REPLACE FUNCTION {s}.{f}(bpchar) RETURNS bpchar
+LANGUAGE sql IMMUTABLE STRICT SET search_path = pg_catalog, pg_temp AS $as4tainr$ SELECT CAST(pg_catalog.{f}(concat($1)) AS bpchar) $as4tainr$;
+"
+        ));
+    }
     // CONCAT (||) of fixed-length strings keeps their trailing blanks
     // (Db2 for i SQL Reference, "With the concatenation operator";
     // verify68 o68_mapepire "exp": 'x' CONCAT C, C CHAR(5) 'ab', is
