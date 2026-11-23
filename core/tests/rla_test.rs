@@ -32318,3 +32318,125 @@ endmon;
         ]
     );
 }
+
+/// CRTBNDRPG of a source in a new library (with CUSTMAST, ORDLIN and the
+/// physical files given): the error, empty when the program was created,
+/// and the listing.
+async fn compiled_with_files(name: &str, src: &str, files: &[(&str, &str)]) -> (String, String) {
+    use as4tainr_core::commands::{Environment, Job};
+    use as4tainr_core::source;
+    let url = db_url().unwrap();
+    let (mut client, lib) = setup(&url).await;
+    for (f, dds_src) in files {
+        let pf = dds::parse_pf(f, dds_src).unwrap();
+        catalog::create_physical_file(&mut client, &lib, &pf)
+            .await
+            .unwrap();
+    }
+    let env = Environment {
+        database_url: url.clone(),
+    };
+    let mut job = Job {
+        client: &client,
+        env: &env,
+        user: "QSECOFR".into(),
+        curlib: Some(lib.clone()),
+        libl: vec![lib.clone(), "QGPL".into()],
+        display: None,
+        id: None,
+        calls: Default::default(),
+    };
+    cl_cmd(&mut job, format!("CRTSRCPF FILE({lib}/QSRC) RCDLEN(112)"))
+        .await
+        .unwrap();
+    source::put_member(
+        &client,
+        &source::Member {
+            library: lib.clone(),
+            file: "QSRC".into(),
+            name: name.into(),
+            srctype: "RPGLE".into(),
+            source: src.into(),
+            ..Default::default()
+        },
+        false,
+    )
+    .await
+    .unwrap();
+    job.calls.printed.clear();
+    let e = job
+        .run(&format!("CRTBNDRPG PGM({lib}/{name}) SRCFILE({lib}/QSRC)"))
+        .await
+        .err()
+        .map(|e| format!("{e:#}"))
+        .unwrap_or_default();
+    let listing = std::mem::take(&mut job.calls.printed).join("\n");
+    (e, listing)
+}
+
+/// The search argument of CHAIN or SETLL, one value, is as long as the
+/// file's first key field, or the program does not compile: RNF7078,
+/// severity 30 (tools/golden/native221 in the native fork, PUB400, IBM i
+/// 7.5, 2026-11-23). With a zoned 3,0 key `setll 001` compiles; `setll 1`,
+/// `setll 0001`, `chain 1`, a 1-digit named constant, a packed(5:0) field
+/// and fixed-form factor 1 `1` do not. With a 5-character key `'ABCDE'`
+/// compiles; `'AB'` and `'ABCDEF'` do not. CUSTMAST's key CUSNO is
+/// packed 5,0 here.
+#[tokio::test]
+async fn a_search_argument_of_another_length_than_the_key_does_not_compile() {
+    let _ = require_db!();
+    const CODES: &str =
+        "     A          R CODER\n     A            CODE           5A\n     A            QTY            3P 0\n     A          K CODE\n";
+    let files = [("CODES", CODES)];
+    let cust = "dcl-f custmast keyed;\n";
+    let codes = "dcl-f codes keyed;\n";
+    for (name, body, ok) in [
+        ("KL5", format!("{cust}setll 00001 custmast;\n"), true),
+        ("KL1", format!("{cust}setll 1 custmast;\n"), false),
+        ("KL6", format!("{cust}setll 000001 custmast;\n"), false),
+        ("KLCH", format!("{cust}chain 1 custmast;\n"), false),
+        ("KLCHE", format!("{cust}chain(e) 00001 custmast;\n"), true),
+        (
+            "KLC",
+            format!("{cust}dcl-c ONE 1;\nsetll ONE custmast;\n"),
+            false,
+        ),
+        (
+            "KLC5",
+            format!("{cust}dcl-c ONE 00001;\nsetll ONE custmast;\n"),
+            true,
+        ),
+        (
+            "KLF",
+            format!("{cust}dcl-s k packed(3:0) inz(1);\nsetll k custmast;\n"),
+            false,
+        ),
+        (
+            "KLF5",
+            format!("{cust}dcl-s k packed(5:0) inz(1);\nsetll k custmast;\n"),
+            true,
+        ),
+        ("KLS2", format!("{codes}chain 'AB' codes;\n"), false),
+        ("KLS5", format!("{codes}chain 'ABCDE' codes;\n"), true),
+        ("KLS6", format!("{codes}chain 'ABCDEF' codes;\n"), false),
+    ] {
+        let src = format!("**FREE\nctl-opt dftactgrp(*no);\n{body}*inlr = *on;\n");
+        let (e, listing) = compiled_with_files(name, &src, &files).await;
+        if ok {
+            assert!(e.is_empty(), "{name}: {e}\n{listing}");
+            assert!(!listing.contains("RNF7078"), "{name}: {listing}");
+        } else {
+            assert!(e.contains("RNS9308"), "{name}: {e}");
+            assert!(listing.contains("*RNF7078 30"), "{name}: {listing}");
+        }
+    }
+    // Fixed form: factor 1.
+    for (name, f1, ok) in [("KLFX1", "1    ", false), ("KLFX5", "00001", true)] {
+        let src = format!(
+            "     FCUSTMAST  IF   E           K DISK\n     C     {f1}         SETLL     CUSTMAST\n     C                   EVAL      *INLR = *ON\n"
+        );
+        let (e, listing) = compiled_with_files(name, &src, &[]).await;
+        assert_eq!(e.is_empty(), ok, "{name}: {e}\n{listing}");
+        assert_eq!(listing.contains("*RNF7078 30"), !ok, "{name}: {listing}");
+    }
+}

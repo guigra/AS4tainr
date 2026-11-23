@@ -874,6 +874,7 @@ pub fn check(src: &Source, prog: &Program, text: &str) -> Checked {
     }
     let mut out = w.out;
     out.diags.extend(blocking(src));
+    out.diags.extend(key_lengths(src, prog, text));
     out.diags.sort_by_key(|d| d.line);
     out
 }
@@ -915,6 +916,212 @@ fn self_likerec(defs: &[super::ast::Def], text: &str, diags: &mut Vec<Diag>) -> 
         }
     }
     out
+}
+
+/// RNF7078, severity 30: the search argument of CHAIN or SETLL, one
+/// value (not a key list or a KLIST), whose length is not that of the
+/// file's first key field: a numeric literal, named constant or field with
+/// another number of digits, a character one with another number of
+/// characters (tools/golden/native221, PUB400, IBM i 7.5, 2026-11-23: with a
+/// zoned 3,0 key `setll 001` compiles, `setll 1`, `setll 0001`, `chain 1`,
+/// a 1-digit constant, a packed(5:0) field and fixed-form factor 1 `1` do
+/// not; with a 5-character key `'ABCDE'` compiles, `'AB'` and `'ABCDEF'` do
+/// not). A literal's length is as written, so it is read from the source
+/// line. Only those cases are checked: a key list, an expression, other
+/// operations, other types and different decimal places are left alone.
+fn key_lengths(src: &Source, prog: &Program, text: &str) -> Vec<Diag> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = Vec::new();
+    let mut walk = |calcs: &[CalcLine], defs: &[super::ast::Def], proc: Option<&String>| {
+        let syms = proc.and_then(|p| prog.procs.get(&p.to_ascii_uppercase()));
+        for c in calcs {
+            let Line::Stmt(Stmt::File {
+                op,
+                file,
+                key: Some(key),
+                ..
+            }) = &c.what
+            else {
+                continue;
+            };
+            let opname = match op {
+                FileOp::Chain => "CHAIN",
+                FileOp::SetLL => "SETLL",
+                _ => continue,
+            };
+            let [arg] = key.as_slice() else { continue };
+            let Some(want) = first_key(prog, file) else {
+                continue;
+            };
+            let Some(line) = c.line.checked_sub(1).and_then(|i| lines.get(i)) else {
+                continue;
+            };
+            let Some(written) = search_argument(line, opname) else {
+                continue;
+            };
+            let have = match arg {
+                Expr::Num(_) | Expr::Str(_) => written_length(&written),
+                Expr::Name { parts, args: None } if parts.len() == 1 => {
+                    let name = parts[0].to_ascii_uppercase();
+                    let sym = syms
+                        .and_then(|p| p.syms.get(&name))
+                        .or_else(|| prog.syms.get(&name));
+                    match sym {
+                        Some(Sym::Var(v)) if v.dim == 0 => type_length(&v.dtype),
+                        Some(Sym::Const(_)) => defs
+                            .iter()
+                            .chain(src.defs.iter())
+                            .find(|d| d.name.eq_ignore_ascii_case(&name))
+                            .and_then(const_text)
+                            .and_then(|t| written_length(&t)),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            if let Some(have) = have {
+                if have.0 == want.0 && have.2 == want.2 && have.1 != want.1 {
+                    out.push(Diag {
+                        line: c.line,
+                        id: "RNF7078".into(),
+                        sev: 30,
+                        text: "The search argument is not as long as the file's first key field."
+                            .into(),
+                        at: None,
+                    });
+                }
+            }
+        }
+    };
+    walk(&src.calcs, &[], None);
+    for p in &src.procs {
+        walk(&p.calcs, &p.defs, Some(&p.name));
+    }
+    out
+}
+
+/// (numeric, length, decimal places) of a type the check compares: digits
+/// of a zoned or packed number, characters of a fixed-length field.
+fn type_length(t: &DType) -> Option<(bool, u32, u32)> {
+    match t {
+        DType::Zoned(d, s) | DType::Packed(d, s) => Some((true, *d, *s)),
+        DType::Char(n) => Some((false, *n, 0)),
+        _ => None,
+    }
+}
+
+/// The first key field of an externally described DISK file (by file or
+/// record format name), as `type_length` gives it.
+fn first_key(prog: &Program, file: &str) -> Option<(bool, u32, u32)> {
+    let f = prog
+        .files
+        .iter()
+        .find(|f| f.decl.name.eq_ignore_ascii_case(file) || f.format.eq_ignore_ascii_case(file))?;
+    let fr = f.fref.as_ref()?;
+    if f.program_described {
+        return None;
+    }
+    let k = fr.file.keys.first()?;
+    let i = fr.file.fields.iter().position(|fd| &fd.name == k)?;
+    let name = f.fields.get(i)?;
+    match prog.syms.get(&name.to_ascii_uppercase())? {
+        Sym::Var(v) => type_length(&v.dtype),
+        _ => None,
+    }
+}
+
+/// The search argument as written on the operation's source line: free
+/// form `CHAIN(E) arg file`, or fixed form factor 1. None for a key list in
+/// parentheses, or when the line does not show it.
+fn search_argument(line: &str, op: &str) -> Option<String> {
+    let chars: Vec<char> = line.chars().collect();
+    let fixed = chars.get(5).is_some_and(|c| c.eq_ignore_ascii_case(&'C'))
+        && chars.len() > 26
+        && !line.trim_start().starts_with("//");
+    if fixed {
+        // Fixed form when the operation is in positions 26-35; otherwise
+        // a free-form line that happens to have a C in position 6.
+        let opcode: String = chars.get(25..35.min(chars.len()))?.iter().collect();
+        let opcode = opcode.trim().to_ascii_uppercase();
+        if opcode == op || opcode.starts_with(&format!("{op}(")) {
+            let f1: String = chars.get(11..25)?.iter().collect();
+            let f1 = f1.trim();
+            return (!f1.is_empty()).then(|| f1.to_string());
+        }
+    }
+    let upper = line.to_ascii_uppercase();
+    let mut at = 0;
+    while let Some(i) = upper.get(at..)?.find(op) {
+        let start = at + i;
+        let end = start + op.len();
+        at = end;
+        let before = upper.get(..start)?.chars().last();
+        if before.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == '%') {
+            continue;
+        }
+        let mut rest = line.get(end..)?;
+        if rest.starts_with('(') {
+            rest = rest.get(rest.find(')')? + 1..)?;
+        }
+        if !rest.starts_with([' ', '\t']) {
+            continue;
+        }
+        let rest = rest.trim_start();
+        if rest.starts_with('(') {
+            return None;
+        }
+        let tok: String = if rest.starts_with('\'') {
+            // A character literal, with its doubled quotes.
+            let b: Vec<char> = rest.chars().collect();
+            let mut j = 1;
+            loop {
+                match b.get(j) {
+                    Some('\'') if b.get(j + 1) == Some(&'\'') => j += 2,
+                    Some('\'') => break,
+                    Some(_) => j += 1,
+                    None => return None,
+                }
+            }
+            b.get(..=j)?.iter().collect()
+        } else {
+            rest.chars()
+                .take_while(|c| !c.is_whitespace() && *c != ';')
+                .collect()
+        };
+        return (!tok.is_empty()).then_some(tok);
+    }
+    None
+}
+
+/// A literal's (numeric, length, decimal places) as written: the digits of
+/// a whole number (sign aside), or the characters of a quoted literal. None
+/// for anything else (decimal places, names, hexadecimal).
+fn written_length(t: &str) -> Option<(bool, u32, u32)> {
+    let t = t.trim();
+    if let Some(body) = t.strip_prefix('\'').and_then(|r| r.strip_suffix('\'')) {
+        let n = body.replace("''", "'").chars().count();
+        return u32::try_from(n).ok().map(|n| (false, n, 0));
+    }
+    let digits = t.strip_prefix(['+', '-']).unwrap_or(t);
+    if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    u32::try_from(digits.len()).ok().map(|n| (true, n, 0))
+}
+
+/// A named constant's value as written (DCL-C or a C definition).
+fn const_text(d: &super::ast::Def) -> Option<String> {
+    keyword(&d.keywords, "CONST")
+        .and_then(|k| k.args.first().cloned())
+        .or_else(|| {
+            let joined = d
+                .keywords
+                .iter()
+                .map(|k| k.name.clone())
+                .collect::<Vec<_>>()
+                .join(" ");
+            (!joined.is_empty()).then_some(joined)
+        })
 }
 
 /// RNF7086 for each file whose records RPG blocks (ILE RPG Reference,
