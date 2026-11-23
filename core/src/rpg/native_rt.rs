@@ -4150,8 +4150,13 @@ impl Rt<'_, '_> {
         fields: &[rpgrt::native::SqlRowSlot],
     ) -> NResult<SqlOut> {
         let want = sql_row_count(count)?;
+        // 0 rows is SQLCODE -221 (exec_sql.rs insert_rows since the fork's
+        // fix/sql-insert-zero-rows).
         if want == 0 {
-            return Ok(sql_ok(0));
+            return Ok(sql_err(
+                -221,
+                format!("SQL0221: The number of rows for {host} is 0; it must be 1 or more."),
+            ));
         }
         if want > usize::try_from(dim.max(1))? {
             return Ok(sql_err(
