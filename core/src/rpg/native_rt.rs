@@ -4233,8 +4233,8 @@ impl Rt<'_, '_> {
         Ok(sql_ok(0))
     }
 
-    /// exec_sql.rs positioned_change (S2.73): -501 when the cursor is
-    /// not open, -510 when it is not over one table, -508 when it is not on
+    /// exec_sql.rs positioned_change (S2.73): -507 when the cursor is
+    /// not open (since the fork's fix/sql-closed-cursor-507), -510 when it is not over one table, -508 when it is not on
     /// a row; else the text before WHERE (its host literals bound) with
     /// `WHERE RRN(table) = n`, the row's record number, through
     /// sql_change.
@@ -4247,8 +4247,8 @@ impl Rt<'_, '_> {
     ) -> NResult<SqlOut> {
         let Some(c) = self.m.sql.cursors.get(cursor) else {
             return Ok(sql_err(
-                -501,
-                format!("SQL0501: Cursor {cursor} is not open."),
+                -507,
+                format!("SQL0507: Cursor {cursor} is not open for the change."),
             ));
         };
         let Some(rrns) = &c.rrns else {
