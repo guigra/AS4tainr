@@ -4413,11 +4413,30 @@ impl Job<'_> {
             checked = crate::rpg::check::check(src, prog, &m.source);
         }
         if let Err(e) = &compiled {
+            // A message ID raised inside a statement's parse comes after
+            // the statement's "line N: ..." context: the message is that
+            // ID's, on that line.
+            let full = format!("{e:#}");
+            let root = e.root_cause().to_string();
+            let (id, line) = match crate::jobs::message_id(&full) {
+                "" => match crate::jobs::message_id(&root) {
+                    "" => ("", 0),
+                    id => {
+                        let line = full
+                            .strip_prefix("line ")
+                            .and_then(|r| r.split(|c: char| !c.is_ascii_digit()).next())
+                            .and_then(|n| n.parse().ok())
+                            .unwrap_or(0);
+                        (id, line)
+                    }
+                },
+                id => (id, 0),
+            };
             checked.diags.push(crate::rpg::check::Diag {
-                line: 0,
-                id: crate::jobs::message_id(&format!("{e:#}")).to_string(),
+                line,
+                id: id.to_string(),
                 sev: 30,
-                text: format!("{e:#}"),
+                text: if line > 0 { root } else { full },
                 at: None,
             });
         }

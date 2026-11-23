@@ -29902,3 +29902,46 @@ async fn exsr_of_the_main_procedures_subroutine_does_not_compile() {
     refused_by_the_compiler("EXSRMAIN", body, "*RNF7030 30").await;
     refused_by_the_compiler("EXSRMAIN", body, "*RNF7018 30").await;
 }
+
+/// An expression nested 101 levels does not compile: RNF0640, severity 30;
+/// 100 levels compile. Expected values: PUB400, IBM i 7.5, 2026-11-15
+/// (tools/golden/native47 n47_crt_n100 and n47_crt_n101 in the native
+/// fork), and IBM Docs, "RPG IV Restrictions", IBM i 7.5,
+/// https://www.ibm.com/docs/ssw_ibm_i_75/rzasd/rpgrest.htm, read 2026-11-15
+/// ("Levels of nesting in expressions: Maximum of 100"). 20 000 levels
+/// are the same error, not a stack overflow.
+#[tokio::test]
+async fn an_expression_nested_past_100_levels_does_not_compile() {
+    let _ = require_db!();
+    let nested = |n: usize| {
+        format!(
+            "dcl-s k int(10);\nk = {}1{};\n",
+            "(".repeat(n),
+            ")".repeat(n)
+        )
+    };
+    refused_by_the_compiler("NEST101", &nested(101), "*RNF0640 30").await;
+    refused_by_the_compiler("NEST20K", &nested(20_000), "*RNF0640 30").await;
+    use as4tainr_core::rpg;
+    let url = db_url().unwrap();
+    let (_client, lib) = setup(&url).await;
+    let src = format!(
+        "**FREE\nctl-opt dftactgrp(*no);\n{}dsply %char(k);\n*inlr = *on;\n",
+        nested(100)
+    );
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "NEST100".into(),
+        src,
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(r.messages, ["1"]);
+}

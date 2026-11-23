@@ -278,6 +278,26 @@ pub fn tokens(text: &str) -> Result<Vec<Tok>> {
         i += op.len();
         out.push(Tok::Op(op));
     }
+    // At most 100 levels of parentheses: "Levels of nesting in
+    // expressions: Maximum of 100" (IBM Docs, "RPG IV Restrictions", IBM i
+    // 7.5, https://www.ibm.com/docs/ssw_ibm_i_75/rzasd/rpgrest.htm, read
+    // 2026-11-15); 101 levels are RNF0640, severity 30, and 100 compile
+    // (golden captures tools/golden/native47 n47_crt_n100 and n47_crt_n101,
+    // PUB400, IBM i 7.5, 2026-11-15). Checked before parsing, whose
+    // recursion would otherwise go as deep as the text.
+    let mut depth = 0usize;
+    for t in &out {
+        match t {
+            Tok::Op("(") => {
+                depth += 1;
+                if depth > 100 {
+                    bail!("RNF0640: The expression is nested more than 100 levels deep.");
+                }
+            }
+            Tok::Op(")") => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
     Ok(out)
 }
 
