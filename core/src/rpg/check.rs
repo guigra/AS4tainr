@@ -21,8 +21,8 @@
 //! - RNF7571 (30): %OCCUR set to a literal outside the occurrences (PUB400
 //!   2026-11-22);
 //! - RNF0203 (30): a numeric operand of %CONCAT (PUB400 2026-11-22);
-//! - RNF7421 (30): a time plus a date, with RNF7416 (30) on the EVAL
-//!   (PUB400 2026-11-22);
+//! - RNF7421 (30): a time plus a date, or a duration plus a date, with
+//!   RNF7416 (30) on the EVAL (PUB400 2026-11-16 and 2026-11-22);
 //! - RNF7569 (20): a FOR limit with decimal places (PUB400 2026-11-22);
 //! - RNF2121 (30) and RNF2109 (40): an externally described file whose
 //!   record format has the file's name, without RENAME (PUB400
@@ -190,7 +190,7 @@ impl Walker<'_> {
                 line,
                 id: "RNF7421".into(),
                 sev: 30,
-                text: "A time cannot be added to a date in this order: the operands do not fit the operator.".into(),
+                text: "The operands of + do not fit the operator in this order: a date comes before a time, a duration after what it changes.".into(),
                 at: None,
             });
         }
@@ -227,16 +227,27 @@ impl Walker<'_> {
         }
     }
 
-    /// A time plus a date (the date must come first): RNF7421, severity 30
-    /// (PUB400 2026-11-20 and 2026-11-22, IBM i 7.5: `z = t + d` does not
-    /// compile; `z = d + t` does).
+    /// A time plus a date (the date must come first), or a duration plus a
+    /// date, time or timestamp (the duration must come second): RNF7421,
+    /// severity 30 (PUB400 IBM i 7.5: `z = t + d` does not compile and
+    /// `z = d + t` does, 2026-11-20 and 2026-11-22; `d2 = %years(2) + d1`
+    /// does not compile, tools/golden/native56 n56_crt_first, 2026-11-16).
     fn time_plus_date(&self, e: &Expr) -> bool {
+        let duration = |x: &Expr| {
+            matches!(x, Expr::Bif(b, _) if matches!(b.as_str(),
+                "YEARS" | "MONTHS" | "DAYS" | "HOURS" | "MINUTES" | "SECONDS" | "MSECONDS"))
+        };
         match e {
             Expr::Bin(BinOp::Add, l, r) => {
                 matches!(
                     (self.field_type(l), self.field_type(r)),
                     (Some(DType::Time(_)), Some(DType::Date(_)))
-                ) || self.time_plus_date(l)
+                ) || (duration(l)
+                    && matches!(
+                        self.field_type(r),
+                        Some(DType::Date(_) | DType::Time(_) | DType::Timestamp(_))
+                    ))
+                    || self.time_plus_date(l)
                     || self.time_plus_date(r)
             }
             Expr::Bin(_, l, r) => self.time_plus_date(l) || self.time_plus_date(r),

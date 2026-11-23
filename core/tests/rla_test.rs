@@ -29833,3 +29833,46 @@ async fn a_for_limit_that_is_not_whole_does_not_compile() {
     )
     .await;
 }
+
+/// A duration on the left of + does not compile: RNF7421 and RNF7416,
+/// severity 30. Expected values: PUB400, IBM i 7.5, 2026-11-16
+/// (tools/golden/native56 n56_crt_first in the native fork:
+/// `d2 = %years(2) + d1;` at line 105, RNS9310); the date first compiles
+/// (n56_dur, `d2 = d1 + %days(1)`).
+#[tokio::test]
+async fn a_duration_before_a_date_does_not_compile() {
+    let _ = require_db!();
+    let decl = "dcl-s d1 date inz(d'2026-03-31');\ndcl-s d2 date;\n\n";
+    refused_by_the_compiler(
+        "DURFIRST",
+        &format!("{decl}d2 = %years(2) + d1;\n"),
+        "*RNF7421 30",
+    )
+    .await;
+    refused_by_the_compiler(
+        "DURFIRST",
+        &format!("{decl}d2 = %years(2) + d1;\n"),
+        "*RNF7416 30",
+    )
+    .await;
+    use as4tainr_core::rpg;
+    let url = db_url().unwrap();
+    let (_client, lib) = setup(&url).await;
+    let src = format!(
+        "**FREE\nctl-opt dftactgrp(*no);\n{decl}d2 = d1 + %years(2);\ndsply %char(d2);\n*inlr = *on;\n"
+    );
+    let r = rpg::call(
+        &url,
+        vec![lib.clone()],
+        "QSECOFR".into(),
+        None,
+        None,
+        None,
+        "DURLAST".into(),
+        src,
+        vec![],
+    )
+    .await
+    .unwrap();
+    assert!(r.error.is_none(), "{:?}", r.error);
+}
