@@ -23,6 +23,7 @@
 //! - RNF0203 (30): a numeric operand of %CONCAT (PUB400 2026-11-22);
 //! - RNF7421 (30): a time plus a date, or a duration plus a date, with
 //!   RNF7416 (30) on the EVAL (PUB400 2026-11-16 and 2026-11-22);
+//! - RNF0605 (20): %DATE(*SYS) (PUB400 2026-11-16);
 //! - RNF7569 (20): a FOR limit with decimal places (PUB400 2026-11-22);
 //! - RNF2121 (30) and RNF2109 (40): an externally described file whose
 //!   record format has the file's name, without RENAME (PUB400
@@ -266,6 +267,20 @@ impl Walker<'_> {
     fn concat_operands(&mut self, line: usize, e: &Expr) {
         match e {
             Expr::Bif(b, args) => {
+                // %DATE(*SYS): RNF0605, severity 20 (tools/golden/native55
+                // n55_crt_dft, PUB400, IBM i 7.5, 2026-11-16).
+                if b == "DATE"
+                    && matches!(args.first(), Some(Expr::Name { parts, args: None })
+                        if parts.len() == 1 && parts[0] == "*SYS")
+                {
+                    self.out.diags.push(Diag {
+                        line,
+                        id: "RNF0605".into(),
+                        sev: 20,
+                        text: "*SYS cannot be the first parameter of %DATE.".into(),
+                        at: None,
+                    });
+                }
                 if b == "CONCAT" {
                     for a in args.iter().skip(1) {
                         if self.class_of(a) == Some(true) {

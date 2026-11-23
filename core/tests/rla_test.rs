@@ -29876,3 +29876,17 @@ async fn a_duration_before_a_date_does_not_compile() {
     .unwrap();
     assert!(r.error.is_none(), "{:?}", r.error);
 }
+
+/// %DATE(*SYS) does not compile: RNF0605, severity 20. Expected value:
+/// PUB400, IBM i 7.5, 2026-11-16 (tools/golden/native55 n55_crt_dft in
+/// the native fork, `d = %date(*sys);` at line 108).
+#[tokio::test]
+async fn date_of_sys_does_not_compile() {
+    let _ = require_db!();
+    refused_by_the_compiler(
+        "DATESYS",
+        "dcl-s d date;\n\nd = %date(*sys);\n",
+        "*RNF0605 20",
+    )
+    .await;
+}
