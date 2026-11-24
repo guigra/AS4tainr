@@ -76,7 +76,7 @@ The backend follows each fix since the rebase on upstream dd47e28 (2026-11-13). 
 
 ## Interpreter defects fixed in the fork (phase 2, not yet upstream)
 
-Fixed on local branches `fix/*` from upstream dd47e28, one topic each, with a test whose expected value comes from the PUB400 capture or IBM documentation named in it; each test fails without its fix. The 40 branches (fix/compile-checks now with RNF7078, 6d88086) pass together the upstream suite, `scripts/demo.sh` and clippy (combined validation p2-h of fork/base 2bfbe12 on jsr-test-2, 2026-11-23: rla_test 301, lib 347, 3). Not pushed, not yet offered upstream; the native engine follows each fix after the rebase on them. Where a fix changes an upstream test's expectation (the user's decision, 2026-11-22 and 2026-11-23), the commit says so.
+Fixed on local branches `fix/*` from upstream dd47e28, one topic each, with a test whose expected value comes from the PUB400 capture or IBM documentation named in it; each test fails without its fix. The 41 branches (fix/compile-checks now with RNF7078, 6d88086; fix/key-length-sources) pass together the upstream suite, `scripts/demo.sh` and clippy (combined validation p2-h of fork/base 2bfbe12 on jsr-test-2, 2026-11-23: rla_test 301, lib 347, 3). Not pushed, not yet offered upstream; the native engine follows each fix after the rebase on them. Where a fix changes an upstream test's expectation (the user's decision, 2026-11-22 and 2026-11-23), the commit says so.
 
 | Branch | IBM i behavior now reproduced |
 | --- | --- |
@@ -106,6 +106,7 @@ Fixed on local branches `fix/*` from upstream dd47e28, one topic each, with a te
 | `fix/float4-text` | A 4-byte float's text has eight digits and a two-digit exponent |
 | `fix/in-dtaara-free` | IN *DTAARA in free form reads every data area of the program |
 | `fix/int-of-float` | %INT, %INTH, %DEC and %DECH of a float a procedure returns |
+| `fix/key-length-sources` | upstream's test and sample programs search CUSTMAST with literals as long as its key (RNF7078) |
 | `fix/list-array-rest` | An array assigned %SPLIT or %LIST keeps the elements after the values |
 | `fix/list-array-rest` | a whole array assigned another array |
 | `fix/max-min-places` | %MAX and %MIN give the arguments' greatest number of decimal places |
@@ -136,7 +137,7 @@ Fixed on local branches `fix/*` from upstream dd47e28, one topic each, with a te
 Every branch is followed by the native engine on native/engine-p2 (2026-11-23): the whole rla_test suite passes under `AS4TAINR_RPG_ENGINE=rust` with every statement native (301 of 301, no refusals, 380 routines emitted).
 
 Still open:
-- RNF7078 is checked for CHAIN and SETLL only (captured); SETGT, READE, READPE and DELETE, key lists and other decimal places are not. The check runs at CRTBNDRPG, like the other compile checks, so upstream's psds.rpgle, dsio.rpgle and the CUSTUPD sample (`chain 9 custmast`, CUSNO 5P0), which are called without CRTBNDRPG, still run; on IBM i they would not compile.
+- RNF7078 is checked for CHAIN and SETLL only (captured); SETGT, READE, READPE and DELETE, key lists and other decimal places are not. The check runs at CRTBNDRPG, like the other compile checks. Upstream's psds.rpgle, dsio.rpgle and the CUSTUPD sample searched CUSTMAST (CUSNO 5P0) with 1-digit literals, which IBM i does not compile; `fix/key-length-sources` writes them with five digits (the user's decision, 2026-11-24), the same values and output.
 - pow(9 : 0.5) differing from 3 in the last bits (native201); a record with a CLOB column by native I/O (native210, not narrowed).
 
 ## Settled by capture
