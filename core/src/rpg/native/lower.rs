@@ -2162,6 +2162,13 @@ fn lowered(cx: &Cx<'_>, i: &Ins, layout: &mut Vec<String>) -> Option<ir::Lowered
                 ) {
                     return None;
                 }
+                // %REALLOC reads the pointer before the length, the
+                // interpreter the length first (ptrs.rs storage_op): the
+                // same only when reading the length runs no code, a
+                // literal or a field, as fixed form's factor 2 is.
+                if !matches!(len, Expr::Num(_) | Expr::Name { args: None, .. }) {
+                    return None;
+                }
                 Expr::Bif("REALLOC".into(), vec![target.clone(), len.clone()])
             };
             let value = ptr_val(cx, &bif, &mut used, Vec::new())?;
