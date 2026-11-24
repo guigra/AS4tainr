@@ -22,7 +22,7 @@
      C     toFind        chain     CUSTMAST
      C                   eval      msg = %trim(CUSNAM) + ' ' + %char(CUSBAL)
      C     msg           dsply
-     C     6             chain     CUSTMAST
+     C     00006         chain     CUSTMAST
      C                   eval      msg = %trim(CUSNAM) + ' ' + %char(CUSBAL)
      C     msg           dsply
      C                   seton                                        lr
