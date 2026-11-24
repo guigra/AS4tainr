@@ -1,0 +1,161 @@
+{
+ "topic": "Native RPG engine: COMMIT in a program without commitment control is SQLCODE -7007, as the interpreter (fix/sql-commit-none-7007)",
+ "date": "2026-11-23",
+ "branch": "native/engine",
+ "commit": "f983f92456cf82cd4a705d2a41458ce847d75994",
+ "tree": "d08e3162926075d50b12cc1a9fd907dc5d64bf89",
+ "toolchain": "rust-toolchain.toml at the commit: channel = \"1.99.1\"",
+ "validation_runs": [
+  {
+   "machine": "jsr-test-2",
+   "platform": "x86_64 VM (2 CPUs, 3 GB)",
+   "run": "s7f-np7",
+   "kind": "section 7",
+   "snapshot": "5c278805baa5cbc35aeea2b62fec5dbbc8c5e2c9",
+   "relation": "a later snapshot, whose history contains this commit's tree",
+   "tree": "the snapshot's tree plus the catalog::init lock fix (branch fix/init-lock-timeout, upstream issue #18), applied uncommitted so that the suite does not hang; nothing else",
+   "commands": [
+    "cargo fmt --all -- --check",
+    "cargo clippy --locked --all-targets -- -D warnings",
+    "cargo clippy --locked --all-targets -- -D warnings -A clippy::chunks_exact_to_as_chunks",
+    "cargo test --locked --no-fail-fast",
+    "cargo test --locked --release --no-fail-fast",
+    "cargo build --locked --release",
+    "AS4TAINR_BIN=target/debug/as4tainr scripts/demo.sh (new database)",
+    "AS4TAINR_RPG_ENGINE=rust scripts/native-diff.sh (new database)"
+   ],
+   "exit_status": {
+    "fmt": "0",
+    "clippy": "101",
+    "clippy-ours": "0",
+    "test": "0",
+    "test-release": "0",
+    "build-release": "0",
+    "demo": "0",
+    "native-diff": "0"
+   },
+   "nonzero_steps": [
+    "clippy"
+   ],
+   "finished_utc": "2026-11-24 01:40",
+   "test_results": [
+    "10 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "2 test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "1 test result: ok. 196 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 26.60s",
+    "1 test result: ok. 196 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.21s",
+    "4 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "2 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+    "1 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+    "1 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s",
+    "1 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s",
+    "1 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.91s",
+    "1 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.24s",
+    "1 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.07s",
+    "1 test result: ok. 302 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 174.16s",
+    "1 test result: ok. 302 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 240.35s",
+    "1 test result: ok. 336 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.15s",
+    "1 test result: ok. 336 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 3.59s",
+    "1 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.89s",
+    "1 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.37s",
+    "2 test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+   ],
+   "native_diff": [
+    {
+     "level": "reference",
+     "status": "PASS",
+     "detail": "867 test results"
+    },
+    {
+     "level": "demo-interp",
+     "status": "PASS",
+     "detail": "7 cases"
+    },
+    {
+     "level": "generate",
+     "status": "PASS",
+     "detail": "698 routines"
+    },
+    {
+     "level": "coverage",
+     "status": "INFO",
+     "detail": " native 6855 100.0%; settle 698 of 698 routines route errors natively (rpgrt::native::settle);not native yet, by kind and statement:;"
+    },
+    {
+     "level": "build",
+     "status": "PASS",
+     "detail": "with 698 routines"
+    },
+    {
+     "level": "generated-lints",
+     "status": "PASS",
+     "detail": "clippy -D warnings on 698 routines"
+    },
+    {
+     "level": "level1",
+     "status": "PASS",
+     "detail": "corpus identical under both engines"
+    },
+    {
+     "level": "level2-auto",
+     "status": "PASS",
+     "detail": "867 tests, same results as the interpreter"
+    },
+    {
+     "level": "level2-rust",
+     "status": "PASS",
+     "detail": "867 of 867 tests as under the interpreter; 1 programs refused, none generated (source differs by process)"
+    },
+    {
+     "level": "level3-demo",
+     "status": "PASS",
+     "detail": "7 cases, the same output as the interpreter"
+    },
+    {
+     "level": "level3-golden",
+     "status": "NOT_RUN",
+     "detail": "no captures of tools/golden.py lists in target/ibmi/golden"
+    }
+   ],
+   "files_sha256": {
+    "build-release.log": "620ecf9649fb25c38c51870f13bfac18861d7fbbb4371cf709abf2aa210a11a4",
+    "clippy-ours.log": "a107737f04f24249f1fd4572964483e58a24083ca62cd30c9a99a559e81c9f1e",
+    "clippy.log": "4d04630b0aeb473e22b1c5fe64a59b490f9bbdcd59cd230421459dc27381f0ce",
+    "demo.log": "04ddb3c47579729aeecfc78c2d84d9c17840619865f90b034b772b677b2b528f",
+    "done": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "logs.sha256": "d4e7fdff76414fb0266727b1772aa990be957c8b551e0453c71ff40e1da74bd8",
+    "native-diff.log": "221914ac6f259989a25d2d457c5343e22ff63432c6f6406679bb0f20fc127594",
+    "native-diff/1-demo-interp.log": "04ddb3c47579729aeecfc78c2d84d9c17840619865f90b034b772b677b2b528f",
+    "native-diff/1-interp.log": "400db572bb38c38fb7f979c6fdd8c2d75ddcbfe68bb926aeab3c1aa332b60920",
+    "native-diff/1-interp.res": "b42f08bae643ded450d3b87e87b3f9e37c7b28dda74751ee7cd363e01dcfb4c9",
+    "native-diff/2-build.log": "3abac708ebbe081f718d999b42c20ee392fbbe47ccda60ff926697170529c1eb",
+    "native-diff/2-lints.log": "757b30b5593fbb2eafe8c81188dbf4c51155c0a55bca171af3d69e0f0235a237",
+    "native-diff/3-level1.log": "0ac2de53548724cd1c23b52da2554dd06651c80d13658a050c6df1e2f51ac17a",
+    "native-diff/4-auto.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "native-diff/4-auto.log": "451bfe4b361ed4b36804c9e6d85a9eaf290fccd30b446e3b391959b7932e721a",
+    "native-diff/4-auto.refusals": "99401a8383412a699f7eed1532e5aa33273b7a6436f7058751ac3db19a082a69",
+    "native-diff/4-auto.res": "b42f08bae643ded450d3b87e87b3f9e37c7b28dda74751ee7cd363e01dcfb4c9",
+    "native-diff/4-rust.log": "b022ff7586fd03a096451b83bdd98afcc46b26f003af0665bb9bf56b9cbedb92",
+    "native-diff/4-rust.refusals": "488ad342f2901d484bb871c1e3d267bdebb843f88c79345d7c1335e3172f836f",
+    "native-diff/4-rust.res": "b42f08bae643ded450d3b87e87b3f9e37c7b28dda74751ee7cd363e01dcfb4c9",
+    "native-diff/5-demo-rust.log": "04ddb3c47579729aeecfc78c2d84d9c17840619865f90b034b772b677b2b528f",
+    "native-diff/5-demo.diff": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "native-diff/coverage.tsv": "64315c34fff3c1a1dc552679b79bdb79b98b1ad1d05618d987c3ea7b260af5f1",
+    "native-diff/coverage.txt": "794db4ae012ca32a870e8bd1f4e7ab77d64eb561f8471bf5b1c763f184a3fd61",
+    "native-diff/logs.sha256": "383534296e99fc47c1cc7c899f523a731117c2182e417ab833bbb97c47fa56ef",
+    "native-diff/status.tsv": "abfa2c297d285d2b877a1473f9b95fd49b53e173f0e2af38793ab1b12628e86e",
+    "status": "a652007cfb98b93677a64f25bf95ca0bff67c0d1e67753f277c3b58f0ef2d634",
+    "summary.txt": "a1d0aec48410e67e3f0c9615df1b73504adc2114275b541f610befafa9dc6b57",
+    "test-release.log": "50ae25af1feb84476a6f3f0010eb9074ec3a588fd5a17befb14d92e528b818f2",
+    "test.log": "2aed9a9b3ad2e7346e5efe5759a98487749e68a3a272f2345f9987c697a56058"
+   },
+   "local_copy": "../Projects/PERSONAL/IBMi/AS4tainr/target/evidence/vm/jsr-test-2/s7f-np7"
+  }
+ ],
+ "commit_message_on_validation": [],
+ "not_run": [
+  "level3-golden (jsr-test-2): no captures of tools/golden.py lists in target/ibmi/golden",
+  "5250 end-to-end tests (tools/e2e_5250.py): not part of these runs"
+ ],
+ "generated_by": "scripts/native-manifest.py"
+}
